@@ -1,0 +1,29 @@
+<view class="page">
+  <view class="hero"><text class="eyebrow">MOMENTUM WORKSPACE</text><text class="title">安全登录</text><text class="subtitle">优先使用钉钉企业身份进入已授权工作区</text></view>
+  <view a:if="{{!pendingUser}}" class="card">
+    <view a:if="{{!statusLoaded}}" class="notice">正在确认服务端的钉钉免登配置…</view>
+    <view a:elif="{{setupRequired}}" class="notice">工作区尚未初始化。请管理员先在 Web 管理端创建平台管理员与企业工作区。</view>
+    <view a:elif="{{ssoConfigured}}">
+      <button class="primary" loading="{{busy}}" disabled="{{busy}}" onTap="onDingTalkLogin">{{busy ? '正在验证钉钉身份…' : '钉钉企业免登'}}</button>
+      <text class="hint">将获取钉钉一次性授权码，由服务端向钉钉验证并映射到已绑定的工作区成员。此操作不会自动创建账号或授予角色。</text>
+    </view>
+    <view a:else class="notice">钉钉企业免登尚未配置。管理员需在服务端设置钉钉企业应用 Client ID、Client Secret 和 Corp ID；未配置前不会连接或冒充真实钉钉租户。</view>
+    <view a:if="{{error}}" class="error">{{error}}</view>
+    <button a:if="{{usePassword}}" class="secondary" onTap="hidePasswordLogin">收起备用密码登录</button>
+    <button a:else class="secondary" onTap="showPasswordLogin">使用工作区个人密码登录</button>
+    <view a:if="{{usePassword}}" class="password-fallback">
+      <text class="label">企业邮箱</text><input class="input" type="text" value="{{email}}" onInput="onEmailInput" placeholder="name@company.com" />
+      <text class="label">个人密码</text><input class="input" password value="{{password}}" onInput="onPasswordInput" placeholder="请使用个人设置的密码" />
+      <button class="primary" loading="{{busy}}" disabled="{{busy}}" onTap="submit">{{busy ? '正在验证…' : '登录工作区'}}</button>
+      <text class="hint">新成员须先通过管理员提供的一次性激活链接设置个人密码；不使用共享默认密码。</text>
+    </view>
+  </view>
+  <view a:if="{{pendingUser}}" class="card">
+    <text class="signed-in">已验证：{{pendingUser.displayName}}</text>
+    <text class="label">选择组织 / 账套</text>
+    <picker mode="selector" range="{{scopes}}" range-key="accountName" value="{{selectedScopeIndex}}" onChange="onScopeChange"><view class="picker">{{selectedAccountName}}　›</view></picker>
+    <text class="hint">此身份仅能访问服务端已绑定且仍启用的租户、组织、账套和角色。</text>
+    <view a:if="{{error}}" class="error">{{error}}</view>
+    <button class="primary" loading="{{busy}}" disabled="{{busy}}" onTap="finishLogin">进入工作区</button>
+  </view>
+</view>

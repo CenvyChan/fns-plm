@@ -1,0 +1,16 @@
+<view class="page">
+  <view class="hero">
+    <text class="eyebrow">工作台 · {{user.tenantName}}</text>
+    <text class="title">你好，{{user.displayName}}</text>
+    <text class="subtitle">{{user.organizationName}} · {{user.accountName}}</text>
+  </view>
+  <view class="section-title">快捷入口</view>
+  <view class="entry" onTap="goApprovals">
+    <view class="icon blue">审</view><view class="entry-copy"><text class="entry-title">我的审批</text><text class="entry-sub">查看并处理当前账套授权的待办</text></view><text class="arrow">›</text>
+  </view>
+  <view class="entry" onTap="goReport">
+    <view class="icon green">报</view><view class="entry-copy"><text class="entry-title">报表预览</text><text class="entry-sub">查看当前企业工作区的数据摘要</text></view><text class="arrow">›</text>
+  </view>
+  <button class="signout" onTap="signOut">退出登录</button>
+  <text class="note">身份与权限由服务端会话和当前账套角色校验</text>
+</view>

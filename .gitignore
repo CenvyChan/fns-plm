@@ -1,0 +1,53 @@
+# Dependencies and build output
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+flowable-service/target/
+**/.vite/
+
+# Local build caches and generated artifacts
+.wrangler/
+**/.wrangler/
+.gradle/
+**/.gradle/
+**/build/
+**/target/
+*.tsbuildinfo
+**/local.properties
+
+# Runtime configuration and credentials
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+!.env.example
+.app-encryption-key
+.app-encryption-key.*
+**/.app-encryption-key
+**/.app-encryption-key.*
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Local databases, journals, document binaries and app state
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.mv.db
+*.trace.db
+**/data/documents/
+**/documents/
+/server/data/**
+!/server/data/seed-workspace.json
+!/server/data/seed-workflow-demo.json
+flowable-service/data/
+
+# Logs, temporary files and OS/editor noise
+*.log
+*.tmp
+.DS_Store

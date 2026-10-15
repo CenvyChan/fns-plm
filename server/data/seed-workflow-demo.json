@@ -1,0 +1,56 @@
+{
+  "tasks": [
+    {
+      "id": "demo-material-001",
+      "title": "新物料主数据申请：高强度传感器支架",
+      "businessType": "material",
+      "businessId": "MAT-DRAFT-001",
+      "requester": "李工（演示）",
+      "assignee": "研发经理（演示）",
+      "createdAt": "2026-10-15T02:00:00.000Z",
+      "dueAt": "2026-10-18T09:00:00.000Z",
+      "status": "pending",
+      "preview": {
+        "物料名称": "高强度传感器支架",
+        "物料分类": "机加工件 / 支架（演示分类）",
+        "生命周期": "草稿",
+        "ERP 同步": "未连接 K3Cloud"
+      }
+    },
+    {
+      "id": "demo-bom-001",
+      "title": "设计 BOM 修订发布：装配单元 A",
+      "businessType": "bom",
+      "businessId": "EBOM-DEMO-001",
+      "requester": "王工（演示）",
+      "assignee": "工程负责人（演示）",
+      "createdAt": "2026-10-15T03:00:00.000Z",
+      "dueAt": "2026-10-19T09:00:00.000Z",
+      "status": "pending",
+      "preview": {
+        "BOM 类型": "设计 BOM（EBOM）",
+        "修订版": "B",
+        "变更摘要": "演示修订，请在真实流程中复核物料与版本",
+        "发布动作": "仅更新本地演示记录"
+      }
+    },
+    {
+      "id": "demo-document-001",
+      "title": "图纸修订评审：安装板总成",
+      "businessType": "document",
+      "businessId": "DWG-DEMO-001",
+      "requester": "陈工（演示）",
+      "assignee": "质量负责人（演示）",
+      "createdAt": "2026-10-15T04:00:00.000Z",
+      "dueAt": "2026-10-20T09:00:00.000Z",
+      "status": "pending",
+      "preview": {
+        "文档编号": "DWG-DEMO-001",
+        "修订版": "A",
+        "文档状态": "评审中（演示）",
+        "文件预览": "演示记录不含正式受控图纸"
+      }
+    }
+  ],
+  "audit": []
+}

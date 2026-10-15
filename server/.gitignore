@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*
+!.env.example
+*.tmp
+data/*.sqlite
+data/*.sqlite-*
+data/*.db
+data/*.db-*
+data/.app-encryption-key
+data/.app-encryption-key.*
+data/documents/
+data/workspace.json
+data/legacy-workspace.json
