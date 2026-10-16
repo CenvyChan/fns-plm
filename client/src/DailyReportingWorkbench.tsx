@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Database, Download, FileClock, RefreshCw, Save, Send, ShieldCheck, Wallet } from 'lucide-react'
+import { Database, Download, FileClock, RefreshCw, Save, Send, ShieldCheck, Upload, Wallet } from 'lucide-react'
 import { apiFetch } from './api'
 import DailyReportingManagement from './DailyReportingManagement'
 import './daily-reporting.css'
@@ -18,6 +18,8 @@ type Delivery = { id: string; channel: Channel; status: string; message: string;
 type Correction = { id: string; originalDate: string; type: string; affectedReport: Kind; referenceId: string; originalValue: number | null; newValue: number | null; diffAmount: number; reason: string; detectedAt: string; reportedInSnapshotId: string | null }
 type DraftLink = { k3RowId: string; allocatedAmount: number; allocatedQuantity: number }
 type FormState = { type: Kind; date: string; partyName: string; partyId: string; documentNo: string; quantity: string; currency: string; originalAmount: string; exchangeRate: string; note: string }
+type DailyImportRow = { line: number; status: 'invalid' | 'duplicate' | 'ready'; data?: Partial<DailyReport>; errors: string[]; duplicateReason?: 'existing' | 'same_batch' }
+type DailyImportPreview = { previewId: string; fileName: string; expiresAt: string; headers: string[]; mappedFields: string[]; totalRows: number; validRows: number; duplicateRows: number; importableRows: number; errorRows: number; rows: DailyImportRow[] }
 
 const day = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 const initialDay = () => { const value = new Date(); value.setDate(value.getDate() - 1); return day(value) }
@@ -57,6 +59,10 @@ export default function DailyReportingWorkbench() {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [importType, setImportType] = useState<Kind>('sales')
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importPreview, setImportPreview] = useState<DailyImportPreview | null>(null)
+  const [importInputKey, setImportInputKey] = useState(0)
 
   const selectedReport = useMemo(() => reports.find(report => report.id === selectedReportId), [reports, selectedReportId])
   const reconciliation = selectedReport?.type === 'purchase' ? summary?.purchase?.reconciliation : summary?.sales?.reconciliation
@@ -235,11 +241,38 @@ export default function DailyReportingWorkbench() {
     finally { setBusy(false) }
   }
 
+  const previewImport = async () => {
+    if (!importFile || busy) return
+    setBusy(true); setError(''); setNotice(''); setImportPreview(null)
+    try {
+      const formData = new FormData(); formData.append('file', importFile); formData.append('type', importType)
+      const response = await apiFetch('/api/daily-reports/import/preview', { method: 'POST', body: formData })
+      if (!response.ok) throw new Error(await apiError(response, '导入预览失败'))
+      const preview = await response.json() as DailyImportPreview
+      setImportPreview(preview)
+      setNotice(`预览完成：${preview.importableRows} 条可导入，${preview.duplicateRows} 条重复将跳过，${preview.errorRows} 行有错误。`)
+    } catch (caught) { setError(caught instanceof Error ? caught.message : '导入预览失败') }
+    finally { setBusy(false) }
+  }
+  const commitImport = async () => {
+    if (!importPreview || importPreview.errorRows || busy) return
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const response = await apiFetch('/api/daily-reports/import/commit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ previewId: importPreview.previewId }) })
+      if (!response.ok) throw new Error(await apiError(response, '批量导入失败'))
+      const result = await response.json() as { importedCount: number; skippedDuplicates: number; message: string }
+      setNotice(result.message); setImportPreview(null); setImportFile(null); setImportInputKey(value => value + 1)
+      await loadData()
+    } catch (caught) { setError(caught instanceof Error ? caught.message : '批量导入失败') }
+    finally { setBusy(false) }
+  }
+
   const coverageLabel = (value: number | null | undefined) => value == null ? '待判定' : `${value.toFixed(1)}%`
   const reconciliationCard = (dimension: 1 | 2 | 3, label: string, value?: Reconciliation) => value ? <div className="dr-recon-card" key={label}><b>{label}</b>{dimension === 1 ? <><span>日报总金额 <strong>{money(value.dailyCoverage.totalAmount)}</strong></span><span>封顶后已覆盖 <strong>{money(value.dailyCoverage.coveredAmount)}</strong></span><span>关联覆盖率 <strong>{coverageLabel(value.dailyCoverage.coverageRate)}</strong></span><small>按绝对金额计算；单条日报覆盖额不超过日报金额。</small></> : dimension === 2 ? <><span>月累计差额 <strong>{value.monthDifference.isComplete ? money(value.monthDifference.difference) : '待判定'}</strong></span><span>月系统 / K3 <strong>{value.monthDifference.isComplete ? `${money(value.monthDifference.systemAmount)} / ${money(value.monthDifference.k3Amount)}` : '数据不完整'}</strong></span><span>年累计差额 <strong>{value.yearDifference.isComplete ? money(value.yearDifference.difference) : '待判定'}</strong></span><small>差额 = 手工日报系统金额 − 同期间 K3Cloud 金额；缺数据不按零判定。</small></> : <><span>K3 原金额 <strong>{money(value.k3Allocation.originalAmount)}</strong></span><span>累计分摊 / 剩余 <strong>{money(value.k3Allocation.allocatedAmount)} / {money(value.k3Allocation.remainingAmount)}</strong></span><span>超额分摊 <strong className={value.k3Allocation.overAllocatedAmount ? 'dr-warning-text' : ''}>{money(value.k3Allocation.overAllocatedAmount)}</strong></span><small>{value.k3Allocation.rowCount} 行 · 跨日 {value.k3Allocation.crossDateCount} 行；超额/跨日均显式警告。</small></>}</div> : null
   const reportType = (kind: Kind) => kind === 'sales' ? '销售' : '采购'
   const documentKindLabel = (kind: string) => ({ 'sales-order': '销售订单', 'purchase-order': '采购订单', shipment: '销售出库', 'purchase-receipt': '采购入库', 'sales-invoice': '销项发票', 'purchase-invoice': '采购收票', receivable: '应收单', payable: '应付单' } as Record<string, string>)[kind] ?? kind
   const businessDocumentTable = (title: string, items: K3Row[], balance = false) => <div className="dr-business-doc-group" key={title}><h3>{title} · {items.length} 笔</h3><div className="iw-table-wrap"><table><thead><tr><th>单号 / 日期</th><th>客户 / 供应商</th><th>数量</th><th>单价</th><th>原币 / CNY 金额</th>{balance && <><th>已收 / 付</th><th>未收 / 付</th></>}<th>上下游关联</th><th>状态</th></tr></thead><tbody>{items.slice(0, 12).map(item => <tr key={item.id}><td><b>{item.billNo}</b><small>{item.date}</small></td><td>{item.partyName}<small>{item.materialName}</small></td><td>{item.quantity ? `${item.quantity} ${item.unit}` : '—'}</td><td>{item.unitPrice ? money(item.unitPrice) : '—'}</td><td>{item.currency} {money(item.originalAmount)}<small>CNY {money(item.amountCny)}{item.taxAmountCny != null ? ` · 税额 ${money(item.taxAmountCny)}` : ''}</small></td>{balance && <><td>{money(item.settledAmountCny)}</td><td>{money(item.outstandingAmountCny)}</td></>}<td>{item.upstreamBillNo ? <span>来源 {item.upstreamBillNo}</span> : '—'}{item.linkedDocuments?.map(link => <small key={link.id}>{documentKindLabel(link.kind)}：{link.billNo}</small>)}</td><td>{item.status}</td></tr>)}</tbody></table>{!items.length && <div className="iw-empty">当前报表日期/范围没有明细。</div>}{items.length > 12 && <small>仅显示前 12 笔；汇总按全部 {items.length} 笔计算。</small>}</div></div>
+  const importFieldName = (field: string) => ({ type: '类型', date: '日期', partyName: '客户/供应商', documentNo: '单据编号', quantity: '数量', currency: '币种', originalAmount: '原币金额', exchangeRate: '汇率', note: '备注' }[field] ?? field)
 
   return <section className="dr-section" aria-label="销售与采购日报">
     <header className="dr-header"><div><div className="iw-eyebrow">日报管理 / DAILY REPORTING</div><h2>{canViewSales && canViewPurchase ? '销售 / 采购日报与 K3Cloud 对账' : canViewSales ? '销售日报与 K3Cloud 对账' : '采购日报与 K3Cloud 对账'}</h2><p>手工日报、K3Cloud 订单与往来单据、历史更正和多维对账。</p></div><div className="dr-header-actions"><label>报表日期<input type="date" value={reportDate} onChange={event => { setReportDate(event.target.value); setForm(current => ({ ...current, date: event.target.value })) }}/></label><button className="iw-button iw-secondary iw-small" onClick={() => void loadData()} disabled={loading}><RefreshCw size={14}/>刷新</button>{canManage && <button className="iw-button iw-approve iw-small" onClick={() => void syncK3()} disabled={busy}><Database size={14}/>{busy ? '同步中…' : '同步真实 K3Cloud'}</button>}{canManage && mockEnabled && <button className="iw-button iw-secondary iw-small" onClick={() => void refreshMock()} disabled={busy}>刷新本地演示快照</button>}</div></header>
@@ -252,6 +285,17 @@ export default function DailyReportingWorkbench() {
     {summary?.warnings?.length ? <div className="dr-warning-list"><b>对账警告</b>{summary.warnings.slice(0, 8).map((warning, index) => <span key={`${warning.billNo}-${index}`}>{warning.type === 'sales' ? '销售' : '采购'} · {warning.billNo}{warning.crossDate ? ' · 跨日关联' : ''}{warning.overAllocatedAmount ? ` · 超额 ${money(warning.overAllocatedAmount)}` : ''}</span>)}</div> : null}
 
     {summary && <section className="iw-card dr-business-documents"><div className="iw-card-head"><div><h2>订单、出入库、发票与往来单据明细</h2><p>单价、数量、原币/人民币金额按映射字段读取；应收/应付为最近同步时点余额。上下游关联依赖已配置的 K3Cloud 来源单据 ID/编号，不以客商名称推断。</p></div><Database size={18}/></div><div className="dr-business-doc-grid">{canViewSales && <>{businessDocumentTable('销售订单', summary.orders.sales.rows)}{businessDocumentTable('销售出库', summary.fulfillment.sales.rows)}{businessDocumentTable('销项发票', summary.invoices.sales.rows)}{businessDocumentTable('应收单', summary.balances.receivables.rows, true)}</>}{canViewPurchase && <>{businessDocumentTable('采购订单', summary.orders.purchase.rows)}{businessDocumentTable('采购入库', summary.fulfillment.purchase.rows)}{businessDocumentTable('采购收票', summary.invoices.purchase.rows)}{businessDocumentTable('应付单', summary.balances.payables.rows, true)}</>}</div></section>}
+
+    <section className="iw-card dr-import-card"><div className="iw-card-head"><div><h2>导入往期销售 / 采购日报</h2><p>上传 CSV / XLSX 后先预览字段与错误行；重复项按当前账套、类型、日期和单据编号识别并跳过。</p></div><Upload size={18}/></div>
+      <div className="dr-import-toolbar"><label>默认类型<select value={importType} disabled={busy} onChange={event => { setImportType(event.target.value as Kind); setImportPreview(null) }}><option value="sales">销售日报</option><option value="purchase">采购日报</option></select></label><label className="dr-import-upload"><Upload size={14}/>{importFile ? '更换文件' : '选择 CSV / XLSX'}<input key={importInputKey} type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={busy} onChange={event => { setImportFile(event.target.files?.[0] ?? null); setImportPreview(null); setError(''); setNotice('') }}/></label><button className="iw-button iw-secondary iw-small" onClick={() => void previewImport()} disabled={!importFile || busy}><FileClock size={14}/>{busy ? '处理中…' : '预览并校验'}</button><button className="iw-button iw-approve iw-small" onClick={() => void commitImport()} disabled={!importPreview || Boolean(importPreview.errorRows) || busy}><Upload size={14}/>确认导入 {importPreview?.importableRows ?? ''}</button></div>
+      {importFile && <small className="dr-import-filename">{importFile.name} · {(importFile.size / 1024).toFixed(1)} KB · 最大 10 MB · 当前导入仅写入已认证账套，不连接 K3Cloud。</small>}
+      {importPreview && <><div className="dr-import-summary"><span><b>{importPreview.totalRows}</b> 行</span><span><b>{importPreview.importableRows}</b> 条可导入</span><span><b>{importPreview.duplicateRows}</b> 条重复跳过</span><span className={importPreview.errorRows ? 'has-errors' : ''}><b>{importPreview.errorRows}</b> 行错误</span><span>字段映射：{importPreview.mappedFields.map(importFieldName).join('、') || '未识别'}</span><span>预览有效至 {dateTime(importPreview.expiresAt)}</span></div>
+        {importPreview.errorRows > 0 && <div className="dr-import-error" role="alert">存在字段错误行；为保证全批次原子性，必须修正文件并重新预览，当前不会导入任何行。</div>}
+        <div className="iw-table-wrap dr-import-table"><table><thead><tr><th>源行</th><th>状态</th><th>类型 / 日期</th><th>单据编号</th><th>客户 / 供应商</th><th>数量</th><th>原币 / CNY</th><th>错误 / 重复说明</th></tr></thead><tbody>{importPreview.rows.map(row => <tr key={row.line} className={row.status === 'invalid' ? 'dr-import-row-invalid' : row.status === 'duplicate' ? 'dr-import-row-duplicate' : ''}><td>{row.line}</td><td>{row.status === 'invalid' ? '错误' : row.status === 'duplicate' ? '重复·跳过' : '可导入'}</td><td>{row.data?.type ? reportType(row.data.type) : '—'}<small>{row.data?.date ?? '—'}</small></td><td>{row.data?.documentNo || '—'}</td><td>{row.data?.partyName || '—'}</td><td>{row.data?.quantity ?? '—'}</td><td>{row.data?.originalAmount == null ? '—' : `${money(row.data.originalAmount)} / ${money(row.data.amountCny)}`}</td><td>{row.errors.join('；') || (row.duplicateReason === 'same_batch' ? '与本文件前序行重复' : row.duplicateReason === 'existing' ? '当前账套已有相同日报' : '—')}</td></tr>)}</tbody></table></div>
+      </>}
+    </section>
+
+    {summary && <section className="iw-card dr-business-documents"><div className="iw-card-head"><div><h2>订单、出入库、发票与往来单据明细</h2><p>单价、数量、原币/人民币金额按映射字段读取；应收/应付为最近同步时点余额。上下游关联依赖已配置的 K3Cloud 来源单据 ID/编号，不以客商名称推断。</p></div><Database size={18}/></div><div className="dr-business-doc-grid">{businessDocumentTable('销售订单', summary.orders.sales.rows)}{businessDocumentTable('销售出库', summary.fulfillment.sales.rows)}{businessDocumentTable('销项发票', summary.invoices.sales.rows)}{businessDocumentTable('应收单', summary.balances.receivables.rows, true)}{businessDocumentTable('采购订单', summary.orders.purchase.rows)}{businessDocumentTable('采购入库', summary.fulfillment.purchase.rows)}{businessDocumentTable('采购收票', summary.invoices.purchase.rows)}{businessDocumentTable('应付单', summary.balances.payables.rows, true)}</div></section>}
 
     <div className="dr-workspace-grid">
       {canWrite && <section className="iw-card"><div className="iw-card-head"><div><h2>{editingId ? '编辑日报' : '手工录入日报'}</h2><p>来源仓库的手工录入能力已保留；原币和历史汇率独立存档。</p></div></div>

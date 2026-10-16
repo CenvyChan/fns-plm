@@ -4,7 +4,8 @@
 
 ## 功能
 
-- **销售/采购手工日报与历史**：录入、查询、修改、软删除；服务端计算 CNY 金额并记录操作者。手工日报不依赖 K3Cloud。
+- **销售/采购手工日报与历史**：录入、查询、修改、软删除；服务端计算 CNY 金额并记录操作者。手工日报不依赖 K3Cloud。往期数据支持 CSV/XLSX 上传预览与字段校验，按行返回错误；确认提交时整批原子写入，存在错误行时整批拒绝。
+- **历史日报导入**：上传上限 10 MB、每批最多 5,000 行；支持中文/英文表头（日期、客户/供应商、原币金额必需；类型可由文件列指定或由用户选择默认值；单据编号、数量、币种、汇率、备注为可选）。服务端按当前认证 tenant/organization/account 识别重复：类型+日期+单据编号相同，或无单号时整条业务内容相同的记录会跳过；本文件中的重复行也会跳过。预览令牌绑定操作者与完整 scope，15 分钟过期；重新提交时会再次检查当前账套中的重复项。导入来源记为 `history-import`，金额由服务端按原币金额×汇率重算，未连接 K3Cloud。
 - **K3Cloud 只读同步**：管理员或 `plm_manager` 可手动触发同步。按当前账套配置的映射读取六类单据：销售出库、采购入库、销售订单、采购订单、应收单、应付单。读取走既有 K3Cloud LoginByAppSecret / ExecuteBillQuery 客户端；每个 FormId 和字段仍须先加入当前账套的服务端只读 allowlist。每类最多同步 5,000 行；超限、查询失败、记录缺关键字段或重复行级 ID 时整批拒绝，保留上一次已提交快照。
 - **K3Cloud 基础资料镜像**：同一完整只读同步还可按独立映射读取客户、供应商、业务员、ERP 用户四类主数据；保存的是当前 tenant / organization / account 独立快照，不把 ERP 用户创建为 PLM 登录账号，也不复制角色、权限、密码或联系方式。只允许规范字段 `id`、`number`、`name`、`status`、`category`、`department`、`ownerNumber`、`ownerName`、`modifiedAt`；每类必须有稳定唯一 ID 与名称，重复/缺失 ID、缺名称、超限或任何类别读取失败均不提交该次主数据快照。基础资料镜像的读取端点为 `/api/k3cloud/master-data`。
 - **定时采集**：系统集成 → K3Cloud 可关闭/启用全量同步，并配置每小时、6 小时、12 小时或每日 02:05（Asia/Shanghai）。只有六类业务单据和四类基础资料都完成字段映射、且所有字段处于只读 allowlist 中，才可启用。任务在服务重启后按账套恢复；互斥锁阻止同一账套重叠运行。真实凭据与 FormId/字段必须由企业管理员配置，本仓库不包含企业凭据或通用字段清单。
@@ -37,6 +38,8 @@
 |---|---|---|
 | `GET /daily-reports?from=YYYY-MM-DD&to=YYYY-MM-DD&type=sales\|purchase` | 已登录 | 读当前账套日报历史。 |
 | `POST /daily-reports` | `admin`、`plm_manager`、`member` | 手工录入；服务端计算 CNY 金额。 |
+| `POST /daily-reports/import/preview` | `admin`、`plm_manager`、`member` | multipart 字段 `file`（CSV/XLSX，最多 10 MB）和可选默认 `type`；返回字段映射、逐行校验、重复识别与 15 分钟预览令牌，不写日报。 |
+| `POST /daily-reports/import/commit` | `admin`、`plm_manager`、`member` | `{ "previewId": "…" }`；仅接受当前操作者及三层 scope 的有效预览，错误行整批拒绝，成功批次一次性写入，重复日报跳过。 |
 | `PATCH /daily-reports/:id` / `DELETE /daily-reports/:id` | 同上 | 更正或软删除；已归档记录形成更正，不改写旧快照。 |
 | `GET /daily-reports/k3-lines?type=sales\|purchase&q=...` | 已登录 | 读当前账套销售出库/采购入库快照行。 |
 | `POST /daily-reports/k3-sync` | `admin`、`plm_manager` | 按已保存映射同步六类只读单据；映射必须完整且字段均在当前账套 allowlist 内。 |

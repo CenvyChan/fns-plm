@@ -1,8 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
 import ExcelJS from 'exceljs'
+import multer from 'multer'
 import { Router, type Request } from 'express'
 import { requireRole } from './auth.js'
 import { getAppStateVersioned, setAppStateIfRevision, StateConflictError } from './database.js'
+import { parseDailyReportImportFile } from './daily-report-import.js'
 import type { WorkspaceScope } from './scope.js'
 import { findDailyParty, getDailyReportingAccess, hasDailyPartyAssignment, readDailyReportingAdminState, type DailyParty } from './daily-reporting-admin.js'
 
@@ -420,6 +422,41 @@ function validateReportPayload(body: Record<string, unknown>, existing?: DailyRe
   return { value: { type, date, partyName: partyName.trim(), documentNo: documentNo.trim(), quantity, currency, originalAmount: roundMoney(originalAmount), exchangeRate, amountCny: roundMoney(originalAmount * exchangeRate), note: note.trim(), source, ...(typeof partyId === 'string' && partyId ? { partyId } : {}) } }
 }
 
+type ImportPreviewRow = { line: number; value?: Omit<DailyReport, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'createdByName' | 'updatedBy'>; errors: string[]; duplicateReason?: 'existing' | 'same_batch' }
+type PendingImportPreview = { token: string; actorId: string; scopeKey: string; expiresAt: number; rows: ImportPreviewRow[]; fileName: string }
+const pendingImportPreviews = new Map<string, PendingImportPreview>()
+const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 1, parts: 2 } }).single('file')
+const importPreviewTtlMs = 15 * 60 * 1000
+
+function importDuplicateKey(value: Pick<DailyReport, 'type' | 'date' | 'partyName' | 'documentNo' | 'quantity' | 'currency' | 'originalAmount' | 'exchangeRate' | 'note'>): string {
+  const documentNo = value.documentNo.trim().toLocaleLowerCase()
+  return documentNo
+    ? `${value.type}|${value.date}|doc:${documentNo}`
+    : `${value.type}|${value.date}|row:${JSON.stringify([value.partyName.trim().toLocaleLowerCase(), value.quantity, value.currency, value.originalAmount, value.exchangeRate, value.note.trim()])}`
+}
+function classifyImportDuplicates(state: DailyReportState, rows: ImportPreviewRow[]): void {
+  const existingKeys = new Set(liveReports(state).map(importDuplicateKey))
+  const batchKeys = new Set<string>()
+  for (const row of rows) {
+    row.duplicateReason = undefined
+    if (!row.value || row.errors.length) continue
+    const key = importDuplicateKey(row.value)
+    if (existingKeys.has(key)) row.duplicateReason = 'existing'
+    else if (batchKeys.has(key)) row.duplicateReason = 'same_batch'
+    batchKeys.add(key)
+  }
+}
+function importPreviewResponse(preview: PendingImportPreview, headers: string[], mappedFields: string[]) {
+  const errors = preview.rows.filter(row => row.errors.length).length
+  const duplicates = preview.rows.filter(row => row.duplicateReason).length
+  const valid = preview.rows.filter(row => !row.errors.length).length
+  return {
+    previewId: preview.token, fileName: preview.fileName, expiresAt: new Date(preview.expiresAt).toISOString(), headers, mappedFields,
+    totalRows: preview.rows.length, validRows: valid, duplicateRows: duplicates, importableRows: Math.max(0, valid - duplicates), errorRows: errors,
+    rows: preview.rows.map(row => ({ line: row.line, status: row.errors.length ? 'invalid' : row.duplicateReason ? 'duplicate' : 'ready', data: row.value, errors: row.errors, duplicateReason: row.duplicateReason })),
+  }
+}
+
 function snapshotFromState(state: DailyReportState, reportDate: string, scope: 'sales' | 'purchase' | 'both', actor: { id: string; name: string }): DailySnapshot {
   const version = Math.max(0, ...state.snapshots.filter(item => item.reportDate === reportDate && item.scope === scope).map(item => item.version)) + 1
   const id = randomUUID(), summary = buildDailyReportSummary(state, reportDate, scope)
@@ -470,6 +507,14 @@ function renderSnapshotHtml(snapshot: DailySnapshot): string {
 
 export function createDailyReportRouter(): Router {
   const router = Router()
+  const receiveImportFile = (req: Request, res: import('express').Response, next: import('express').NextFunction) => importUpload(req, res, error => {
+    if (!error) return next()
+    if (error instanceof multer.MulterError) {
+      const tooLarge = error.code === 'LIMIT_FILE_SIZE'
+      return res.status(tooLarge ? 413 : 400).json({ error: 'daily_report_import_upload_rejected', message: tooLarge ? '导入文件不能超过 10 MB。' : '上传请求格式无效；一次只能上传一个文件。' })
+    }
+    return res.status(400).json({ error: 'daily_report_import_upload_failed', message: '导入文件上传失败。' })
+  })
 
   router.get('/daily-reports', (req, res) => {
     const scope = scopeFromRequest(req), state = readDailyReportState(scope)
@@ -518,6 +563,75 @@ export function createDailyReportRouter(): Router {
       if ('blocked' in result) return res.status(409).json({ error: 'live_k3cloud_snapshot_exists', message: '当前账套已有真实 K3Cloud 快照；为防止真实与演示数据混用，不能刷新本地演示数据。' })
       return res.json({ ...result, source: 'local-mock', liveErpConnected: false, message: '本地演示快照已刷新；未访问真实 K3Cloud。' })
     } catch (error) { return res.status(error instanceof StateConflictError ? 409 : 500).json({ error: error instanceof StateConflictError ? 'workspace_conflict' : 'mock_refresh_failed', message: error instanceof Error ? error.message : '本地快照刷新失败。' }) }
+  })
+
+  router.post('/daily-reports/import/preview', requireRole(...WRITERS), receiveImportFile, async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'daily_report_import_file_required', message: '请选择一个 CSV 或 XLSX 文件。' })
+    const defaultType = typeof req.body?.type === 'string' ? req.body.type : ''
+    if (defaultType && !validKind(defaultType)) return res.status(400).json({ error: 'invalid_daily_report_type', message: '默认日报类型必须是 sales 或 purchase。' })
+    try {
+      const parsed = await parseDailyReportImportFile(req.file.originalname, req.file.buffer, defaultType)
+      if (!parsed.rows.length) return res.status(400).json({ error: 'daily_report_import_empty', message: '文件没有日报数据行。' })
+      const rows: ImportPreviewRow[] = parsed.rows.map(row => {
+        const validation = validateReportPayload(row.values)
+        const errors = [...row.errors, ...(validation.error ? [validation.error] : [])]
+        return { line: row.line, value: validation.value ? { ...validation.value, source: 'history-import' } : undefined, errors }
+      })
+      const scope = scopeFromRequest(req)
+      classifyImportDuplicates(readDailyReportState(scope), rows)
+      const actor = actorFromRequest(req)
+      const now = Date.now()
+      for (const [token, saved] of pendingImportPreviews) if (saved.expiresAt <= now) pendingImportPreviews.delete(token)
+      while (pendingImportPreviews.size >= 50) {
+        const oldest = [...pendingImportPreviews.values()].sort((a, b) => a.expiresAt - b.expiresAt)[0]
+        if (!oldest) break
+        pendingImportPreviews.delete(oldest.token)
+      }
+      const preview: PendingImportPreview = { token: randomUUID(), actorId: actor.id, scopeKey: stateKey(scope), expiresAt: now + importPreviewTtlMs, rows, fileName: req.file.originalname.slice(0, 160) }
+      pendingImportPreviews.set(preview.token, preview)
+      return res.status(200).json(importPreviewResponse(preview, parsed.headers, parsed.mappedFields))
+    } catch (error) {
+      return res.status(400).json({ error: 'daily_report_import_parse_failed', message: error instanceof Error ? error.message : '文件解析失败。' })
+    }
+  })
+
+  router.post('/daily-reports/import/commit', requireRole(...WRITERS), (req, res) => {
+    const previewId = typeof req.body?.previewId === 'string' ? req.body.previewId : ''
+    const preview = pendingImportPreviews.get(previewId)
+    if (!preview || preview.expiresAt <= Date.now()) {
+      if (preview) pendingImportPreviews.delete(previewId)
+      return res.status(404).json({ error: 'daily_report_import_preview_expired', message: '导入预览不存在或已过期，请重新上传并预览。' })
+    }
+    const scope = scopeFromRequest(req), actor = actorFromRequest(req)
+    if (preview.actorId !== actor.id || preview.scopeKey !== stateKey(scope)) return res.status(404).json({ error: 'daily_report_import_preview_not_found', message: '导入预览不属于当前用户和账套。' })
+    const invalidRows = preview.rows.filter(row => row.errors.length)
+    if (invalidRows.length) return res.status(422).json({ error: 'daily_report_import_validation_failed', message: '存在字段错误行；请修正文件后重新预览，未写入任何日报。', rows: invalidRows.map(row => ({ line: row.line, errors: row.errors })) })
+    try {
+      const result = mutateState(scope, state => {
+        const knownKeys = new Set(liveReports(state).map(importDuplicateKey)), batchKeys = new Set<string>()
+        const imported: DailyReport[] = []
+        let skippedDuplicates = 0
+        for (const row of preview.rows) {
+          const validation = validateReportPayload(row.value as unknown as Record<string, unknown>)
+          if (!validation.value) throw new TypeError(`第 ${row.line} 行重新校验失败：${validation.error}`)
+          const value = { ...validation.value, source: 'history-import' as const }
+          const key = importDuplicateKey(value)
+          if (knownKeys.has(key) || batchKeys.has(key)) { skippedDuplicates++; continue }
+          knownKeys.add(key); batchKeys.add(key)
+          const now = new Date().toISOString()
+          const item: DailyReport = { ...value, id: randomUUID(), createdAt: now, updatedAt: now, createdBy: actor.id, createdByName: actor.name, updatedBy: actor.id }
+          state.reports.unshift(item)
+          noteCorrection(state, { originalDate: item.date, type: '历史日报导入', affectedReport: item.type, referenceId: item.id, originalValue: archivedReportAmount(state, item.id, item.date), newValue: item.amountCny, diffAmount: item.amountCny, reason: '已归档日期新增历史日报记录。' })
+          imported.push(item)
+        }
+        return { importedCount: imported.length, skippedDuplicates, imported: imported.map(item => ({ id: item.id, type: item.type, date: item.date, documentNo: item.documentNo, amountCny: item.amountCny })) }
+      })
+      pendingImportPreviews.delete(previewId)
+      return res.json({ ...result, message: `已导入 ${result.importedCount} 条，跳过重复 ${result.skippedDuplicates} 条。` })
+    } catch (error) {
+      const status = error instanceof StateConflictError ? 409 : error instanceof TypeError ? 422 : 500
+      return res.status(status).json({ error: status === 409 ? 'workspace_conflict' : status === 422 ? 'daily_report_import_validation_failed' : 'daily_report_import_commit_failed', message: error instanceof Error ? error.message : '日报批量导入失败。', importedCount: 0 })
+    }
   })
 
   router.post('/daily-reports', requireRole(...WRITERS), (req, res) => {

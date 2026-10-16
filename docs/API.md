@@ -130,6 +130,8 @@ K3Cloud API 是**只读**。过滤字段、排序字段和列必须被 allowlist
 |---|---|---|---|
 | `GET` | `/api/daily-reports?from=...&to=...&type=sales\|purchase` | 已登录 | 当前账套日报历史。 |
 | `POST` | `/api/daily-reports` | `admin`, `plm_manager`, `member` | 手工录入；服务端计算 CNY 金额并绑定操作者。 |
+| `POST` | `/api/daily-reports/import/preview` | `admin`, `plm_manager`, `member` | multipart `file`（CSV/XLSX，≤10 MB）及可选默认 `type`；字段校验、逐行错误/重复反馈，返回绑定当前操作者和三层 scope 的 15 分钟预览令牌，不写入数据。最多 5,000 行。 |
+| `POST` | `/api/daily-reports/import/commit` | `admin`, `plm_manager`, `member` | `{ "previewId": "…" }`；重新检查 scope、行校验和当前重复项；错误行导致整批拒绝，成功时以单次状态写入原子提交，重复项跳过。 |
 | `PATCH` / `DELETE` | `/api/daily-reports/:id` | 同上 | 更正或软删除；已归档数据产生更正记录，不改写历史快照。 |
 | `GET` | `/api/daily-reports/k3-lines?type=...` | 已登录 | 当前账套 K3 快照行。 |
 | `POST` | `/api/daily-reports/k3-sync` | `admin`, `plm_manager` | 根据当前账套 `dailyReportSources` 映射同步销售出库、采购入库、销售/采购订单、应收/应付六类单据；字段必须在 `formAllowlist` 中，失败保留旧快照。 |

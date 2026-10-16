@@ -15,6 +15,7 @@ let origin = ''
 let child
 let adminToken = ''
 let accountA = ''
+let accountB = ''
 const scopes = new Map()
 
 async function allocatePort() {
@@ -74,6 +75,27 @@ async function api(path, { method = 'GET', body, token = adminToken, scope = tru
   const response = await fetch(`${origin}${path}`, { method, headers: requestHeaders, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(8_000) })
   const contentType = response.headers.get('content-type') ?? ''
   if (contentType.includes('spreadsheetml')) return { response, data: null, text: '', bytes: Buffer.from(await response.arrayBuffer()) }
+  const text = await response.text()
+  let data = null
+  try { data = text ? JSON.parse(text) : null } catch { data = text }
+  return { response, data, text }
+}
+async function uploadImport(path, { fileName, content, type = 'sales', token = adminToken, headers = {} }) {
+  const requestHeaders = {}
+  if (token) {
+    requestHeaders.Authorization = `Bearer ${token}`
+    const active = scopes.get(token)
+    if (active) {
+      requestHeaders['X-Tenant-ID'] = active.tenantId
+      requestHeaders['X-Organization-ID'] = active.organizationId
+      requestHeaders['X-Account-ID'] = active.accountId
+    }
+  }
+  Object.assign(requestHeaders, headers)
+  const form = new FormData()
+  form.append('file', new Blob([content]), fileName)
+  if (type) form.append('type', type)
+  const response = await fetch(`${origin}${path}`, { method: 'POST', headers: requestHeaders, body: form, signal: AbortSignal.timeout(8_000) })
   const text = await response.text()
   let data = null
   try { data = text ? JSON.parse(text) : null } catch { data = text }
@@ -390,7 +412,7 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
 
   const newTenant = await api('/api/auth/tenants', { method: 'POST', body: { tenantName: '日报隔离租户 B', organizationName: '隔离组织 B', accountName: '隔离账套 B' } })
   assert.equal(newTenant.response.status, 201, JSON.stringify(newTenant.data))
-  const accountB = newTenant.data.scope.accountId
+  accountB = newTenant.data.scope.accountId
   const switchB = await api('/api/auth/switch-scope', { method: 'POST', body: { accountId: accountB } })
   assert.equal(switchB.response.status, 200)
   scopes.set(adminToken, switchB.data.user)
@@ -425,4 +447,73 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
   assert.equal(persisted.response.status, 200, 'the authenticated snapshot survives a server restart against the isolated SQLite database')
   assert.equal(persisted.data.snapshot.data.reports.find(report => report.id === reportId).amountCny, 200)
   assert.equal(persisted.data.deliveries.length, 2)
+})
+
+test('historical daily import validates CSV/XLSX and commits atomically within the authenticated scope', { concurrency: false }, async () => {
+  const invalidCsv = '业务日期,客户/供应商,单据编号,数量,币种,原币金额,汇率,备注\n2024-03-01,历史客户,IMP-ATOMIC-001,2,USD,10,7.2,"逗号,备注"\nnot-a-date,历史客户,IMP-ATOMIC-002,1,CNY,20,1,无效日期\n'
+  const invalidPreview = await uploadImport('/api/daily-reports/import/preview', { fileName: 'history.csv', content: invalidCsv })
+  assert.equal(invalidPreview.response.status, 200, JSON.stringify(invalidPreview.data))
+  assert.equal(invalidPreview.data.totalRows, 2)
+  assert.equal(invalidPreview.data.errorRows, 1)
+  assert.ok(invalidPreview.data.rows.find(row => row.line === 3).errors.length)
+  const rejectedBatch = await api('/api/daily-reports/import/commit', { method: 'POST', body: { previewId: invalidPreview.data.previewId } })
+  assert.equal(rejectedBatch.response.status, 422)
+  const atomicCheck = await api('/api/daily-reports?from=2024-03-01&to=2024-03-01')
+  assert.equal(atomicCheck.data.reports.some(report => report.documentNo === 'IMP-ATOMIC-001'), false, 'an invalid row prevents every row in the batch from being written')
+
+  const validCsv = '业务日期,客户/供应商,单据编号,数量,币种,原币金额,汇率,备注\n2024-03-01,历史客户,IMP-VALID-001,2,USD,125.5,7.2,"往期,已核对"\n2024-03-01,历史客户,IMP-VALID-001,2,USD,125.5,7.2,重复文件行\n'
+  const validPreview = await uploadImport('/api/daily-reports/import/preview', { fileName: 'history.csv', content: validCsv })
+  assert.equal(validPreview.response.status, 200, JSON.stringify(validPreview.data))
+  assert.equal(validPreview.data.importableRows, 1)
+  assert.equal(validPreview.data.duplicateRows, 1)
+  assert.equal(validPreview.data.errorRows, 0)
+  const imported = await api('/api/daily-reports/import/commit', { method: 'POST', body: { previewId: validPreview.data.previewId } })
+  assert.equal(imported.response.status, 200, JSON.stringify(imported.data))
+  assert.equal(imported.data.importedCount, 1)
+  assert.equal(imported.data.skippedDuplicates, 1)
+  const importedRows = await api('/api/daily-reports?from=2024-03-01&to=2024-03-01&type=sales')
+  const historic = importedRows.data.reports.find(report => report.documentNo === 'IMP-VALID-001')
+  assert.equal(historic.source, 'history-import')
+  assert.equal(historic.amountCny, 903.6, 'the server recomputes CNY amount from original amount and exchange rate')
+  const repeatPreview = await uploadImport('/api/daily-reports/import/preview', { fileName: 'history.csv', content: validCsv })
+  assert.equal(repeatPreview.data.duplicateRows, 2)
+  const repeatCommit = await api('/api/daily-reports/import/commit', { method: 'POST', body: { previewId: repeatPreview.data.previewId } })
+  assert.equal(repeatCommit.data.importedCount, 0)
+  assert.equal(repeatCommit.data.skippedDuplicates, 2)
+
+  const importWorkbook = new ExcelJS.Workbook(), importSheet = importWorkbook.addWorksheet('日报')
+  importSheet.addRow(['类型', '日期', '客户/供应商', '单据编号', '数量', '币种', '原币金额', '汇率', '备注'])
+  importSheet.addRow(['采购', new Date('2024-04-05T00:00:00.000Z'), '历史供应商', 'IMP-XLSX-001', 3, 'JPY', 1000, 0.05, 'Excel 导入'])
+  const xlsxPreview = await uploadImport('/api/daily-reports/import/preview', { fileName: 'historic.xlsx', content: Buffer.from(await importWorkbook.xlsx.writeBuffer()) })
+  assert.equal(xlsxPreview.response.status, 200, JSON.stringify(xlsxPreview.data))
+  assert.equal(xlsxPreview.data.importableRows, 1)
+  const xlsxCommit = await api('/api/daily-reports/import/commit', { method: 'POST', body: { previewId: xlsxPreview.data.previewId } })
+  assert.equal(xlsxCommit.data.importedCount, 1)
+  const xlsxRows = await api('/api/daily-reports?from=2024-04-05&to=2024-04-05&type=purchase')
+  assert.equal(xlsxRows.data.reports.find(report => report.documentNo === 'IMP-XLSX-001').amountCny, 50)
+
+  const scopePreview = await uploadImport('/api/daily-reports/import/preview', { fileName: 'history.csv', content: validCsv })
+  assert.equal(scopePreview.response.status, 200)
+  const switchedB = await api('/api/auth/switch-scope', { method: 'POST', body: { accountId: accountB } })
+  assert.equal(switchedB.response.status, 200)
+  scopes.set(adminToken, switchedB.data.user)
+  const foreignCommit = await api('/api/daily-reports/import/commit', { method: 'POST', body: { previewId: scopePreview.data.previewId } })
+  assert.equal(foreignCommit.response.status, 404, 'preview IDs cannot be reused in a different tenant/org/account scope')
+  const switchedA = await api('/api/auth/switch-scope', { method: 'POST', body: { accountId: accountA } })
+  assert.equal(switchedA.response.status, 200)
+  scopes.set(adminToken, switchedA.data.user)
+  const sameScopeCommit = await api('/api/daily-reports/import/commit', { method: 'POST', body: { previewId: scopePreview.data.previewId } })
+  assert.equal(sameScopeCommit.response.status, 200)
+  assert.equal(sameScopeCommit.data.importedCount, 0)
+
+  const unauthorizedPreview = await uploadImport('/api/daily-reports/import/preview', { fileName: 'history.csv', content: validCsv, token: 'reviewer-token-not-resolved' })
+  assert.equal(unauthorizedPreview.response.status, 401)
+  const reviewerLogin = await api('/api/auth/mobile/login', { method: 'POST', token: '', body: { email: 'daily-reviewer@example.test', password: 'reviewer-test-password-123', accountId: accountA } })
+  assert.equal(reviewerLogin.response.status, 200)
+  const reviewerToken = reviewerLogin.data.accessToken
+  scopes.set(reviewerToken, reviewerLogin.data.user)
+  const reviewerPreview = await uploadImport('/api/daily-reports/import/preview', { fileName: 'history.csv', content: validCsv, token: reviewerToken })
+  assert.equal(reviewerPreview.response.status, 403)
+  assert.equal((await api('/api/daily-reports/import/commit', { method: 'POST', token: reviewerToken, body: { previewId: 'not-a-preview' } })).response.status, 403)
+  assert.equal((await api('/api/daily-reports/import/preview', { method: 'POST', scope: false })).response.status, 400)
 })
