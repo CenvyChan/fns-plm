@@ -8,7 +8,7 @@ import { requireRole } from './auth.js'
 import { db, getAppState, recordSecurityEvent, setAppState } from './database.js'
 import { cacheHealth, cacheSetIfAbsent, initializeCache } from './integrations/cache.js'
 import { k3cloudStatus, queryK3Cloud, testK3CloudConnection, type K3CloudConfig, type K3CloudQueryInput } from './integrations/k3cloud.js'
-import { completeTask, flowableHealth, getTask, listTasks, startProcess, type FlowableConfig } from './integrations/flowable.js'
+import { completeTask, flowableHealth, getTaskForActor, listTasksForActor, startProcess, type FlowableConfig } from './integrations/flowable.js'
 import { buildApprovalPreviewUrl, dingtalkStatus, parseCardApprovalAction, sendMarkdown, verifyCardCallbackSignature, type DingTalkConfig } from './integrations/dingtalk.js'
 import { connectorCredentialConfig, connectorSummary, listConnectorConfigs, saveConnectorConfig, type ConnectorConfig, type ConnectorProvider } from './integrations/configuration.js'
 import { buildWorkspaceReport } from './reporting.js'
@@ -31,7 +31,7 @@ const activeCron = new Map<string, ReturnType<typeof cron.schedule>>()
 const runningSchedules = new Set<string>()
 const allowedProcessKeys = new Set(['materialApproval', 'bomReleaseApproval', 'documentReleaseApproval', 'performanceReviewApproval'])
 const providerFields: Record<ConnectorProvider, Set<string>> = {
-  flowable: new Set(['baseUrl', 'username', 'password', 'timeoutMs', 'userMap', 'clearSecrets']),
+  flowable: new Set(['baseUrl', 'username', 'password', 'timeoutMs', 'userMap', 'groupMap', 'clearSecrets']),
   k3cloud: new Set(['baseUrl', 'accountId', 'username', 'organization', 'appId', 'appSecret', 'password', 'lcid', 'timeoutMs', 'formAllowlist', 'clearSecrets']),
   dingtalk: new Set(['webhookUrl', 'webhookSecret', 'cardCallbackSecret', 'appKey', 'appSecret', 'templateId', 'corpId', 'publicAppUrl', 'userMapping', 'clearSecrets']),
 }
@@ -65,9 +65,9 @@ function trustedActor(req: Request, config: ConnectorConfig): string | undefined
   const map = record(config.userMap), value = map[user.email]
   return typeof value === 'string' && value.length > 0 && value.length <= 160 ? value : undefined
 }
-function flowableRows(value: unknown): Record<string, unknown>[] {
-  const object = record(value), rows = Array.isArray(value) ? value : Array.isArray(object.data) ? object.data : []
-  return rows.map(record)
+function trustedCandidateGroups(config: FlowableConfig, actor: string): string[] {
+  const value = record(config.groupMap)[actor]
+  return Array.isArray(value) ? value.filter((group): group is string => typeof group === 'string' && Boolean(group.trim())).map(group => group.trim()).slice(0, 100) : []
 }
 function publicFlowableTask(row: Record<string, unknown>) {
   return { id: String(row.id ?? ''), title: String(row.name ?? 'Flowable 审批任务'), businessType: String(row.businessType ?? 'process'), businessId: String(row.businessKey ?? row.processInstanceId ?? row.id ?? ''), requester: String(row.owner ?? row.initiator ?? '—'), assignee: String(row.assignee ?? '待认领'), createdAt: String(row.createTime ?? ''), dueAt: String(row.dueDate ?? ''), status: 'pending', preview: { 流程定义: row.processDefinitionId, 环节: row.taskDefinitionKey, 描述: row.description, 优先级: row.priority }, processInstanceId: String(row.processInstanceId ?? ''), taskDefinitionKey: String(row.taskDefinitionKey ?? ''), tenantId: String(row.tenantId ?? '') }
@@ -192,7 +192,7 @@ export function createIntegrationRouter(): Router {
     if (engine.connected) {
       const actor = trustedActor(req, config)
       if (!actor) return res.status(403).json({ error: '可信用户身份未配置：请配置本账套的 Flowable 用户映射。' })
-      try { const tenantId = flowableTenantId(scope), result = await listTasks({ assignee: actor, tenantId, active: true, size: 100 }, config); return res.json({ mode: 'flowable', engine, tasks: flowableRows(result).filter(row => String(row.tenantId ?? '') === tenantId).map(publicFlowableTask) }) }
+      try { const tenantId = flowableTenantId(scope), rows = await listTasksForActor(actor, tenantId, trustedCandidateGroups(config, actor), config); return res.json({ mode: 'flowable', engine, tasks: rows.map(publicFlowableTask) }) }
       catch (error) { return res.status(502).json({ error: error instanceof Error ? error.message : 'Flowable task query failed' }) }
     }
     return res.json({ mode: 'demo', engine, tasks: workflowFor(scope).tasks.filter(task => task.status === 'pending') })
@@ -216,8 +216,8 @@ export function createIntegrationRouter(): Router {
     const actor = trustedActor(req, config)
     if (!actor) return res.status(403).json({ error: 'trusted user identity is required' })
     try {
-      const task = record(await getTask(id, config))
-      if (String(task.tenantId ?? '') !== flowableTenantId(scope) || String(task.assignee ?? '') !== actor) return res.status(403).json({ error: 'task is not assigned to the authenticated user in this tenant, organization, and account scope' })
+      const task = await getTaskForActor(id, actor, flowableTenantId(scope), trustedCandidateGroups(config, actor), config)
+      if (!task) return res.status(403).json({ error: 'task is not assigned or available to the authenticated user in this tenant, organization, and account scope' })
       return res.json({ mode: 'flowable', task, audit: auditFor(scope).filter(entry => entry.taskId === id && entry.actor === actor) })
     } catch (error) { return res.status(502).json({ error: error instanceof Error ? error.message : 'Flowable task query failed' }) }
   })
@@ -238,8 +238,8 @@ export function createIntegrationRouter(): Router {
     const actor = trustedActor(req, config)
     if (!actor) return res.status(403).json({ error: 'Flowable approval requires a configured user mapping.' })
     try {
-      const task = record(await getTask(id, config))
-      if (String(task.tenantId ?? '') !== flowableTenantId(scope) || String(task.assignee ?? '') !== actor) return res.status(403).json({ error: 'task is not assigned to the authenticated user in this tenant, organization, and account scope' })
+      const task = await getTaskForActor(id, actor, flowableTenantId(scope), trustedCandidateGroups(config, actor), config)
+      if (!task) return res.status(403).json({ error: 'task is not assigned or available to the authenticated user in this tenant, organization, and account scope' })
       const result = await completeTask(id, { actor, decision: decision as 'approved' | 'rejected', comment }, config), audit = auditFor(scope)
       const entry: ApprovalAuditEntry = { id: nanoid(), taskId: id, title: String(task.name ?? 'Flowable 审批任务'), businessType: String(task.businessType ?? ''), businessId: String(task.businessKey ?? task.processInstanceId ?? ''), actor, decision: decision as 'approved' | 'rejected', comment, createdAt: new Date().toISOString(), mode: 'flowable' }
       audit.unshift(entry); persistAudit(scope, audit)
@@ -256,6 +256,8 @@ export function createIntegrationRouter(): Router {
     const businessType = String(variablesIn.businessType ?? ''), expectedKeys: Record<string, string> = { material: 'materialApproval', bom: 'bomReleaseApproval', document: 'documentReleaseApproval', performance: 'performanceReviewApproval' }
     if (expectedKeys[businessType] !== processDefinitionKey) return res.status(400).json({ error: 'businessType and processDefinitionKey do not match' })
     if (![variablesIn.title, variablesIn.businessId, variablesIn.assignee].every(value => typeof value === 'string' && value.trim())) return res.status(400).json({ error: 'title, businessId and assignee are required to start a live approval process' })
+    const configuredAssignees = Object.values(record(config.userMap)).filter((value): value is string => typeof value === 'string' && Boolean(value.trim())).map(value => value.trim())
+    if (!configuredAssignees.includes(String(variablesIn.assignee).trim())) return res.status(403).json({ error: 'The requested Flowable assignee is not mapped in this tenant, organization, and account scope.' })
     const allowedVariables = new Set(['businessType', 'businessId', 'title', 'assignee', 'approver', 'requester', 'previewUrl', 'changeSummary'])
     const variables = Object.entries(variablesIn).filter(([key, value]) => allowedVariables.has(key) && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')).map(([name, value]) => ({ name, value }))
     variables.push({ name: 'initiator', value: actor })
@@ -285,11 +287,11 @@ export function createIntegrationRouter(): Router {
       if (typeof mapped !== 'string' || !mapped) continue
       const flow = flowableConfig(candidate.scope)
       try {
-        const task = record(await getTask(taskId, flow))
-        if (String(task.tenantId ?? '') === flowableTenantId(candidate.scope) && String(task.assignee ?? '') === mapped) matches.push({ scope: candidate.scope, flow, actor: mapped, task })
-      } catch { /* Try other configured enterprise accounts; only exact tenant/assignee matches may proceed. */ }
+        const task = await getTaskForActor(taskId, mapped, flowableTenantId(candidate.scope), trustedCandidateGroups(flow, mapped), flow)
+        if (task) matches.push({ scope: candidate.scope, flow, actor: mapped, task })
+      } catch { /* Try other configured enterprise accounts; only exact tenant and mapped assignee/candidate matches may proceed. */ }
     }
-    if (matches.length !== 1) return res.status(matches.length ? 409 : 403).json({ error: matches.length ? 'DingTalk callback matched multiple configured accounts; no approval was submitted.' : 'DingTalk identity, signature, task tenant, or assignee is not authorized.' })
+    if (matches.length !== 1) return res.status(matches.length ? 409 : 403).json({ error: matches.length ? 'DingTalk callback matched multiple configured accounts; no approval was submitted.' : 'DingTalk identity, signature, task tenant, or candidate mapping is not authorized.' })
     const match = matches[0]!
     try {
       const decision = action === 'approve' ? 'approved' : 'rejected'

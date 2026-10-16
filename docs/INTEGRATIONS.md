@@ -26,7 +26,7 @@ FLOWABLE_DATA_DIR=/var/lib/momentum-flowable
 
 如果 Node API 与引擎同机，常见 Base URL 为 `http://127.0.0.1:8090/flowable-rest/process-api`；如果跨主机，使用受控 HTTPS 代理 URL。引擎不应暴露在公网。引擎 REST Basic Auth 和 BPMN tenant 过滤均由服务端负责；内部三层范围转换成确定性组合标识 `tenant:<tenantId>:organization:<organizationId>:account:<accountId>`，不能只用 accountId 作为外部隔离键。
 
-可在独立测试引擎上复跑完整链路：先在 `server/` 中执行 `npm run build`，再设置 `FLOWABLE_BASE_URL`、`FLOWABLE_USERNAME`、`FLOWABLE_PASSWORD` 并执行 `npm run test:flowable:e2e`。检查会为随机 tenant 部署四个审批定义，创建并完成一条物料审批，最后核对历史结束时间；默认仅允许 loopback 地址，明确授权的非生产测试环境才设置 `FLOWABLE_E2E_ALLOW_REMOTE=true`。不要对生产引擎运行该写入型测试。
+可在独立测试引擎上复跑完整链路：先在 `server/` 中执行 `npm run build`，再设置 `FLOWABLE_BASE_URL`、`FLOWABLE_USERNAME`、`FLOWABLE_PASSWORD` 并执行 `npm run test:flowable:e2e`。脚本只接受 loopback Flowable URL，并在独立临时 SQLite 中启动 API；它会创建两个 tenant/org/account 范围，验证流程实例 tenant、assignee 与候选组映射、缺失/伪造任一范围头拒绝、跨范围查询/详情/完成拒绝，并核对完成历史。测试实例之外不会连接 K3Cloud 或钉钉，也不会连接远程或生产 Flowable。
 
 ### 在 PLM 管理页配置
 
@@ -40,6 +40,8 @@ FLOWABLE_DATA_DIR=/var/lib/momentum-flowable
 ```
 
 键是已认证工作区用户的邮箱，值是 Flowable 中已存在且有相应任务权限的用户 ID；不得映射到共享管理员身份来绕开审批人权限。保存后再点“测试连接”。UI 不会把旧密码回显。
+
+如使用 Flowable 候选组，可在同一范围的 Flowable 配置中增加 `groupMap`，键为 `userMap` 映射后的 Flowable 用户 ID，值为该用户可处理的候选组 ID 数组，例如 `{"flowable-user-alice":["material-reviewers"]}`。服务端只在当前三层 scope 下查询这些候选组，并再次核对任务 tenant；详情、完成和钉钉卡片回调也执行相同的用户/候选组校验。缺少组映射、租户不一致或任务已分配给其他用户时拒绝访问。流程发起的 assignee 还必须是当前范围 `userMap` 中的用户。
 
 启动白名单内的 `materialApproval`、`bomReleaseApproval`、`documentReleaseApproval`、`performanceReviewApproval` 流程时，后端会在该三层范围对应的组合 tenant 中部署对应 BPMN XML 并验证定义。审批任务按当前范围的已验证用户映射查询；任务读取和完成还须同时匹配该组合 tenant 与会话用户映射。引擎一旦配置但不可用，API 返回错误而不是悄悄切回演示模式。真实任务需在 Flowable 中正确配置 tenant、assignee/候选人；本地演示任务不是 Flowable 记录。
 

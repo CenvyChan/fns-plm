@@ -104,12 +104,12 @@ K3Cloud API 是**只读**。过滤字段、排序字段和列必须被 allowlist
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | `GET` | `/api/workflow/status` | 已登录 | Flowable 状态与当前 scope 演示任务数量。 |
-| `GET` | `/api/workflow/tasks` | 已登录 | Flowable 连通时按当前用户显式映射及组合 tenant/organization/account tenant ID 过滤；仅未配置引擎时返回当前三元组演示任务。引擎已配置但不可用时返回 `502`，不回退成演示数据。 |
-| `GET` | `/api/workflow/tasks/:id` | 已登录 | 返回演示任务，或同时验证组合 Flowable tenant 与经当前范围映射的办理人后返回真实任务。 |
+| `GET` | `/api/workflow/tasks` | 已登录 | Flowable 连通时按当前用户显式映射查询其 assignee、candidate user 与已映射 candidate group 任务，并逐条校验组合 tenant/organization/account tenant ID；仅未配置引擎时返回当前三元组演示任务。引擎已配置但不可用时返回 `502`，不回退成演示数据。 |
+| `GET` | `/api/workflow/tasks/:id` | 已登录 | 返回演示任务，或同时验证组合 Flowable tenant 与当前范围映射的 assignee、candidate user 或 candidate group 后返回真实任务。 |
 | `GET` | `/api/workflow/audit` | 已登录 | 返回当前账套本地演示审计，或当前映射审批人的 Flowable 操作记录。 |
 | `POST` | `/api/workflow/demo-tasks` | `admin`, `plm_manager` | Flowable 未配置时创建本地演示待办；Flowable 已配置时拒绝新演示任务。 |
-| `POST` | `/api/workflow/instances` | `admin`, `plm_manager` | 通过 allowlist 流程定义 key 发起 Flowable 实例；仅接受经校验的变量并由服务端加入 initiator/tenant。 |
-| `POST` | `/api/workflow/tasks/:id/complete` | `admin`, `plm_manager`, `reviewer` | 决策 `approve/approved` 或 `reject/rejected`，必需审批意见。**不得由客户端指定操作者**；身份从登录会话与当前账套映射推导。 |
+| `POST` | `/api/workflow/instances` | `admin`, `plm_manager` | 通过 allowlist 流程定义 key 发起 Flowable 实例；assignee 必须映射到当前完整范围中的 Flowable 用户；仅接受经校验的变量并由服务端加入 initiator/tenant。 |
+| `POST` | `/api/workflow/tasks/:id/complete` | `admin`, `plm_manager`, `reviewer` | 决策 `approve/approved` 或 `reject/rejected`，必需审批意见。**不得由客户端指定操作者**；assignee/candidate 权限从登录会话及当前完整 scope 的映射推导。 |
 | `POST` | `/api/dingtalk/cards/callback` | 公开路由、签名验证 | 钉钉互动卡片回调；必须通过签名/身份映射校验，且仍需必填审批意见。 |
 
 ## 6. 报告、计划与钉钉推送

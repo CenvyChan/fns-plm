@@ -18,6 +18,7 @@ export default function ConnectorWorkbench() {
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [allowlistText, setAllowlistText] = useState('{}')
   const [userMapText, setUserMapText] = useState('{}')
+  const [groupMapText, setGroupMapText] = useState('{}')
   const [dingtalkMapText, setDingtalkMapText] = useState('{}')
   const [clearSecrets, setClearSecrets] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -61,6 +62,7 @@ export default function ConnectorWorkbench() {
     setDraft(Object.fromEntries(Object.entries(config).map(([key, value]) => [key, typeof value === 'string' ? value : String(value ?? '')])))
     setAllowlistText(JSON.stringify(config.formAllowlist ?? {}, null, 2))
     setUserMapText(JSON.stringify(config.userMap ?? {}, null, 2))
+    setGroupMapText(JSON.stringify(config.groupMap ?? {}, null, 2))
     setDingtalkMapText(JSON.stringify(config.userMapping ?? {}, null, 2))
     setClearSecrets([]); setTestResult(null); setNotice('')
     setQueryFormId(''); setQueryFields([]); setQueryResult(null); setQueryError('')
@@ -89,6 +91,7 @@ export default function ConnectorWorkbench() {
       if (active === 'flowable') {
         if (draft.timeoutMs) config.timeoutMs = Number(draft.timeoutMs)
         try { config.userMap = JSON.parse(userMapText) } catch { throw new Error('Flowable 用户映射必须是有效 JSON 对象。') }
+        try { config.groupMap = JSON.parse(groupMapText) } catch { throw new Error('Flowable 候选组映射必须是有效 JSON 对象。') }
       }
       if (active === 'dingtalk') {
         try { config.userMapping = JSON.parse(dingtalkMapText) } catch { throw new Error('钉钉用户映射必须是有效 JSON 对象。') }
@@ -140,7 +143,7 @@ export default function ConnectorWorkbench() {
       <section className="connector-card">
         <div className="connector-card-head"><span className="connector-provider-icon">{icon}</span><div><span className="connector-overline">{active.toUpperCase()}</span><h2>{providerNames[active]}</h2></div><span className={`connector-badge ${current?.configured ? 'configured' : ''}`}>{current?.configured ? '配置完整' : '尚未就绪'}</span></div>
         {loading ? <div className="connector-loading">正在读取加密配置…</div> : <>
-          {active === 'flowable' && <div className="connector-fields"><div className="connector-help"><b>审批引擎连接</b><span>使用 Flowable REST API；每个账套首次发起真实流程时，服务端会按 tenantId 部署 PLM BPMN 定义。用户映射用于把登录邮箱映射为 Flowable assignee。</span></div>{textInput('baseUrl', 'REST API Base URL', 'http://127.0.0.1:8090/flowable-rest/process-api')}{textInput('username', '服务账号', 'flowable-admin')}{secretInput('password', 'Basic Auth 密码')}{textInput('timeoutMs', '请求超时（毫秒）', '10000')}<label className="connector-field connector-json-field"><span>Flowable 用户映射（JSON）<small>键为 Momentum 登录邮箱，值为 Flowable 用户 ID</small></span><textarea rows={5} spellCheck={false} value={userMapText} onChange={event => setUserMapText(event.target.value)} placeholder={'{\n  "engineer@company.com": "flowable-user-id"\n}'}/></label></div>}
+          {active === 'flowable' && <div className="connector-fields"><div className="connector-help"><b>审批引擎连接</b><span>使用 Flowable REST API；每个账套首次发起真实流程时，服务端会按 tenantId 部署 PLM BPMN 定义。用户映射用于登录身份到 Flowable 用户的绑定；候选组映射也按当前组织/账套隔离。</span></div>{textInput('baseUrl', 'REST API Base URL', 'http://127.0.0.1:8090/flowable-rest/process-api')}{textInput('username', '服务账号', 'flowable-admin')}{secretInput('password', 'Basic Auth 密码')}{textInput('timeoutMs', '请求超时（毫秒）', '10000')}<label className="connector-field connector-json-field"><span>Flowable 用户映射（JSON）<small>键为 Momentum 登录邮箱，值为 Flowable 用户 ID</small></span><textarea rows={5} spellCheck={false} value={userMapText} onChange={event => setUserMapText(event.target.value)} placeholder={'{\n  "engineer@company.com": "flowable-user-id"\n}'}/></label><label className="connector-field connector-json-field"><span>Flowable 候选组映射（JSON）<small>键为 Flowable 用户 ID，值为该用户可处理的候选组 ID 数组</small></span><textarea rows={5} spellCheck={false} value={groupMapText} onChange={event => setGroupMapText(event.target.value)} placeholder={'{\n  "flowable-user-id": ["material-reviewers"]\n}'}/></label></div>}
           {active === 'k3cloud' && <div className="connector-fields"><div className="connector-help"><b>金蝶云星空 WebAPI（只读）</b><span>查询接口受 FormId/FieldKeys 服务端 allowlist 控制。此配置不会提供写单据能力。</span></div>{textInput('baseUrl', 'WebAPI Base URL', 'https://erp.example.com/k3cloud')}{textInput('accountId', '账套 ID')}{textInput('username', '接口用户名')}{textInput('organization', '组织标识')}{textInput('appId', '第三方应用 AppId')}{secretInput('appSecret', 'AppSecret')}{textInput('lcid', '语言 ID（LCID）', '2052')}<label className="connector-field connector-json-field"><span>只读查询 allowlist（JSON）<small>键为 FormId，值为允许查询的字段数组</small></span><textarea rows={8} spellCheck={false} value={allowlistText} onChange={event => setAllowlistText(event.target.value)} placeholder={'{\n  "BD_MATERIAL": ["FMATERIALID", "FNumber", "FName"]\n}'}/></label></div>}
           {active === 'dingtalk' && <div className="connector-fields"><div className="connector-help"><b>钉钉机器人通知</b><span>测试按钮会向当前账套配置的群机器人发送一条明确标注的测试消息。卡片回调还需在钉钉开放平台配置回调地址与身份映射。</span></div>{textInput('webhookUrl', '自定义机器人 Webhook', 'https://oapi.dingtalk.com/robot/send?access_token=…')}{secretInput('webhookSecret', '机器人签名密钥')}{textInput('publicAppUrl', '应用 HTTPS 公网地址（用于通知链接）', 'https://plm.company.com')}{textInput('corpId', '企业 CorpId')}{textInput('appKey', '钉钉应用 AppKey')}{secretInput('appSecret', '钉钉应用 AppSecret')}{textInput('templateId', '互动卡片模板 ID')}{secretInput('cardCallbackSecret', '互动卡片回调签名密钥')}<label className="connector-field connector-json-field"><span>钉钉身份映射（JSON）<small>键 corpId:userId，值为 Flowable assignee 用户 ID</small></span><textarea rows={5} spellCheck={false} value={dingtalkMapText} onChange={event => setDingtalkMapText(event.target.value)} placeholder={'{\n  "ding-corp:ding-user-id": "flowable-user-id"\n}'}/></label></div>}
           {active === 'k3cloud' && <section className="connector-fields" aria-label="K3Cloud 手动只读查询"><div className="connector-help"><b>手动只读查询</b><span>仅使用当前服务端已保存的 FormId/字段 allowlist；查询只会在点击下方按钮后发起，不提供自由过滤表达式。</span></div>

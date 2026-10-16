@@ -23,7 +23,7 @@ function envConfig(scope: ConnectorScope, provider: ConnectorProvider): Connecto
   // Global environment values are never implicitly shared across tenants. They are
   // available only when an operator explicitly binds them to this exact scope.
   if (!environmentScopeMatches(scope)) return {}
-  if (provider === 'flowable') return { baseUrl: process.env.FLOWABLE_BASE_URL?.trim() ?? '', username: process.env.FLOWABLE_USERNAME?.trim() ?? '', password: process.env.FLOWABLE_PASSWORD ?? '', timeoutMs: Number(process.env.FLOWABLE_TIMEOUT_MS ?? 10000), userMap: jsonObjectEnv('FLOWABLE_USER_MAP_JSON') }
+  if (provider === 'flowable') return { baseUrl: process.env.FLOWABLE_BASE_URL?.trim() ?? '', username: process.env.FLOWABLE_USERNAME?.trim() ?? '', password: process.env.FLOWABLE_PASSWORD ?? '', timeoutMs: Number(process.env.FLOWABLE_TIMEOUT_MS ?? 10000), userMap: jsonObjectEnv('FLOWABLE_USER_MAP_JSON'), groupMap: jsonObjectEnv('FLOWABLE_GROUP_MAP_JSON') }
   if (provider === 'k3cloud') return {
     baseUrl: process.env.K3CLOUD_BASE_URL?.trim() ?? '', accountId: process.env.K3CLOUD_ACCOUNT_ID?.trim() ?? '', username: process.env.K3CLOUD_USERNAME?.trim() ?? '', organization: process.env.K3CLOUD_ORGANIZATION?.trim() ?? '',
     appId: process.env.K3CLOUD_APP_ID?.trim() ?? '', appSecret: process.env.K3CLOUD_APP_SECRET ?? '', password: process.env.K3CLOUD_PASSWORD ?? '', lcid: String(process.env.K3CLOUD_LCID ?? 2052), timeoutMs: Number(process.env.K3CLOUD_TIMEOUT_MS ?? 20000), formAllowlist: jsonObjectEnv('K3CLOUD_QUERY_ALLOWLIST'),
@@ -63,6 +63,13 @@ function validateConfig(provider: ConnectorProvider, config: ConnectorConfig): v
     }
   }
   if (provider === 'flowable' && config.userMap !== undefined && (!config.userMap || typeof config.userMap !== 'object' || Array.isArray(config.userMap))) throw new Error('Flowable userMap must be an email-to-engine-user JSON object.')
+  if (provider === 'flowable' && config.groupMap !== undefined) {
+    const groupMap = config.groupMap
+    if (!groupMap || typeof groupMap !== 'object' || Array.isArray(groupMap)) throw new Error('Flowable groupMap must be an engine-user-to-candidate-groups JSON object.')
+    for (const [userId, groups] of Object.entries(groupMap as Record<string, unknown>)) {
+      if (!userId.trim() || userId.length > 160 || !Array.isArray(groups) || groups.length > 100 || groups.some(group => typeof group !== 'string' || !group.trim() || group.length > 160 || /[\u0000-\u001f\u007f]/.test(group))) throw new Error('Flowable groupMap entries must map engine user IDs to at most 100 valid candidate group IDs.')
+    }
+  }
   if (provider === 'dingtalk' && config.userMapping !== undefined && (!config.userMapping || typeof config.userMapping !== 'object' || Array.isArray(config.userMapping))) throw new Error('DingTalk userMapping must be a corpId:userId-to-engine-user JSON object.')
   for (const [key, value] of Object.entries(config)) {
     if (typeof value === 'string' && value.length > 2000) throw new Error(`${key} is too long.`)
@@ -92,7 +99,7 @@ export function connectorSummary(scope: WorkspaceScope, provider: ConnectorProvi
   const row = getConnectorRow(scope, provider), config = getConnectorConfig(scope, provider), missingFields = requiredFields(provider, config), safe: Record<string, unknown> = {}
   const safeFields = provider === 'k3cloud'
     ? ['baseUrl', 'accountId', 'username', 'organization', 'appId', 'lcid', 'timeoutMs', 'formAllowlist']
-    : provider === 'flowable' ? ['baseUrl', 'username', 'timeoutMs', 'userMap'] : ['webhookUrl', 'appKey', 'templateId', 'corpId', 'publicAppUrl', 'userMapping']
+    : provider === 'flowable' ? ['baseUrl', 'username', 'timeoutMs', 'userMap', 'groupMap'] : ['webhookUrl', 'appKey', 'templateId', 'corpId', 'publicAppUrl', 'userMapping']
   for (const key of safeFields) if (config[key] !== undefined && config[key] !== '') safe[key] = config[key]
   const presentSecrets = secretFields[provider].filter(key => typeof config[key] === 'string' && String(config[key]).length > 0)
   const source = row ? 'encrypted-scope-setting' : environmentScopeMatches(scope) ? 'environment-scope-default' : 'unconfigured'

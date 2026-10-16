@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 export type FlowableStatus = { connected: boolean; configured: boolean; message: string }
 export type ApprovalDecision = 'approved' | 'rejected'
-export type FlowableConfig = { baseUrl: string; username?: string; password?: string; timeoutMs?: number; userMap?: Record<string, unknown> }
+export type FlowableConfig = { baseUrl: string; username?: string; password?: string; timeoutMs?: number; userMap?: Record<string, unknown>; groupMap?: Record<string, unknown> }
 type JsonRecord = Record<string, unknown>
 
 const moduleDir = dirname(fileURLToPath(import.meta.url))
@@ -115,6 +115,53 @@ export async function listTasks(query: Record<string, string | number | boolean>
 export async function getTask(taskId: string, input?: FlowableConfig): Promise<unknown> {
   if (!taskId.trim()) throw new Error('taskId is required')
   return request(requireConfig(input), 'GET', `/runtime/tasks/${encodeURIComponent(taskId)}`)
+}
+
+function taskRows(value: unknown): JsonRecord[] {
+  const object = value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
+  const rows = Array.isArray(value) ? value : Array.isArray(object.data) ? object.data : []
+  return rows.filter(row => Boolean(row) && typeof row === 'object' && !Array.isArray(row)) as JsonRecord[]
+}
+
+/** Query only tasks visible to the mapped Flowable user in the exact tenant. */
+export async function listTasksForActor(actor: string, tenantId: string, candidateGroups: string[] = [], input?: FlowableConfig): Promise<JsonRecord[]> {
+  if (!actor.trim() || !tenantId.trim()) throw new Error('actor and tenantId are required')
+  const groups = [...new Set(candidateGroups.filter(group => typeof group === 'string' && group.trim()).map(group => group.trim()))].slice(0, 100)
+  const queries = [
+    listTasks({ assignee: actor, tenantId, active: true, size: 100 }, input),
+    listTasks({ candidateUser: actor, tenantId, active: true, size: 100 }, input),
+    ...groups.map(group => listTasks({ candidateGroup: group, tenantId, active: true, size: 100 }, input)),
+  ]
+  const results = await Promise.all(queries)
+  const visible = new Map<string, JsonRecord>()
+  for (let index = 0; index < results.length; index += 1) {
+    for (const row of taskRows(results[index])) {
+      if (String(row.tenantId ?? '') !== tenantId) continue
+      const assignee = String(row.assignee ?? '')
+      if (index < 2 ? assignee !== actor : Boolean(assignee && assignee !== actor)) continue
+      const id = String(row.id ?? '')
+      if (id) visible.set(id, row)
+    }
+  }
+  return [...visible.values()]
+}
+
+/** Return a task only if this mapped user is its assignee or configured candidate. */
+export async function getTaskForActor(taskId: string, actor: string, tenantId: string, candidateGroups: string[] = [], input?: FlowableConfig): Promise<JsonRecord | null> {
+  if (!taskId.trim() || !actor.trim() || !tenantId.trim()) throw new Error('taskId, actor, and tenantId are required')
+  const task = await getTask(taskId, input) as JsonRecord
+  if (String(task.tenantId ?? '') !== tenantId) return null
+  const assignee = String(task.assignee ?? '')
+  if (assignee === actor) return task
+  if (assignee) return null
+  const groups = [...new Set(candidateGroups.filter(group => typeof group === 'string' && group.trim()).map(group => group.trim()))].slice(0, 100)
+  const candidateQueries = [
+    listTasks({ candidateUser: actor, tenantId, taskId, active: true, size: 100 }, input),
+    ...groups.map(group => listTasks({ candidateGroup: group, tenantId, taskId, active: true, size: 100 }, input)),
+  ]
+  const results = await Promise.all(candidateQueries)
+  const eligible = results.some(result => taskRows(result).some(row => String(row.id ?? '') === taskId && String(row.tenantId ?? '') === tenantId && !String(row.assignee ?? '')))
+  return eligible ? task : null
 }
 
 export async function startProcess(processDefinitionKey: string, variables: Array<{ name: string; value: unknown }> = [], options: Record<string, unknown> = {}, input?: FlowableConfig): Promise<unknown> {
