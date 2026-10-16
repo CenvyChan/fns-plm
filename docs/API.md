@@ -45,6 +45,10 @@
 | `POST` | `/api/projects` | 已登录 | 新建项目；必需 `name`，可带 `description`、`color` (`#RRGGBB`) 与 `dueDate`。 |
 | `PATCH` | `/api/projects/:id` | 已登录 | 更新项目名称、描述、颜色、截止日。 |
 | `DELETE` | `/api/projects/:id` | 已登录 | 删除项目；关联任务解除项目引用。 |
+| `POST` | `/api/projects/:id/import-plan` | `admin`, `plm_manager` | 通过 `multipart/form-data` 的 `file` 导入 CSV/XLSX；最大 10 MB。解析后校验阶段/里程碑引用、重复 WBS 和日期，再原子写入当前项目。 |
+| `GET` | `/api/projects/:id/export.csv` | 已登录 | 导出当前项目任务计划 CSV；记录不存在于当前 scope 时返回 `404`。 |
+| `GET` | `/api/projects/:id/export.xlsx` | 已登录 | 导出当前项目 Excel 工作簿（项目、阶段、里程碑、任务、事件/评审、报告和附件清单）。 |
+| `GET` | `/api/projects/:id/archive.zip` | 已登录 | 下载当前项目 JSON manifest、Excel 工作簿与该项目附件；响应 `private, no-store`，不打包数据库、密钥、环境变量或其他项目/账套数据。 |
 
 ## 3. PLM 集合
 
@@ -63,15 +67,17 @@
 
 **BOM 发布约束：** EBOM/MBOM 行项目、下游 BOM 已发布且匹配的源 BOM 与修订；销售 BOM 需有订单属性、配置组和规则，并验证允许组合覆盖与无歧义。EBOM 是下游 MBOM/SBOM 的允许基线类型之一。某些字段是否受特定业务校验，以服务端当前的规则校验器为准。
 
+**项目归档附件命名：** ZIP 内附件位于 `{项目编号}/attachments/`，文件名为 `{项目编号}_NA_NA_{创建人}_{UTC时间戳}_{附件ID}_{原文件名}`。当前项目附件模型仅直接关联项目，因此事件号和任务号使用 `NA`；manifest 同时保留 `originalName`、`archiveName`、`linkedRecord`、`creator`、`createdAt` 与 `sha256`，并对缺失的附件二进制标记 `archived: false`。
+
 ### 图文档附件
 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | `GET` | `/api/documents/:id/files` | 已登录 | 列出当前账套文档附件元数据，不含跨账套内容。 |
 | `POST` | `/api/documents/:id/files` | `admin`, `plm_manager` | `multipart/form-data`，字段 `file`。最大 25 MB；检查允许的扩展名和文件内容签名。保存摘要、修订、上传用户及文件元数据。 |
-| `GET` | `/api/documents/:id/files/:fileId/content` | 已登录 | 返回受保护的附件下载流（私有、`no-store`）；必须属于当前 scope。 |
+| `GET` | `/api/documents/:id/files/:fileId/content` | 已登录 | 返回受保护的附件下载流（私有、`no-store`）；必须属于当前 scope。前端在拿到认证文件流后可本地预览 PDF/图片、DOCX/XLSX 和 CSV/TXT，不调用第三方预览服务；DWG/DXF/STEP/STL/IGES 等按原格式下载。 |
 
-允许 PDF、PNG/JPEG、DOCX/XLSX、CSV/TXT 及 CAD 交换格式（DWG/DXF/STEP/STL/IGES 等）；**这不是 DMS/病毒扫描服务**，生产环境仍应配置备份、访问审计、恶意软件扫描和留存策略。Nginx 示例已设置 26 MB 上限以略高于 API 的 25 MB 限制。
+允许 PDF、PNG/JPEG、DOCX/XLSX、CSV/TXT 及 CAD 交换格式（DWG/DXF/STEP/STL/IGES 等）；登记、修订和上传仅限 `admin`、`plm_manager`，附件元数据/下载须具备当前账套有效认证，跨 scope 的记录与文件统一返回 404。浏览器本地预览不把附件发送到第三方；DOCX 以正文文本预览、XLSX 以首个工作表预览，复杂排版/宏/外部链接不执行，PDF 由浏览器内置查看器显示。**这不是 DMS/病毒扫描服务**，生产环境仍应配置备份、访问审计、恶意软件扫描和留存策略。Nginx 示例已设置 26 MB 上限以略高于 API 的 25 MB 限制。
 
 ### BOM 行项目
 

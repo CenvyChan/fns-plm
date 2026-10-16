@@ -627,6 +627,10 @@ function projectFileRows(projectId: string): ProjectFileRow[] {
 }
 function publicProjectFile(file: ProjectFileRow) { const { storedName: _storedName, ...visible } = file; return visible }
 function safeFileSegment(value: string): string { return value.replace(/[\\/\r\n\0<>:"|?*]/g,'_').replace(/\.\.+/g,'_').trim().slice(0,140) || 'project' }
+function archiveAttachmentName(projectCode: string, file: ProjectFileRow): string {
+  const created = new Date(file.createdAt), timestamp = Number.isNaN(created.getTime()) ? 'UNKNOWN-TIME' : created.toISOString().replace(/[-:]/g, '').replace(/\.(\d{3})Z$/, '$1Z')
+  return `${safeFileSegment(projectCode)}_NA_NA_${safeFileSegment(file.uploadedBy)}_${timestamp}_${safeFileSegment(file.id)}_${safeFileSegment(file.name)}`
+}
 app.get('/api/projects/:id/files', (req: Request, res: Response) => {
   if (!data.projects.some(project => project.id === req.params.id)) return res.status(404).json({ error: 'project not found' })
   return res.json(projectFileRows(String(req.params.id)).map(publicProjectFile))
@@ -717,11 +721,13 @@ app.get('/api/projects/:id/archive.zip',async(req:Request,res:Response)=>{
   try{
     const code=safeFileSegment(String(rows.project.code??rows.project.name??'project')),files=rows.files.filter(file=>existsSync(resolve(documentStorageDir,file.storedName)))
     const workbook=await projectWorkbook(rows.project,rows.phases,rows.milestones,rows.tasks,rows.events,rows.reviews,rows.reports,rows.files.map(publicProjectFile))
-    const manifest={exportedAt:new Date().toISOString(),scope:{tenantId:currentWorkspaceScope()!.tenantId,organizationId:currentWorkspaceScope()!.organizationId,accountId:currentWorkspaceScope()!.accountId},project:rows.project,phases:rows.phases,milestones:rows.milestones,tasks:rows.tasks,events:rows.events,eventReviews:rows.reviews,reports:rows.reports,attachments:rows.files.map(publicProjectFile)}
+    const archiveNames=new Map(files.map(file=>[file.id,`${code}/attachments/${archiveAttachmentName(code,file)}`]))
+    const attachments=rows.files.map(file=>({...publicProjectFile(file),originalName:file.name,archiveName:archiveNames.get(file.id)??null,linkedRecord:{type:'project',projectId:rows.project.id,eventId:null,taskId:null},creator:file.uploadedBy,createdAt:file.createdAt,sha256:file.sha256,archived:archiveNames.has(file.id)}))
+    const manifest={exportedAt:new Date().toISOString(),scope:{tenantId:currentWorkspaceScope()!.tenantId,organizationId:currentWorkspaceScope()!.organizationId,accountId:currentWorkspaceScope()!.accountId},project:rows.project,phases:rows.phases,milestones:rows.milestones,tasks:rows.tasks,events:rows.events,eventReviews:rows.reviews,reports:rows.reports,attachments}
     res.setHeader('Content-Type','application/zip');res.setHeader('Content-Disposition',`attachment; filename="${code}-archive.zip"`);res.setHeader('Cache-Control','private, no-store')
     const archive=new archiver.ZipArchive({zlib:{level:6}});archive.on('error',error=>{console.error('Project archive generation failed.',error);if(!res.headersSent)res.status(500).end();else res.destroy(error)});archive.pipe(res)
     archive.append(JSON.stringify(manifest,null,2),{name:`${code}/project-data.json`});archive.append(workbook,{name:`${code}/project-workbook.xlsx`})
-    for(const file of files){const original=safeFileSegment(file.name);archive.file(resolve(documentStorageDir,file.storedName),{name:`${code}/attachments/${file.id}-${original}`})}
+    for(const file of files){archive.file(resolve(documentStorageDir,file.storedName),{name:archiveNames.get(file.id)!})}
     await archive.finalize()
   }catch(error){console.error('Project archive generation failed.',error);if(!res.headersSent)return res.status(500).json({error:'project_archive_failed',message:'项目归档包生成失败。'});res.destroy(error as Error)}
 })
