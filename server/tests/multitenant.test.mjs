@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { after, before, test } from 'node:test'
 import Database from 'better-sqlite3'
+import ExcelJS from 'exceljs'
 
 const serverDir = resolve(import.meta.dirname, '..')
 let tempDir = ''
@@ -393,6 +394,34 @@ test('project workbench template, scoped plans/files, atomic KPI set, and dual-r
   const deleteDraft = await api(`/api/kpi-rules/${encodeURIComponent(spareRule.data.id)}`, { method: 'DELETE' })
   assert.equal(deleteDraft.response.status, 204)
 
+  const invalidDateWbs = `QA-BAD-DATE-${Date.now()}`
+  const invalidDateForm = new FormData()
+  invalidDateForm.append('file', new Blob([`WBS编码,任务名称,计划截止\n${invalidDateWbs},非法日期应拒绝,2026-02-30\n`], { type: 'text/csv' }), 'invalid-calendar-date.csv')
+  const invalidDateImport = await api(`/api/projects/${encodeURIComponent(project.id)}/import-plan`, { method: 'POST', body: invalidDateForm })
+  assert.equal(invalidDateImport.response.status, 400, 'nonexistent calendar dates must be rejected by the API')
+  assert.equal(invalidDateImport.data.error, 'project_import_rejected')
+  assert.match(invalidDateImport.data.message, /计划截止日期无效/, 'the API must return an actionable date validation message')
+  const afterInvalidDate = await api('/api/tasks')
+  assert.equal(afterInvalidDate.data.some(task => task.wbsCode === invalidDateWbs), false, 'a rejected plan must not persist its task rows')
+
+  const invalidReferenceWbs = `QA-BAD-REF-${Date.now()}`
+  const atomicPhaseCode = `QA-ATOMIC-${Date.now()}`
+  const invalidReferenceWorkbook = new ExcelJS.Workbook()
+  const invalidReferencePhases = invalidReferenceWorkbook.addWorksheet('阶段')
+  invalidReferencePhases.addRow(['阶段编码', '阶段名称', '顺序', '计划开始', '计划完成', '负责人', '阶段状态', '进度', '关键交付物', '验收标准'])
+  invalidReferencePhases.addRow([atomicPhaseCode, '应随失败回滚的阶段', 1, today, today, 'QA', '未开始', 0, '', ''])
+  const invalidReferenceTasks = invalidReferenceWorkbook.addWorksheet('任务')
+  invalidReferenceTasks.addRow(['WBS编码', '任务名称', '所属阶段编码', '计划开始', '计划截止', '优先级', '状态'])
+  invalidReferenceTasks.addRow([invalidReferenceWbs, '引用缺失阶段的任务', 'QA-MISSING-PHASE', today, today, '中', '待办'])
+  const invalidReferenceForm = new FormData()
+  invalidReferenceForm.append('file', new Blob([Buffer.from(await invalidReferenceWorkbook.xlsx.writeBuffer())], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'invalid-phase-reference.xlsx')
+  const invalidReferenceImport = await api(`/api/projects/${encodeURIComponent(project.id)}/import-plan`, { method: 'POST', body: invalidReferenceForm })
+  assert.equal(invalidReferenceImport.response.status, 400, 'references to missing phases must be rejected')
+  assert.match(invalidReferenceImport.data.message, /不存在的阶段编码 QA-MISSING-PHASE/)
+  const workspaceAfterReferenceFailure = await api('/api/workspace')
+  assert.equal(workspaceAfterReferenceFailure.data.projectPhases.some(phase => phase.code === atomicPhaseCode), false, 'a rejected import must not partially write its valid phase rows')
+  assert.equal(workspaceAfterReferenceFailure.data.tasks.some(task => task.wbsCode === invalidReferenceWbs), false, 'a rejected import must not partially write its invalid task rows')
+
   const csv = `WBS编码,任务名称,所属阶段编码,计划开始,计划截止,优先级,状态,进度,预计工时,验收标准,任务说明\nQA-IMP-001,CSV 计划导入验收,${projectPhase.code},${today},${today},高,待办,0,3,测试计划可追踪,文件导入端到端验证\n`
   const importForm = new FormData()
   importForm.append('file', new Blob([csv], { type: 'text/csv' }), 'qa-project-plan.csv')
@@ -408,6 +437,12 @@ test('project workbench template, scoped plans/files, atomic KPI set, and dual-r
   const attachment = await api(`/api/projects/${encodeURIComponent(project.id)}/files`, { method: 'POST', body: attachmentForm })
   assert.equal(attachment.response.status, 201, JSON.stringify(attachment.data))
   const fileId = attachment.data.file.id
+  assert.equal(Object.hasOwn(attachment.data.file, 'storedName'), false, 'internal storage filenames must not be exposed through the API')
+  const documentDirectoryMode = statSync(join(tempDir, 'documents')).mode & 0o777
+  const attachmentMode = statSync(join(tempDir, 'documents', `project-${fileId}.txt`)).mode & 0o777
+  assert.equal(documentDirectoryMode & 0o007, 0, 'the project attachment directory must not be accessible to other local users')
+  assert.equal(attachmentMode & 0o027, 0, 'stored attachments must not be world-accessible or group-writable')
+  assert.equal(attachmentMode & 0o600, 0o600, 'the service owner must retain read/write access to attachments')
   const files = await api(`/api/projects/${encodeURIComponent(project.id)}/files`)
   assert.ok(files.data.some(file => file.id === fileId && file.sha256 && file.title === 'QA 验收附件'))
   const otherProjectAttachmentForm = new FormData()
@@ -435,6 +470,8 @@ test('project workbench template, scoped plans/files, atomic KPI set, and dual-r
   const workbookResponse = await fetch(`${origin}/api/projects/${encodeURIComponent(project.id)}/export.xlsx`, { headers: authHeaders })
   const workbook = Buffer.from(await workbookResponse.arrayBuffer())
   assert.equal(workbookResponse.status, 200)
+  assert.match(workbookResponse.headers.get('content-type') ?? '', /application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/)
+  assert.equal(workbookResponse.headers.get('content-disposition'), `attachment; filename="${project.code}-workspace.xlsx"`)
   assert.deepEqual([...workbook.subarray(0, 4)], [0x50, 0x4b, 0x03, 0x04], 'workbook must be a valid XLSX zip container')
   const importWorkbookForm = new FormData()
   importWorkbookForm.append('file', new Blob([workbook], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'roundtrip-project.xlsx')
@@ -444,7 +481,7 @@ test('project workbench template, scoped plans/files, atomic KPI set, and dual-r
   const csvResponse = await fetch(`${origin}/api/projects/${encodeURIComponent(project.id)}/export.csv`, { headers: authHeaders })
   const csvExport = await csvResponse.text()
   assert.equal(csvResponse.status, 200)
-  assert.match(csvResponse.headers.get('content-disposition') ?? '', /tasks\.csv/)
+  assert.equal(csvResponse.headers.get('content-disposition'), `attachment; filename="${project.code}-tasks.csv"`)
   assert.match(csvExport, /QA-IMP-001/)
   const archiveResponse = await fetch(`${origin}/api/projects/${encodeURIComponent(project.id)}/archive.zip`, { headers: authHeaders })
   const archive = Buffer.from(await archiveResponse.arrayBuffer())
@@ -457,7 +494,7 @@ test('project workbench template, scoped plans/files, atomic KPI set, and dual-r
   assert.ok(archiveEntries.includes(manifestPath), 'archive must contain a project data manifest')
   assert.ok(archiveEntries.includes(`${project.code}/project-workbook.xlsx`), 'archive must contain the workbook')
   assert.equal(archiveResponse.headers.get('cache-control'), 'private, no-store')
-  assert.match(archiveResponse.headers.get('content-disposition') ?? '', /-archive\.zip/)
+  assert.equal(archiveResponse.headers.get('content-disposition'), `attachment; filename="${project.code}-archive.zip"`)
   assert.equal(archiveEntries.some(name => name.includes(otherProjectAttachment.data.file.id)), false, 'a project ZIP must not include another project attachment')
   assert.equal(archiveEntries.some(name => name.includes(otherProject.data.id)), false, 'a project ZIP must not include another project ID')
   assert.equal(archiveEntries.some(name => /(?:\.sqlite|\.db$|\.env|encryption-key|\.pem$)/i.test(name)), false, 'a project ZIP must not contain runtime databases or secrets')
@@ -470,11 +507,13 @@ test('project workbench template, scoped plans/files, atomic KPI set, and dual-r
   const manifestAttachment = manifest.attachments.find(item => item.id === fileId)
   assert.equal(manifestAttachment.originalName, 'qa-evidence.txt')
   assert.equal(manifestAttachment.archiveName, attachmentPath)
+  assert.equal(manifestAttachment.archived, true)
   assert.equal(manifestAttachment.linkedRecord.projectId, project.id)
   assert.equal(manifestAttachment.linkedRecord.eventId, null)
   assert.equal(manifestAttachment.linkedRecord.taskId, null)
   assert.equal(manifestAttachment.creator, 'Isolation Admin')
   assert.equal(manifestAttachment.sha256, createHash('sha256').update('project attachment QA evidence').digest('hex'))
+  assert.equal(createHash('sha256').update(execFileSync('unzip', ['-p', archivePath, attachmentPath])).digest('hex'), manifestAttachment.sha256, 'the archived attachment bytes must match the manifest SHA-256')
   assert.match(attachmentPath.split('/').at(-1), new RegExp(`^${project.code}_NA_NA_.+_\\d{8}T\\d{9}Z_[a-zA-Z0-9-]+_qa-evidence\\.txt$`))
 
   const switchToB = await api('/api/auth/switch-scope', { method: 'POST', body: { accountId: accountB } })

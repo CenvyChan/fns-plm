@@ -26,6 +26,11 @@ function dateValue(value: unknown): string {
   if (match) return `${match[1]}-${match[2]!.padStart(2,'0')}-${match[3]!.padStart(2,'0')}`
   return raw
 }
+function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const parsed = new Date(`${value}T00:00:00.000Z`)
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0,10) === value
+}
 function csvRows(input: string): string[][] {
   const rows: string[][] = []; let row: string[] = [], value = '', quoted = false
   const source = input.replace(/^\uFEFF/, '')
@@ -66,8 +71,9 @@ function parseTaskRecords(records: Array<Map<string,string>>): ImportTask[] {
   return records.map((record,index) => {
     const title=lookup(record,'title'), dueDate=dateValue(lookup(record,'dueDate')), startDate=dateValue(lookup(record,'startDate'))
     if (!title) throw new Error(`第 ${index+2} 行缺少任务名称。`)
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) throw new Error(`任务“${title}”的计划截止日期无效。`)
-    if (startDate && !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) throw new Error(`任务“${title}”的计划开始日期无效。`)
+    if (!isCalendarDate(dueDate)) throw new Error(`任务“${title}”的计划截止日期无效。`)
+    if (startDate && !isCalendarDate(startDate)) throw new Error(`任务“${title}”的计划开始日期无效。`)
+    if (startDate && startDate > dueDate) throw new Error(`任务“${title}”的计划开始日期不能晚于计划截止日期。`)
     return { wbsCode: lookup(record,'wbsCode') || `IMP-${String(index+1).padStart(4,'0')}`, title: title.slice(0,160), phaseCode: lookup(record,'phaseCode'), milestoneCode: lookup(record,'milestoneCode'), assignee: lookup(record,'assignee'), startDate, dueDate, priority: normalizedPriority(lookup(record,'priority')), status: normalizedStatus(lookup(record,'status')), progress: finiteNumber(lookup(record,'progress'),0,0,100), estimateHours: finiteNumber(lookup(record,'estimateHours'),0,0,100000), acceptanceCriteria: lookup(record,'acceptanceCriteria').slice(0,2000), description: lookup(record,'description').slice(0,2000) }
   })
 }
@@ -84,7 +90,8 @@ function phaseRecords(headers: string[], rows: string[][]): ImportPhase[] {
   return mapRecords(headers,rows).map((record,index)=>{
     const code=lookup(record,'code') || lookup(record,'phaseCode') || `P${index+1}`, name=lookup(record,'phaseName'), startDate=dateValue(lookup(record,'startDate')), dueDate=dateValue(lookup(record,'dueDate'))
     if (!name) throw new Error(`阶段表第 ${index+2} 行缺少阶段名称。`)
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) throw new Error(`阶段“${name}”日期无效。`)
+    if (!isCalendarDate(startDate) || !isCalendarDate(dueDate)) throw new Error(`阶段“${name}”日期无效。`)
+    if (startDate > dueDate) throw new Error(`阶段“${name}”的计划开始日期不能晚于计划完成日期。`)
     const rawStatus=lookup(record,'phaseStatus').toLowerCase(), status=['completed','已完成','完成'].includes(rawStatus)?'completed':['blocked','受阻'].includes(rawStatus)?'blocked':['in-progress','进行中'].includes(rawStatus)?'in-progress':'not-started'
     return {code:code.slice(0,40),name:name.slice(0,120),order:finiteNumber(lookup(record,'order'),index+1,1,1000),startDate,dueDate,owner:lookup(record,'assignee').slice(0,120),status,progress:finiteNumber(lookup(record,'phaseProgress'),0,0,100),deliverables:lookup(record,'deliverables').slice(0,2000),acceptanceCriteria:lookup(record,'acceptanceCriteria').slice(0,2000)}
   })
@@ -92,11 +99,12 @@ function phaseRecords(headers: string[], rows: string[][]): ImportPhase[] {
 function milestoneRecords(headers: string[], rows: string[][]): ImportMilestone[] {
   if (rows.length > 1000) throw new Error('每次最多导入 1000 个里程碑。')
   return mapRecords(headers,rows).map((record,index)=>{
-    const title=lookup(record,'milestoneTitle'), dueDate=dateValue(lookup(record,'dueDate'))
+    const title=lookup(record,'milestoneTitle'), dueDate=dateValue(lookup(record,'dueDate')), actualDate=dateValue(lookup(record,'actualDate'))
     if (!title) throw new Error(`里程碑表第 ${index+2} 行缺少里程碑名称。`)
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) throw new Error(`里程碑“${title}”计划日期无效。`)
+    if (!isCalendarDate(dueDate)) throw new Error(`里程碑“${title}”计划日期无效。`)
+    if (actualDate && !isCalendarDate(actualDate)) throw new Error(`里程碑“${title}”实际日期无效。`)
     const rawStatus=lookup(record,'milestoneStatus').toLowerCase(), status=['completed','已完成','完成'].includes(rawStatus)?'completed':['missed','已错过','逾期'].includes(rawStatus)?'missed':'planned'
-    return {code:lookup(record,'code') || `M${index+1}`,title:title.slice(0,160),phaseCode:lookup(record,'phaseCode'),dueDate,actualDate:dateValue(lookup(record,'actualDate')),owner:lookup(record,'assignee').slice(0,120),status,acceptanceCriteria:lookup(record,'acceptanceCriteria').slice(0,2000)}
+    return {code:lookup(record,'code') || `M${index+1}`,title:title.slice(0,160),phaseCode:lookup(record,'phaseCode'),dueDate,actualDate,owner:lookup(record,'assignee').slice(0,120),status,acceptanceCriteria:lookup(record,'acceptanceCriteria').slice(0,2000)}
   })
 }
 export async function parseProjectPlanFile(fileName: string, buffer: Buffer): Promise<ProjectPlanImport> {

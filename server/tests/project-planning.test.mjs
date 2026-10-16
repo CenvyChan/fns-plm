@@ -38,3 +38,21 @@ test('project task CSV export/import preserves quoting and validates required da
   await assert.rejects(() => parseProjectPlanFile('tasks.csv', Buffer.from('任务名称,计划截止\n无效任务,not-a-date\n')), /计划截止日期无效/)
   await assert.rejects(() => parseProjectPlanFile('legacy.xls', Buffer.from('legacy')), /仅支持 CSV 或 XLSX/)
 })
+
+test('project plan import rejects impossible calendar dates and reversed date ranges', async () => {
+  const invalidDateCsv = Buffer.from('任务名称,计划开始,计划截止\n无效日期任务,,2026-02-30\n')
+  await assert.rejects(() => parseProjectPlanFile('invalid-date.csv', invalidDateCsv), /计划截止日期无效/)
+
+  const reversedTaskCsv = Buffer.from('任务名称,计划开始,计划截止\n日期倒置任务,2026-10-21,2026-10-20\n')
+  await assert.rejects(() => parseProjectPlanFile('reversed-task.csv', reversedTaskCsv), /计划开始日期不能晚于计划截止日期/)
+
+  const project = { id: 'date-project', code: 'PRJ-DATE-QA', name: '日期校验', type: '工程变更', status: 'active', department: '研发', owner: 'QA', sponsor: '', startDate: '2026-01-01', dueDate: '2026-12-31', progress: 0, goal: '', scope: '', successCriteria: '', description: '' }
+  const task = { id: 'date-task', projectId: project.id, wbsCode: '1.1', title: '有效任务', startDate: '2026-01-02', dueDate: '2026-01-03', priority: 'medium', status: 'todo', progress: 0 }
+  const invalidPhase = { id: 'date-phase', projectId: project.id, code: 'P-DATE', name: '不存在的日期', order: 1, startDate: '2026-02-30', dueDate: '2026-03-01', status: 'not-started', progress: 0 }
+  const invalidPhaseWorkbook = await projectWorkbook(project, [invalidPhase], [], [task], [], [], [], [])
+  await assert.rejects(() => parseProjectPlanFile('invalid-phase.xlsx', invalidPhaseWorkbook), /阶段“.*”日期无效/)
+
+  const invalidMilestone = { id: 'date-milestone', projectId: project.id, code: 'M-DATE', title: '实际日期无效', dueDate: '2026-03-01', actualDate: '2026-02-30', status: 'completed' }
+  const invalidMilestoneWorkbook = await projectWorkbook(project, [], [invalidMilestone], [task], [], [], [], [])
+  await assert.rejects(() => parseProjectPlanFile('invalid-milestone.xlsx', invalidMilestoneWorkbook), /里程碑“.*”实际日期无效/)
+})
