@@ -40,8 +40,8 @@ function currentAccountHasUser(userId: string): boolean {
   const scope = currentWorkspaceScope()
   if (!scope || !userId) return false
   return Boolean(db.prepare(`SELECT 1 FROM tenant_memberships m
-    JOIN users u ON u.id=m.user_id JOIN accounts a ON a.id=m.account_id
-    JOIN organizations o ON o.id=m.organization_id JOIN tenants t ON t.id=m.tenant_id
+    JOIN users u ON u.id=m.user_id JOIN accounts a ON a.id=m.account_id AND a.tenant_id=m.tenant_id AND a.organization_id=m.organization_id
+    JOIN organizations o ON o.id=a.organization_id AND o.tenant_id=a.tenant_id JOIN tenants t ON t.id=a.tenant_id
     WHERE m.user_id=? AND m.tenant_id=? AND m.organization_id=? AND m.account_id=?
       AND m.disabled=0 AND u.disabled=0 AND a.status='active' AND o.status='active' AND t.status='active'`)
     .get(userId, scope.tenantId, scope.organizationId, scope.accountId))
@@ -174,11 +174,13 @@ app.post('/api/projects', (req: Request, res: Response) => {
   const ownerId = typeof body.ownerId === 'string' && body.ownerId.trim() ? body.ownerId.trim() : req.authUser!.id
   if (!currentAccountHasUser(ownerId)) return res.status(400).json({ error: 'ownerId must identify an active user in the current account' })
   const now = new Date().toISOString(), today = now.slice(0,10), dueDate = typeof body.dueDate === 'string' && body.dueDate ? body.dueDate : today
+  const projectId = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : nanoid()
+  if (data.projects.some(project => project.id === projectId)) return res.status(409).json({ error: 'id already exists' })
   const status = ['draft','active','on-hold','completed','cancelled'].includes(String(body.status)) ? String(body.status) : 'active'
   const priority = ['low','medium','high'].includes(String(body.priority)) ? String(body.priority) : 'medium'
   const progress = Number.isFinite(Number(body.progress)) ? Math.max(0,Math.min(100,Number(body.progress))) : 0
   const project: Project = {
-    id: typeof body.id === 'string' ? body.id : nanoid(), code: typeof body.code === 'string' && body.code.trim() ? body.code.trim().slice(0,40) : `PRJ-${today.slice(0,4)}-${nanoid(5).toUpperCase()}`,
+    id: projectId, code: typeof body.code === 'string' && body.code.trim() ? body.code.trim().slice(0,40) : `PRJ-${today.slice(0,4)}-${nanoid(5).toUpperCase()}`,
     name: body.name.trim().slice(0,120), description: typeof body.description === 'string' ? body.description.trim().slice(0,2000) : '', color: typeof body.color === 'string' && /^#[0-9a-f]{6}$/i.test(body.color) ? body.color : '#8d7cf6',
     type: typeof body.type === 'string' ? body.type.slice(0,80) : '通用项目', department: typeof body.department === 'string' ? body.department.slice(0,120) : '', owner: typeof body.owner === 'string' ? body.owner.slice(0,120) : req.authUser!.displayName, ownerId,
     sponsor: typeof body.sponsor === 'string' ? body.sponsor.slice(0,120) : '', startDate: typeof body.startDate === 'string' ? body.startDate : today, dueDate, status, priority, progress, stage: typeof body.stage === 'string' ? body.stage.slice(0,100) : '', scope: typeof body.scope === 'string' ? body.scope.slice(0,4000) : '', goal: typeof body.goal === 'string' ? body.goal.slice(0,4000) : '', successCriteria: typeof body.successCriteria === 'string' ? body.successCriteria.slice(0,4000) : '', createdAt: now, updatedAt: now,
@@ -230,17 +232,35 @@ app.patch('/api/projects/:id', (req: Request, res: Response) => {
   data.projects[index] = { ...data.projects[index]!, ...patch } as Project; persist(); return res.json(data.projects[index])
 })
 app.delete('/api/projects/:id', requireRole('admin','plm_manager'), (req: Request, res: Response) => {
-  const id = req.params.id; const before = data.projects.length
-  data.projects = data.projects.filter(project => project.id !== id)
-  if (before === data.projects.length) return res.status(404).json({ error: 'project not found' })
+  const id = req.params.id
+  if (!data.projects.some(project => project.id === id)) return res.status(404).json({ error: 'project not found' })
+  const scope = currentWorkspaceScope()!
+  const attachments = db.prepare(`SELECT stored_name AS storedName FROM project_files WHERE tenant_id=? AND organization_id=? AND account_id=? AND project_id=?`)
+    .all(scope.tenantId, scope.organizationId, scope.accountId, id) as Array<{ storedName: string }>
   const eventIds = data.projectEvents.filter(event => event.projectId === id).map(event => event.id)
-  data.tasks = data.tasks.filter(task => task.projectId !== id)
-  data.projectPhases = data.projectPhases.filter(phase => phase.projectId !== id)
-  data.projectMilestones = data.projectMilestones.filter(item => item.projectId !== id)
-  data.projectEvents = data.projectEvents.filter(event => event.projectId !== id)
-  data.projectEventReviews = data.projectEventReviews.filter(review => review.projectId !== id && !eventIds.includes(String(review.eventId)))
-  data.projectReports = data.projectReports.filter(report => report.projectId !== id)
-  persist(); return res.status(204).end()
+  const before = { projects: data.projects, tasks: data.tasks, phases: data.projectPhases, milestones: data.projectMilestones, events: data.projectEvents, reviews: data.projectEventReviews, reports: data.projectReports }
+  try {
+    db.transaction(() => {
+      data.projects = data.projects.filter(project => project.id !== id)
+      data.tasks = data.tasks.filter(task => task.projectId !== id)
+      data.projectPhases = data.projectPhases.filter(phase => phase.projectId !== id)
+      data.projectMilestones = data.projectMilestones.filter(item => item.projectId !== id)
+      data.projectEvents = data.projectEvents.filter(event => event.projectId !== id)
+      data.projectEventReviews = data.projectEventReviews.filter(review => review.projectId !== id && !eventIds.includes(String(review.eventId)))
+      data.projectReports = data.projectReports.filter(report => report.projectId !== id)
+      db.prepare(`DELETE FROM project_files WHERE tenant_id=? AND organization_id=? AND account_id=? AND project_id=?`).run(scope.tenantId, scope.organizationId, scope.accountId, id)
+      persist()
+    })()
+  } catch (error) {
+    data.projects = before.projects; data.tasks = before.tasks; data.projectPhases = before.phases; data.projectMilestones = before.milestones
+    data.projectEvents = before.events; data.projectEventReviews = before.reviews; data.projectReports = before.reports
+    throw error
+  }
+  for (const file of attachments) {
+    try { const target = resolve(documentStorageDir, file.storedName); if (existsSync(target)) unlinkSync(target) }
+    catch (error) { console.error('Project attachment cleanup failed after scoped metadata deletion.', error) }
+  }
+  return res.status(204).end()
 })
 
 const writable: Record<CollectionKey, string[]> = {
@@ -268,6 +288,17 @@ const required: Record<CollectionKey, string[]> = {
   projectEvents: ['projectId', 'code', 'type', 'title', 'description', 'owner', 'department', 'startDate', 'dueDate', 'status', 'projectWeight'],
   projectReports: ['projectId', 'period', 'progress', 'achievements', 'blockers', 'risks', 'decisionsNeeded', 'nextSteps'],
   projectTemplates: ['code', 'name', 'type', 'description', 'phases'],
+}
+function currentMaterial(id: unknown): boolean { return typeof id === 'string' && Boolean(id) && data.materials.some(material => material.id === id) }
+function validateMaterialLines(lines: unknown, field: string): string | undefined {
+  if (!Array.isArray(lines)) return `${field} must be an array`
+  for (const [index, value] of lines.entries()) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return `${field}[${index}] must be an object`
+    const line = value as Record<string, unknown>
+    if (!currentMaterial(line.materialId)) return `${field}[${index}].materialId must identify a material in the current account`
+    if (!(Number(line.quantity) > 0) || !Number.isFinite(Number(line.quantity))) return `${field}[${index}].quantity must be positive`
+  }
+  return undefined
 }
 const safeFields = (key: CollectionKey, body: unknown) => {
   const source = body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : {}
@@ -301,11 +332,40 @@ const validateEntity = (key: CollectionKey, record: Record<string, unknown>, isP
     if (record.kind !== undefined && !['design', 'manufacturing', 'sales'].includes(String(record.kind))) return 'invalid BOM kind'
     if (record.lines !== undefined && !Array.isArray(record.lines)) return 'lines must be an array'
     if (record.salesRules !== undefined && !Array.isArray(record.salesRules)) return 'salesRules must be an array'
+    if (record.parentMaterialId !== undefined && !currentMaterial(record.parentMaterialId)) return 'parentMaterialId must identify a material in the current account'
+    if (Array.isArray(record.lines)) {
+      const error = validateMaterialLines(record.lines, 'lines'); if (error) return error
+      if (record.lines.some(value => (value as Record<string, unknown>).materialId === record.parentMaterialId)) return 'a BOM cannot contain its own parent material as a component'
+    }
+    if (record.sourceBomId !== undefined && record.sourceBomId !== '') {
+      const source = data.boms.find(item => item.id === record.sourceBomId)
+      if (!source || source.id === record.id || source.parentMaterialId !== record.parentMaterialId) return 'sourceBomId must reference a compatible BOM in the current account'
+      if (record.sourceRevision !== undefined && record.sourceRevision !== '' && record.sourceRevision !== source.revision) return 'sourceRevision must match the referenced BOM'
+    }
+    if (Array.isArray(record.salesRules)) for (const [index, value] of record.salesRules.entries()) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return `salesRules[${index}] must be an object`
+      const rule = value as Record<string, unknown>
+      if (!currentMaterial(rule.materialId)) return `salesRules[${index}].materialId must identify a material in the current account`
+      if (!(Number(rule.quantity) > 0) || !Number.isFinite(Number(rule.quantity))) return `salesRules[${index}].quantity must be positive`
+    }
   }
   if (key === 'salesBomSnapshots') {
     if (record.quantity !== undefined && !(Number(record.quantity) > 0)) return 'quantity must be positive'
     if (record.lines !== undefined && !Array.isArray(record.lines)) return 'lines must be an array'
+    if (!currentMaterial(record.parentMaterialId)) return 'parentMaterialId must identify a material in the current account'
+    const sourceBom = data.boms.find(item => item.id === record.bomId)
+    if (!sourceBom || sourceBom.kind !== 'sales') return 'bomId must identify a sales BOM in the current account'
+    if (sourceBom.parentMaterialId !== record.parentMaterialId || sourceBom.bomNo !== record.bomNo || sourceBom.revision !== record.bomRevision) return 'snapshot BOM, parent material, number, and revision must match a current account record'
+    if (Array.isArray(record.lines)) {
+      const error = validateMaterialLines(record.lines, 'lines'); if (error) return error
+      for (const [index, value] of record.lines.entries()) {
+        const line = value as Record<string, unknown>
+        if (line.sourceBomId !== undefined && line.sourceBomId !== sourceBom.id) return `lines[${index}].sourceBomId must match the snapshot BOM`
+        if (line.sourceRevision !== undefined && line.sourceRevision !== sourceBom.revision) return `lines[${index}].sourceRevision must match the snapshot BOM revision`
+      }
+    }
   }
+  if (key === 'documents' && record.materialId !== undefined && record.materialId !== null && record.materialId !== '' && !currentMaterial(record.materialId)) return 'materialId must identify a material in the current account'
   return undefined
 }
 
@@ -358,6 +418,7 @@ function registerCollection(path: string, key: CollectionKey, immutable = false)
     const body = safeFields(key, req.body)
     const error = validateEntity(key, body)
     if (error) return res.status(400).json({ error })
+    if (key === 'boms' && body.lifecycle === 'released') { const releaseError = validateBomRelease(body as Entity); if (releaseError) return res.status(409).json({ error: releaseError }) }
     if (key === 'kpiRules' && body.status !== 'draft') return res.status(400).json({ error: 'new KPI rules must begin as draft' })
     if (key !== 'projectTemplates' && ['projectPhases','projectMilestones','projectEvents','projectReports'].includes(key)) {
       if (!data.projects.some(project => project.id === body.projectId)) return res.status(404).json({ error: 'project not found in current account' })
@@ -483,6 +544,7 @@ app.post('/api/project-events/:id/start-review', requireRole('admin', 'plm_manag
   const event = data.projectEvents.find(item => item.id === req.params.id)
   if (!event) return res.status(404).json({ error: 'project event not found' })
   if (event.status !== 'completed') return res.status(409).json({ error: '事件需先标记完成，才能启动绩效自评。' })
+  if (typeof event.ownerId !== 'string' || !currentAccountHasUser(event.ownerId)) return res.status(409).json({ error: '事件必须指定当前账套内的有效负责人，才能启动绩效自评。' })
   const activeRules = data.kpiRules.filter(rule => rule.status === 'active')
   const totalWeight = activeRules.reduce((sum, rule) => sum + Number(rule.weight ?? 0), 0)
   if (!activeRules.length || Math.abs(totalWeight - 100) > 0.001) return res.status(409).json({ error: 'effective KPI rules must be configured and total exactly 100% before an event review can start' })
@@ -497,7 +559,7 @@ app.patch('/api/project-event-reviews/:id/self', (req: Request, res: Response) =
   if (!review) return res.status(404).json({ error: 'project event review not found' })
   if (review.status !== 'self-review') return res.status(409).json({ error: 'self-review is not open' })
   const event = data.projectEvents.find(item => item.id === review.eventId), user = req.authUser!
-  if (!event || (event.ownerId ? event.ownerId !== user.id : event.owner !== user.displayName)) return res.status(403).json({ error: '项目事件仅允许指定负责人提交自评。' })
+  if (!event || typeof event.ownerId !== 'string' || event.ownerId !== user.id) return res.status(403).json({ error: '项目事件仅允许指定负责人提交自评。' })
   const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {}, rawLines = Array.isArray(body.scores) ? body.scores as Record<string, unknown>[] : []
   const rules = Array.isArray(review.rulesSnapshot) ? review.rulesSnapshot as Entity[] : []
   if (rawLines.length !== rules.length) return res.status(400).json({ error: '每条有效 KPI 规则都必须填写实际值。' })
@@ -736,10 +798,11 @@ app.post('/api/boms/:id/lines', requireRole('admin', 'plm_manager'), (req: Reque
   if (!bom) return res.status(404).json({ error: 'BOM not found' })
   if (bom.kind === 'sales') return res.status(409).json({ error: 'Use configurable sales rules instead of static BOM lines.' })
   const source = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {}
-  if (typeof source.materialId !== 'string' || !(Number(source.quantity) > 0)) return res.status(400).json({ error: 'materialId and positive quantity are required' })
+  if (!currentMaterial(source.materialId) || source.materialId === bom.parentMaterialId || !(Number(source.quantity) > 0) || !Number.isFinite(Number(source.quantity))) return res.status(400).json({ error: 'materialId must be a current-account component distinct from the BOM parent, and quantity must be positive' })
   const lines = Array.isArray(bom.lines) ? bom.lines as unknown[] : []
-  if (lines.some(line => (line as Record<string, unknown>).id === source.id)) return res.status(409).json({ error: 'BOM line already exists' })
-  const nextLines = [...lines, { ...source, id: typeof source.id === 'string' ? source.id : nanoid() }]
+  const lineId = typeof source.id === 'string' && source.id ? source.id : nanoid()
+  if (lines.some(line => (line as Record<string, unknown>).id === lineId)) return res.status(409).json({ error: 'BOM line already exists' })
+  const nextLines = [...lines, { ...source, id: lineId }]
   bom.lines = nextLines
   bom.updatedAt = new Date().toISOString(); persist(); return res.status(201).json(nextLines[nextLines.length - 1])
 })

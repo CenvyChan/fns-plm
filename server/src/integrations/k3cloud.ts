@@ -23,15 +23,8 @@ const sessions = new Map<string, Session>()
 const loginInFlight = new Map<string, Promise<string>>()
 const lastErrors = new Map<string, string>()
 
-function rawEnvironmentConfig(): Partial<K3CloudConfig> {
-  return {
-    baseUrl: process.env.K3CLOUD_BASE_URL?.trim() ?? '', accountId: process.env.K3CLOUD_ACCOUNT_ID?.trim() ?? '', username: process.env.K3CLOUD_USERNAME?.trim() ?? '',
-    appId: process.env.K3CLOUD_APP_ID?.trim() ?? '', appSecret: process.env.K3CLOUD_APP_SECRET ?? '', lcid: process.env.K3CLOUD_LCID?.trim() ?? '2052',
-    organization: process.env.K3CLOUD_ORGANIZATION?.trim() ?? '', timeoutMs: Number(process.env.K3CLOUD_TIMEOUT_MS ?? 20000),
-  }
-}
 function getConfig(input?: Partial<K3CloudConfig>): NormalizedConfig | undefined {
-  const source = input ?? rawEnvironmentConfig()
+  const source = input ?? {}
   const values = {
     baseUrl: String(source.baseUrl ?? '').trim(), accountId: String(source.accountId ?? '').trim(), username: String(source.username ?? '').trim(),
     appId: String(source.appId ?? '').trim(), appSecret: String(source.appSecret ?? ''), lcid: String(source.lcid ?? '').trim(), organization: String(source.organization ?? '').trim(),
@@ -48,8 +41,8 @@ function getConfig(input?: Partial<K3CloudConfig>): NormalizedConfig | undefined
   values.timeoutMs = Math.min(values.timeoutMs, 120000)
   return values
 }
-function configKey(config: NormalizedConfig): string {
-  return createHash('sha256').update([config.baseUrl, config.accountId, config.organization, config.appId, config.username, config.appSecret].join('\0')).digest('hex')
+function configKey(config: NormalizedConfig, scopeKey = ''): string {
+  return createHash('sha256').update([scopeKey, config.baseUrl, config.accountId, config.organization, config.appId, config.username, config.appSecret].join(String.fromCharCode(0))).digest('hex')
 }
 function recordFailure(key: string): void { lastErrors.set(key, new Date().toISOString()) }
 function endpoint(baseUrl: string, path: string): string { return `${baseUrl.replace(/\/$/, '')}${path}` }
@@ -61,8 +54,8 @@ function cookieFromResponse(response: Response): string | undefined {
   return parts.length ? [...new Set(parts)].join('; ') : undefined
 }
 
-async function login(config: NormalizedConfig): Promise<string> {
-  const key = configKey(config), cached = sessions.get(key)
+async function login(config: NormalizedConfig, scopeKey = ''): Promise<string> {
+  const key = configKey(config, scopeKey), cached = sessions.get(key)
   if (cached && Date.now() < cached.expiresAt) return cached.cookie
   sessions.delete(key)
   let pending = loginInFlight.get(key)
@@ -87,20 +80,20 @@ async function login(config: NormalizedConfig): Promise<string> {
   return pending
 }
 
-export function k3cloudStatus(input?: Partial<K3CloudConfig>): K3CloudStatus {
+export function k3cloudStatus(input?: Partial<K3CloudConfig>, scopeKey = ''): K3CloudStatus {
   const config = getConfig(input)
-  const source = input ?? rawEnvironmentConfig(), key = config ? configKey(config) : ''
+  const source = input ?? {}, key = config ? configKey(config, scopeKey) : ''
   return {
     configured: Boolean(config), ready: Boolean(config), authenticated: Boolean(key && sessions.get(key) && Date.now() < sessions.get(key)!.expiresAt),
     accountConfigured: Boolean(String(source.accountId ?? '').trim()), organizationConfigured: Boolean(String(source.organization ?? '').trim()), lastError: key ? lastErrors.get(key) ?? null : null,
   }
 }
 
-export async function testK3CloudConnection(input?: Partial<K3CloudConfig>): Promise<K3CloudStatus> {
+export async function testK3CloudConnection(input?: Partial<K3CloudConfig>, scopeKey = ''): Promise<K3CloudStatus> {
   const config = getConfig(input)
-  if (!config) return k3cloudStatus(input)
-  try { await login(config); return k3cloudStatus(config) }
-  catch { return { ...k3cloudStatus(config), lastError: new Date().toISOString() } }
+  if (!config) return k3cloudStatus(input, scopeKey)
+  try { await login(config, scopeKey); return k3cloudStatus(config, scopeKey) }
+  catch { return { ...k3cloudStatus(config, scopeKey), lastError: new Date().toISOString() } }
 }
 
 function validateQuery(input: K3CloudQueryInput): { fields: string[]; filter: string; startRow: number } {
@@ -116,21 +109,21 @@ function validateQuery(input: K3CloudQueryInput): { fields: string[]; filter: st
   if (!fields.length || fields.some(field => !field)) throw new Error('Invalid K3Cloud FieldKeys')
   return { fields, filter, startRow }
 }
-function queryCacheKey(config: NormalizedConfig, input: K3CloudQueryInput, fields: string[], filter: string, startRow: number): string {
-  const digest = createHash('sha256').update(JSON.stringify([configKey(config), input.formId, fields.join(','), filter, String(input.limit), String(startRow), input.orderString ?? ''])).digest('hex')
+function queryCacheKey(config: NormalizedConfig, input: K3CloudQueryInput, fields: string[], filter: string, startRow: number, scopeKey: string): string {
+  const digest = createHash('sha256').update(JSON.stringify([configKey(config, scopeKey), input.formId, fields.join(','), filter, String(input.limit), String(startRow), input.orderString ?? ''])).digest('hex')
   return `k3cloud:v2:${digest}`
 }
 
-export async function queryK3Cloud(input: K3CloudQueryInput, connection?: Partial<K3CloudConfig>): Promise<K3CloudQueryResult> {
+export async function queryK3Cloud(input: K3CloudQueryInput, connection?: Partial<K3CloudConfig>, scopeKey = ''): Promise<K3CloudQueryResult> {
   const config = getConfig(connection)
   if (!config) throw new Error('K3Cloud is not fully configured')
-  const key = configKey(config), { fields, filter, startRow } = validateQuery(input), cacheKey = queryCacheKey(config, input, fields, filter, startRow)
+  const key = configKey(config, scopeKey), { fields, filter, startRow } = validateQuery(input), cacheKey = queryCacheKey(config, input, fields, filter, startRow, scopeKey)
   try {
     const cached = await cacheGet(cacheKey)
     if (cached) { const parsed = JSON.parse(cached) as { rawRows: unknown[][] }; if (Array.isArray(parsed.rawRows)) return mapRows(fields, parsed.rawRows, true) }
   } catch { /* Cache is optional: keep the read-only ERP query available. */ }
   try {
-    const cookie = await login(config)
+    const cookie = await login(config, scopeKey)
     const payload = { FormId: input.formId, FieldKeys: input.fieldKeys, FilterString: filter, TopRowCount: 0, Limit: input.limit, StartRow: startRow, OrderString: input.orderString ?? '' }
     const response = await fetch(endpoint(config.baseUrl, QUERY_PATH), { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify([JSON.stringify(payload)]), signal: AbortSignal.timeout(config.timeoutMs) })
     if (response.status === 401 || response.status === 403) { sessions.delete(key); throw new Error('query failed') }

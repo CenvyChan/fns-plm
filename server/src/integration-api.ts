@@ -57,12 +57,12 @@ function persistSchedules(scope: WorkspaceScope, value: ReportSchedule[]): void 
 function k3Config(scope: WorkspaceScope): Partial<K3CloudConfig> { return connectorCredentialConfig(scope, 'k3cloud') as Partial<K3CloudConfig> }
 function flowableConfig(scope: WorkspaceScope): FlowableConfig { return connectorCredentialConfig(scope, 'flowable') as unknown as FlowableConfig }
 function dingTalkConfig(scope: WorkspaceScope): DingTalkConfig { return connectorCredentialConfig(scope, 'dingtalk') as unknown as DingTalkConfig }
+function internalScopeKey(scope: WorkspaceScope): string { return `${scope.tenantId}:${scope.organizationId}:${scope.accountId}` }
+function flowableTenantId(scope: WorkspaceScope): string { return `tenant:${scope.tenantId}:organization:${scope.organizationId}:account:${scope.accountId}` }
 function trustedActor(req: Request, config: ConnectorConfig): string | undefined {
   const user = req.authUser
   if (!user || user.disabled) return undefined
-  let envMap: Record<string, unknown> = {}
-  try { envMap = JSON.parse(process.env.FLOWABLE_USER_MAP_JSON ?? '{}') as Record<string, unknown> } catch { /* fail closed to email identity */ }
-  const map = record(config.userMap), value = map[user.email] ?? envMap[user.email] ?? user.email
+  const map = record(config.userMap), value = map[user.email]
   return typeof value === 'string' && value.length > 0 && value.length <= 160 ? value : undefined
 }
 function flowableRows(value: unknown): Record<string, unknown>[] {
@@ -74,7 +74,7 @@ function publicFlowableTask(row: Record<string, unknown>) {
 }
 function validateTimezone(value: string): boolean { try { new Intl.DateTimeFormat('en-US', { timeZone: value }).format(); return true } catch { return false } }
 function cronExpression(schedule: ReportSchedule): string { const [hour, minute] = schedule.time.split(':').map(Number); return schedule.cadence === 'weekly' ? `${minute} ${hour} * * ${schedule.dayOfWeek ?? 1}` : `${minute} ${hour} * * *` }
-function schedulerKey(scope: WorkspaceScope, id: string): string { return `${scope.accountId}:${id}` }
+function schedulerKey(scope: WorkspaceScope, id: string): string { return `${internalScopeKey(scope)}:${id}` }
 function clearCron(scope: WorkspaceScope, id: string): void { const key = schedulerKey(scope, id); activeCron.get(key)?.stop(); activeCron.delete(key) }
 function scheduleStatus(scope: WorkspaceScope, schedule: ReportSchedule) {
   const ready = dingtalkStatus(dingTalkConfig(scope)).configured
@@ -112,7 +112,7 @@ function installCron(scope: WorkspaceScope, schedule: ReportSchedule): void {
 function installAllCron(scope: WorkspaceScope): void { for (const schedule of schedulesFor(scope)) installCron(scope, schedule) }
 function activeScopes(): WorkspaceScope[] {
   return db.prepare(`SELECT t.id AS tenantId,t.name AS tenantName,o.id AS organizationId,o.name AS organizationName,a.id AS accountId,a.name AS accountName
-    FROM accounts a JOIN organizations o ON o.id=a.organization_id JOIN tenants t ON t.id=a.tenant_id WHERE a.status='active' AND o.status='active' AND t.status='active'`).all() as WorkspaceScope[]
+    FROM accounts a JOIN organizations o ON o.id=a.organization_id AND o.tenant_id=a.tenant_id JOIN tenants t ON t.id=a.tenant_id WHERE a.status='active' AND o.status='active' AND t.status='active'`).all() as WorkspaceScope[]
 }
 function providerFrom(value: unknown): ConnectorProvider | undefined { return value === 'flowable' || value === 'k3cloud' || value === 'dingtalk' ? value : undefined }
 function safeIncoming(provider: ConnectorProvider, value: unknown): ConnectorConfig {
@@ -147,7 +147,7 @@ export function createIntegrationRouter(): Router {
       return res.status(status.connected ? 200 : 502).json({ status })
     }
     if (provider === 'k3cloud') {
-      const result = await testK3CloudConnection(k3Config(scope)), status = { ...result, connected: result.authenticated, message: result.authenticated ? 'K3Cloud AppSecret 登录成功；尚未执行查询或写入。' : result.configured ? 'K3Cloud 登录失败；请核对 Base URL、账号、AppId/AppSecret 与账套授权。' : 'K3Cloud 配置不完整。' }
+      const result = await testK3CloudConnection(k3Config(scope), internalScopeKey(scope)), status = { ...result, connected: result.authenticated, message: result.authenticated ? 'K3Cloud AppSecret 登录成功；尚未执行查询或写入。' : result.configured ? 'K3Cloud 登录失败；请核对 Base URL、账号、AppId/AppSecret 与账套授权。' : 'K3Cloud 配置不完整。' }
       return res.status(status.connected ? 200 : 502).json({ status })
     }
     const status = dingtalkStatus(dingTalkConfig(scope))
@@ -159,10 +159,10 @@ export function createIntegrationRouter(): Router {
   router.get('/integrations/status', async (req, res) => {
     const scope = scopeForRequest(req)
     await initializeCache()
-    const flowable = await flowableHealth(flowableConfig(scope)), k3cloud = k3cloudStatus(k3Config(scope)), dingtalk = dingtalkStatus(dingTalkConfig(scope)), schedules = schedulesFor(scope)
+    const flowable = await flowableHealth(flowableConfig(scope)), k3cloud = k3cloudStatus(k3Config(scope), internalScopeKey(scope)), dingtalk = dingtalkStatus(dingTalkConfig(scope)), schedules = schedulesFor(scope)
     return res.json({ cache: cacheHealth(), k3cloud, flowable, dingtalk, reporting: { configured: dingtalk.configured, schedules: schedules.length } })
   })
-  router.get('/k3cloud/status', (req, res) => res.json(k3cloudStatus(k3Config(scopeForRequest(req)))))
+  router.get('/k3cloud/status', (req, res) => { const scope = scopeForRequest(req); return res.json(k3cloudStatus(k3Config(scope), internalScopeKey(scope))) })
   router.post('/k3cloud/query', requireRole('admin', 'plm_manager'), async (req, res) => {
     const scope = scopeForRequest(req), config = connectorCredentialConfig(scope, 'k3cloud')
     const body = record(req.body), input: K3CloudQueryInput = { formId: String(body.formId ?? ''), fieldKeys: String(body.fieldKeys ?? ''), filterString: typeof body.filterString === 'string' ? body.filterString : '', limit: Number(body.limit ?? 100), startRow: Number(body.startRow ?? 0), orderString: typeof body.orderString === 'string' ? body.orderString : undefined }
@@ -172,13 +172,13 @@ export function createIntegrationRouter(): Router {
     const sortParts = input.orderString?.split(',').map(part => part.trim()).filter(Boolean) ?? []
     const validSort = sortParts.every(part => { const match = /^([A-Za-z0-9_.]+)(?:\s+(ASC|DESC))?$/i.exec(part); return Boolean(match && (allowedFields as string[]).includes(match[1]!)) })
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 200 || !Number.isInteger(input.startRow ?? 0) || (input.startRow ?? 0) < 0 || (input.filterString?.length ?? 0) > 500 || !validSort) return res.status(400).json({ error: '查询分页、过滤或排序字段超过只读接口限制。' })
-    try { return res.json(await queryK3Cloud(input, config as Partial<K3CloudConfig>)) }
-    catch (error) { return res.status(k3cloudStatus(config as Partial<K3CloudConfig>).configured ? 502 : 503).json({ error: error instanceof Error ? error.message : 'K3Cloud query failed' }) }
+    try { return res.json(await queryK3Cloud(input, config as Partial<K3CloudConfig>, internalScopeKey(scope))) }
+    catch (error) { return res.status(k3cloudStatus(config as Partial<K3CloudConfig>, internalScopeKey(scope)).configured ? 502 : 503).json({ error: error instanceof Error ? error.message : 'K3Cloud query failed' }) }
   })
 
   router.get('/workflow/status', async (req, res) => {
     const scope = scopeForRequest(req), engine = await flowableHealth(flowableConfig(scope))
-    return res.json({ mode: engine.connected ? 'flowable' : engine.configured ? 'unavailable' : 'demo', engine, demoTasks: workflowFor(scope).tasks.length, identityMappingConfigured: Object.keys(record(flowableConfig(scope).userMap)).length > 0 || process.env.TRUST_PROXY_ACTOR === 'true' })
+    return res.json({ mode: engine.connected ? 'flowable' : engine.configured ? 'unavailable' : 'demo', engine, demoTasks: workflowFor(scope).tasks.length, identityMappingConfigured: Object.keys(record(flowableConfig(scope).userMap)).length > 0 })
   })
   router.get('/workflow/audit', async (req, res) => {
     const scope = scopeForRequest(req), config = flowableConfig(scope), engine = await flowableHealth(config), audit = auditFor(scope)
@@ -192,7 +192,7 @@ export function createIntegrationRouter(): Router {
     if (engine.connected) {
       const actor = trustedActor(req, config)
       if (!actor) return res.status(403).json({ error: '可信用户身份未配置：请配置本账套的 Flowable 用户映射。' })
-      try { const result = await listTasks({ assignee: actor, tenantId: scope.accountId, active: true, size: 100 }, config); return res.json({ mode: 'flowable', engine, tasks: flowableRows(result).filter(row => String(row.tenantId ?? '') === scope.accountId).map(publicFlowableTask) }) }
+      try { const tenantId = flowableTenantId(scope), result = await listTasks({ assignee: actor, tenantId, active: true, size: 100 }, config); return res.json({ mode: 'flowable', engine, tasks: flowableRows(result).filter(row => String(row.tenantId ?? '') === tenantId).map(publicFlowableTask) }) }
       catch (error) { return res.status(502).json({ error: error instanceof Error ? error.message : 'Flowable task query failed' }) }
     }
     return res.json({ mode: 'demo', engine, tasks: workflowFor(scope).tasks.filter(task => task.status === 'pending') })
@@ -217,7 +217,7 @@ export function createIntegrationRouter(): Router {
     if (!actor) return res.status(403).json({ error: 'trusted user identity is required' })
     try {
       const task = record(await getTask(id, config))
-      if (String(task.tenantId ?? '') !== scope.accountId || String(task.assignee ?? '') !== actor) return res.status(403).json({ error: 'task is not assigned to the authenticated user in this account' })
+      if (String(task.tenantId ?? '') !== flowableTenantId(scope) || String(task.assignee ?? '') !== actor) return res.status(403).json({ error: 'task is not assigned to the authenticated user in this tenant, organization, and account scope' })
       return res.json({ mode: 'flowable', task, audit: auditFor(scope).filter(entry => entry.taskId === id && entry.actor === actor) })
     } catch (error) { return res.status(502).json({ error: error instanceof Error ? error.message : 'Flowable task query failed' }) }
   })
@@ -239,7 +239,7 @@ export function createIntegrationRouter(): Router {
     if (!actor) return res.status(403).json({ error: 'Flowable approval requires a configured user mapping.' })
     try {
       const task = record(await getTask(id, config))
-      if (String(task.tenantId ?? '') !== scope.accountId || String(task.assignee ?? '') !== actor) return res.status(403).json({ error: 'task is not assigned to the authenticated user in this account' })
+      if (String(task.tenantId ?? '') !== flowableTenantId(scope) || String(task.assignee ?? '') !== actor) return res.status(403).json({ error: 'task is not assigned to the authenticated user in this tenant, organization, and account scope' })
       const result = await completeTask(id, { actor, decision: decision as 'approved' | 'rejected', comment }, config), audit = auditFor(scope)
       const entry: ApprovalAuditEntry = { id: nanoid(), taskId: id, title: String(task.name ?? 'Flowable 审批任务'), businessType: String(task.businessType ?? ''), businessId: String(task.businessKey ?? task.processInstanceId ?? ''), actor, decision: decision as 'approved' | 'rejected', comment, createdAt: new Date().toISOString(), mode: 'flowable' }
       audit.unshift(entry); persistAudit(scope, audit)
@@ -261,7 +261,7 @@ export function createIntegrationRouter(): Router {
     variables.push({ name: 'initiator', value: actor })
     const businessKey = typeof body.businessKey === 'string' ? body.businessKey.slice(0, 160) : undefined
     try {
-      const dingtalk = dingTalkConfig(scope), started = await startProcess(processDefinitionKey, variables, { ...(businessKey ? { businessKey } : {}), tenantId: scope.accountId }, config), created = record(started), id = String(created.id ?? created.businessKey ?? businessKey ?? '')
+      const dingtalk = dingTalkConfig(scope), started = await startProcess(processDefinitionKey, variables, { ...(businessKey ? { businessKey } : {}), tenantId: flowableTenantId(scope) }, config), created = record(started), id = String(created.id ?? created.businessKey ?? businessKey ?? '')
       const previewUrl = buildApprovalPreviewUrl('/', { page: 'workflow', approval: id }, dingtalk.publicAppUrl)
       let notification = { ok: false, message: 'DingTalk webhook is not configured; no notification was sent.' }
       if (dingtalkStatus(dingtalk).configured) { const summary = String(variablesIn.title ?? '新的 PLM 审批待办').slice(0, 120), link = previewUrl ? `\n\n[点击查看业务预览并填写审批意见](${previewUrl})` : ''; notification = await sendMarkdown('PLM 审批待办', `### ${summary}\n\n业务编号：${String(variablesIn.businessId ?? businessKey ?? id)}${link}`, dingtalk) }
@@ -281,12 +281,12 @@ export function createIntegrationRouter(): Router {
     for (const candidate of listConnectorConfigs('dingtalk')) {
       const cfg = candidate.config as unknown as DingTalkConfig
       if (!corpId || String(cfg.corpId ?? '') !== corpId || !verifyCardCallbackSignature(req.headers, cfg.cardCallbackSecret || cfg.appSecret)) continue
-      const mappings = record(cfg.userMapping), mapped = mappings[`${corpId}:${userId}`] ?? mappings[userId]
+      const mappings = record(cfg.userMapping), mapped = mappings[`${corpId}:${userId}`]
       if (typeof mapped !== 'string' || !mapped) continue
       const flow = flowableConfig(candidate.scope)
       try {
         const task = record(await getTask(taskId, flow))
-        if (String(task.tenantId ?? '') === candidate.scope.accountId && String(task.assignee ?? '') === mapped) matches.push({ scope: candidate.scope, flow, actor: mapped, task })
+        if (String(task.tenantId ?? '') === flowableTenantId(candidate.scope) && String(task.assignee ?? '') === mapped) matches.push({ scope: candidate.scope, flow, actor: mapped, task })
       } catch { /* Try other configured enterprise accounts; only exact tenant/assignee matches may proceed. */ }
     }
     if (matches.length !== 1) return res.status(matches.length ? 409 : 403).json({ error: matches.length ? 'DingTalk callback matched multiple configured accounts; no approval was submitted.' : 'DingTalk identity, signature, task tenant, or assignee is not authorized.' })

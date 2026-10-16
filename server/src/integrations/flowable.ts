@@ -14,13 +14,13 @@ const processKeys = ['materialApproval', 'bomReleaseApproval', 'documentReleaseA
 const tenantDeployments = new Map<string, Promise<void>>()
 
 function normalizeConfig(input?: FlowableConfig): FlowableConfig | null {
-  const baseUrl = (input?.baseUrl ?? process.env.FLOWABLE_BASE_URL)?.trim()
+  const baseUrl = input?.baseUrl?.trim()
   if (!baseUrl) return null
   let parsed: URL
   try { parsed = new URL(baseUrl) } catch { throw new Error('Flowable baseUrl is invalid.') }
   if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error('Flowable baseUrl must be a clean HTTP(S) URL without embedded credentials, query or fragment.')
-  const username = input?.username ?? process.env.FLOWABLE_USERNAME
-  const password = input?.password ?? process.env.FLOWABLE_PASSWORD
+  const username = input?.username
+  const password = input?.password
   if (!username || !password) throw new Error('Flowable Basic Auth username and password must both be configured.')
   const rawTimeout = Number(input?.timeoutMs ?? process.env.FLOWABLE_TIMEOUT_MS ?? 10000)
   return { baseUrl: parsed.toString().replace(/\/$/, ''), username, password, timeoutMs: Number.isFinite(rawTimeout) && rawTimeout > 0 ? Math.min(rawTimeout, 120000) : 10000 }

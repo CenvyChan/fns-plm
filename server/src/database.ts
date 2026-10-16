@@ -171,6 +171,36 @@ ensureColumn('tenant_memberships', 'disabled', 'INTEGER NOT NULL DEFAULT 0')
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_dingtalk_user_id_uq ON users(dingtalk_user_id) WHERE dingtalk_user_id IS NOT NULL AND dingtalk_user_id <> \'\'')
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_dingtalk_union_id_uq ON users(dingtalk_union_id) WHERE dingtalk_union_id IS NOT NULL AND dingtalk_union_id <> \'\'')
 db.exec('CREATE INDEX IF NOT EXISTS document_files_scope_idx ON document_files(tenant_id, organization_id, account_id, document_id, created_at DESC)')
+db.exec(`
+  CREATE TRIGGER IF NOT EXISTS tenant_membership_scope_insert
+  BEFORE INSERT ON tenant_memberships
+  WHEN NOT EXISTS (
+    SELECT 1 FROM accounts a JOIN organizations o ON o.id=a.organization_id AND o.tenant_id=a.tenant_id
+    JOIN tenants t ON t.id=a.tenant_id
+    WHERE a.id=NEW.account_id AND a.tenant_id=NEW.tenant_id AND a.organization_id=NEW.organization_id AND t.id=NEW.tenant_id
+  ) BEGIN SELECT RAISE(ABORT, 'membership scope mismatch'); END;
+  CREATE TRIGGER IF NOT EXISTS tenant_membership_scope_update
+  BEFORE UPDATE OF tenant_id,organization_id,account_id ON tenant_memberships
+  WHEN NOT EXISTS (
+    SELECT 1 FROM accounts a JOIN organizations o ON o.id=a.organization_id AND o.tenant_id=a.tenant_id
+    JOIN tenants t ON t.id=a.tenant_id
+    WHERE a.id=NEW.account_id AND a.tenant_id=NEW.tenant_id AND a.organization_id=NEW.organization_id AND t.id=NEW.tenant_id
+  ) BEGIN SELECT RAISE(ABORT, 'membership scope mismatch'); END;
+  CREATE TRIGGER IF NOT EXISTS connector_scope_insert
+  BEFORE INSERT ON connector_configs
+  WHEN NOT EXISTS (
+    SELECT 1 FROM accounts a JOIN organizations o ON o.id=a.organization_id AND o.tenant_id=a.tenant_id
+    JOIN tenants t ON t.id=a.tenant_id
+    WHERE a.id=NEW.account_id AND a.tenant_id=NEW.tenant_id AND a.organization_id=NEW.organization_id AND t.id=NEW.tenant_id
+  ) BEGIN SELECT RAISE(ABORT, 'connector scope mismatch'); END;
+  CREATE TRIGGER IF NOT EXISTS connector_scope_update
+  BEFORE UPDATE OF tenant_id,organization_id,account_id ON connector_configs
+  WHEN NOT EXISTS (
+    SELECT 1 FROM accounts a JOIN organizations o ON o.id=a.organization_id AND o.tenant_id=a.tenant_id
+    JOIN tenants t ON t.id=a.tenant_id
+    WHERE a.id=NEW.account_id AND a.tenant_id=NEW.tenant_id AND a.organization_id=NEW.organization_id AND t.id=NEW.tenant_id
+  ) BEGIN SELECT RAISE(ABORT, 'connector scope mismatch'); END;
+`)
 
 export function hasAppState(key: string): boolean {
   return Boolean(db.prepare('SELECT 1 AS present FROM app_state WHERE key = ?').get(key))
@@ -214,9 +244,9 @@ export function recordSecurityEvent(input: { userId?: string; tenantId?: string;
     .run(input.userId ?? null, input.tenantId ?? null, input.organizationId ?? null, input.accountId ?? null, input.event.slice(0, 80), input.subject?.slice(0, 200) ?? null, input.ip?.slice(0, 80) ?? null, input.userAgent?.slice(0, 240) ?? null, new Date().toISOString())
 }
 
-export function getConnectorRow(accountId: string, provider: 'k3cloud' | 'flowable' | 'dingtalk') {
+export function getConnectorRow(scope: { tenantId: string; organizationId: string; accountId: string }, provider: 'k3cloud' | 'flowable' | 'dingtalk') {
   return db.prepare(`SELECT id,tenant_id AS tenantId,organization_id AS organizationId,account_id AS accountId,provider,encrypted_config AS encryptedConfig,revision,updated_at AS updatedAt
-    FROM connector_configs WHERE account_id=? AND provider=?`).get(accountId, provider) as { id: string; tenantId: string; organizationId: string; accountId: string; provider: string; encryptedConfig: string; revision: number; updatedAt: string } | undefined
+    FROM connector_configs WHERE tenant_id=? AND organization_id=? AND account_id=? AND provider=?`).get(scope.tenantId, scope.organizationId, scope.accountId, provider) as { id: string; tenantId: string; organizationId: string; accountId: string; provider: string; encryptedConfig: string; revision: number; updatedAt: string } | undefined
 }
 
 const encryptionKeyFile = resolve(process.env.APP_ENCRYPTION_KEY_FILE?.trim() || resolve(dirname(databasePath), '.app-encryption-key'))

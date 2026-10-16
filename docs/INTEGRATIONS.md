@@ -2,12 +2,12 @@
 
 ## 通用安全模型
 
-连接器配置按当前账套保存。管理员在「系统集成与连接器」页面提交 URL、服务账号、 allowlist 和映射；后端配置层使用 Node.js `crypto` 的 **AES-256-GCM** 加密敏感字段（认证标签、随机 nonce 与密文一并保存），SQLite 只保存密文与配置 revision。查询设置只返回 Secret 是否已设置，不读回明文；输入框留空表示保持原密钥，勾选“清除现有值”才会移除。
+连接器配置按当前内部 `(tenantId, organizationId, accountId)` 三元组保存。管理员在「系统集成与连接器」页面提交 URL、服务账号、 allowlist 和映射；后端配置层使用 Node.js `crypto` 的 **AES-256-GCM** 加密敏感字段（认证标签、随机 nonce 与密文一并保存），SQLite 只保存密文与配置 revision。查询设置只返回 Secret 是否已设置，不读回明文；输入框留空表示保持原密钥，勾选“清除现有值”才会移除。
 
 - 密钥必须为 32 字节：环境变量 `APP_ENCRYPTION_KEY` 需要恰好 64 个十六进制字符；否则使用 `APP_ENCRYPTION_KEY_FILE` 指定的本地密钥文件。生产 systemd 默认 `/var/lib/momentum/.app-encryption-key`，由 `momentum` 用户持有，权限应为 `0600`。
 - **数据库与密钥必须一起备份。** 只恢复 SQLite 文件而丢失密钥，会使已保存的凭证无法解密；只备份密钥而丢失数据库也不能恢复集成设置。
 - 更换密钥不等于轮换：当前没有自动重加密/轮换命令。换密钥前先保存各连接器凭据、停服务、按维护流程导出/重加密，或保留原密钥安全备份。不要在工单、日志、前端、版本库或聊天中记录凭证。
-- 每个账套的加密设置优先于 server environment defaults；环境变量适用于首启/默认配置。环境变量本身也须由运维作为密钥管理，不应提交 Git。
+- 当前三元组的加密设置优先于 server environment defaults。环境变量只有在 `CONNECTOR_DEFAULT_TENANT_ID`、`CONNECTOR_DEFAULT_ORGANIZATION_ID`、`CONNECTOR_DEFAULT_ACCOUNT_ID` 三项全部精确匹配时才会应用；缺少任一绑定时不会作为全局回退。环境变量本身也须由运维作为密钥管理，不应提交 Git。
 - 连接器测试会真实连到配置的第三方；**钉钉测试会发一条消息**。仅在受控群中主动触发测试。
 
 ## 1. Flowable BPMN
@@ -24,13 +24,13 @@ FLOWABLE_PORT=8090
 FLOWABLE_DATA_DIR=/var/lib/momentum-flowable
 ```
 
-如果 Node API 与引擎同机，常见 Base URL 为 `http://127.0.0.1:8090/flowable-rest/process-api`；如果跨主机，使用受控 HTTPS 代理 URL。引擎不应暴露在公网。引擎 REST Basic Auth 和不同账套的 BPMN tenant 过滤均由服务端负责。
+如果 Node API 与引擎同机，常见 Base URL 为 `http://127.0.0.1:8090/flowable-rest/process-api`；如果跨主机，使用受控 HTTPS 代理 URL。引擎不应暴露在公网。引擎 REST Basic Auth 和 BPMN tenant 过滤均由服务端负责；内部三层范围转换成确定性组合标识 `tenant:<tenantId>:organization:<organizationId>:account:<accountId>`，不能只用 accountId 作为外部隔离键。
 
 可在独立测试引擎上复跑完整链路：先在 `server/` 中执行 `npm run build`，再设置 `FLOWABLE_BASE_URL`、`FLOWABLE_USERNAME`、`FLOWABLE_PASSWORD` 并执行 `npm run test:flowable:e2e`。检查会为随机 tenant 部署四个审批定义，创建并完成一条物料审批，最后核对历史结束时间；默认仅允许 loopback 地址，明确授权的非生产测试环境才设置 `FLOWABLE_E2E_ALLOW_REMOTE=true`。不要对生产引擎运行该写入型测试。
 
 ### 在 PLM 管理页配置
 
-为相同账套打开 **系统集成与连接器 → Flowable**，填入 Base URL、服务账号、密钥和请求超时。配置 Flowable 用户映射 JSON：
+为相同内部三元组打开 **系统集成与连接器 → Flowable**，填入 Base URL、服务账号、密钥和请求超时。配置 Flowable 用户映射 JSON：
 
 ```json
 {
@@ -41,11 +41,11 @@ FLOWABLE_DATA_DIR=/var/lib/momentum-flowable
 
 键是已认证工作区用户的邮箱，值是 Flowable 中已存在且有相应任务权限的用户 ID；不得映射到共享管理员身份来绕开审批人权限。保存后再点“测试连接”。UI 不会把旧密码回显。
 
-启动白名单内的 `materialApproval`、`bomReleaseApproval`、`documentReleaseApproval`、`performanceReviewApproval` 流程时，后端会在该租户部署对应 BPMN XML 并验证定义。审批任务按当前账号的已验证用户映射查询。引擎一旦配置但不可用，API 返回错误而不是悄悄切回演示模式。真实任务需在 Flowable 中正确配置 tenant、assignee/候选人；本地演示任务不是 Flowable 记录。
+启动白名单内的 `materialApproval`、`bomReleaseApproval`、`documentReleaseApproval`、`performanceReviewApproval` 流程时，后端会在该三层范围对应的组合 tenant 中部署对应 BPMN XML 并验证定义。审批任务按当前范围的已验证用户映射查询；任务读取和完成还须同时匹配该组合 tenant 与会话用户映射。引擎一旦配置但不可用，API 返回错误而不是悄悄切回演示模式。真实任务需在 Flowable 中正确配置 tenant、assignee/候选人；本地演示任务不是 Flowable 记录。
 
 ## 2. 金蝶云星空 K3Cloud
 
-仅配置企业批准的 HTTPS WebAPI Base URL、账套 ID、服务用户名、组织标识、第三方应用 AppId/AppSecret、LCID。后端通过官方 LoginByAppSecret 获取短期 cookie，然后调用 ExecuteBillQuery；查询结果最多缓存 60 秒。生产地址应为 HTTPS；默认拒绝远端明文 HTTP。
+在每个内部三元组单独配置企业批准的 HTTPS WebAPI Base URL、外部 ERP 账套 ID、服务用户名、外部组织标识、第三方应用 AppId/AppSecret、LCID。外部 K3Cloud 的组织/账套参数不会取代内部范围校验；登录会话与查询缓存同样按内部三元组隔离。后端通过官方 LoginByAppSecret 获取短期 cookie，然后调用 ExecuteBillQuery；查询结果最多缓存 60 秒。生产地址应为 HTTPS；默认拒绝远端明文 HTTP。
 
 **查询 allowlist 必须从企业已确认的 FormId 与字段中显式填写**，例如：
 
@@ -60,9 +60,11 @@ FLOWABLE_DATA_DIR=/var/lib/momentum-flowable
 
 ## 3. 钉钉机器人与互动审批卡片
 
-在当前账套配置钉钉官方 HTTPS 群机器人 Webhook 与签名密钥，按需配置 `PUBLIC_APP_URL`/应用 HTTPS 地址。后端只向 `oapi.dingtalk.com` 或 `api.dingtalk.com` 发送 Markdown；调用 `reports/send`、计划执行或连接器测试时才发消息。预览链接仅能在配置的同一 HTTPS origin 内生成。
+在当前内部三元组配置钉钉官方 HTTPS 群机器人 Webhook 与签名密钥，按需配置 `PUBLIC_APP_URL`/应用 HTTPS 地址。后端只向 `oapi.dingtalk.com` 或 `api.dingtalk.com` 发送 Markdown；调用 `reports/send`、计划执行或连接器测试时才发消息。预览链接仅能在配置的同一 HTTPS origin 内生成。
 
-互动卡片另需填写企业 CorpId、AppKey、AppSecret、模板 ID、卡片回调签名密钥，并配置 `userMapping`：键 `corpId:userId`，值为 Flowable assignee 用户 ID。回调验证 `x-ddpaas-signature-timestamp` 与 `x-ddpaas-signature`，拒绝超过 5 分钟的签名，并在后端查询当前租户/用户可处理的任务后才完成审批。请在钉钉开放平台将回调 HTTPS 地址配置到 `/api/dingtalk/cards/callback`，按钉钉官方说明授权该事件及模板。
+互动卡片另需在各三元组配置中填写企业 CorpId、AppKey、AppSecret、模板 ID、卡片回调签名密钥，并配置 `userMapping`：键 `corpId:userId`，值为该范围 Flowable assignee 用户 ID。回调验证 `x-ddpaas-signature-timestamp` 与 `x-ddpaas-signature`，拒绝超过 5 分钟的签名，并在后端查询当前 tenant/organization/account 组合 tenant 中该用户可处理的任务后才完成审批；不得用只按 userId 的回退映射。
+
+钉钉小程序 SSO 使用单独的服务端应用凭证，但必须通过 `DINGTALK_SSO_TENANT_ID`、`DINGTALK_SSO_ORGANIZATION_ID`、`DINGTALK_SSO_ACCOUNT_ID` 显式绑定到一个现存且启用的内部三元组。登录时可选的 `accountId` 只能与该绑定账套一致，且钉钉身份必须绑定到该范围的有效成员；未绑定完整范围、scope 不存在或成员关系不匹配时拒绝登录。SSO 凭证缺少任一内部 scope ID 时视为未配置。请在钉钉开放平台将回调 HTTPS 地址配置到 `/api/dingtalk/cards/callback`，按钉钉官方说明授权该事件及模板。
 
 机器人 Webhook 和应用回调是不同权限：只接通机器人意味着**通知已可用，但不代表小程序 SSO、互动卡片审批或免登录身份映射已发布**。
 
@@ -78,7 +80,7 @@ FLOWABLE_DATA_DIR=/var/lib/momentum-flowable
 4. 先在工作区创建用户并分配其租户、组织、账套和角色；平台管理员再将经企业通讯录核验的钉钉 `userId/unionId` 绑定到该既有用户；
 5. 完成钉钉开发者平台审核、授权与发布。
 
-代码已实现上述免登路径，但由于当前未提供企业凭证，**尚未连接或验证真实钉钉租户**。`/api/auth/status` 返回非敏感配置状态；缺少任一必填配置时小程序会显示“未配置”。未绑定身份、停用用户/成员、无启用租户/组织/账套关系均拒绝登录；登录不自动创建用户或授予角色。个人密码登录仅为备用，并通过每人单次激活链接设置；管理员不分发共享默认密码。真实审批按钮调用同一 `/api/workflow/tasks`、`/tasks/:id`、`/tasks/:id/complete` 服务端路由，并需 `reviewer` 或管理角色。
+代码已实现上述免登路径，但由于当前未提供企业凭证，**尚未连接或验证真实钉钉租户**。`/api/auth/status` 返回非敏感配置状态；缺少凭证或三层范围绑定时小程序会显示“未配置”。未绑定身份、停用用户/成员、无对应租户/组织/账套成员关系均拒绝登录；登录不自动创建用户或授予角色。个人密码登录仅为备用，并通过每人单次激活链接设置；管理员不分发共享默认密码。真实审批按钮调用同一 `/api/workflow/tasks`、`/tasks/:id`、`/tasks/:id/complete` 服务端路由，并需 `reviewer` 或管理角色。
 
 钉钉官方参考：[企业内部小程序免登](https://open.dingtalk.com/document/development/small-program-application-free-of-registration)、[获取应用 Access Token](https://open.dingtalk.com/document/development/api-gettoken)、[通过免登码获取用户信息](https://open.dingtalk.com/document/development/obtain-the-userid-of-a-user-by-using-the-log-free)。此实现采用官方文档中的“服务端应用级 Access Token + 一次性免登 code 换 userId/unionId”流程；凭证/授权与真实账号映射仍需企业侧完成。
 
@@ -136,7 +138,7 @@ Redis 可选，用于跨副本报告锁和 K3Cloud 查询缓存；未配置或�
 
 环境变量模板见 `server/.env.example` 与 `deploy/ubuntu/momentum.env.example`。典型问题排查：
 
-- API 中「未配置」：检查当前用户是否切换到了另一个账套（配置是账套隔离的）。
+- API 中「未配置」：检查当前用户是否切换到了另一个 scope（配置按 tenant/organization/account 三元组隔离），以及环境默认值是否完整绑定。
 - Flowable 已配置但连接失败：检查 API 主机到 Flowable 的 DNS、网络 ACL、Basic Auth、REST base path 与 Java 服务状态。
 - Flowable 可连接但无待办：核对邮箱→Flowable userMap、Flowable task assignee、BPMN 部署 tenant 与待办是否已完成。
 - K3Cloud 查询拒绝：检查公司账号授权、LCID/组织、allowlist 的 FormId/列名及该 ERP 版本。

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { after, before, test } from 'node:test'
@@ -76,7 +76,8 @@ before(async () => {
     FLOWABLE_BASE_URL: '', FLOWABLE_USERNAME: '', FLOWABLE_PASSWORD: '', FLOWABLE_USER_MAP_JSON: '{}',
     K3CLOUD_BASE_URL: '', K3CLOUD_ACCOUNT_ID: '', K3CLOUD_USERNAME: '', K3CLOUD_ORGANIZATION: '', K3CLOUD_APP_ID: '', K3CLOUD_APP_SECRET: '', K3CLOUD_PASSWORD: '', K3CLOUD_QUERY_ALLOWLIST: '{}',
     DINGTALK_WEBHOOK_URL: '', DINGTALK_ROBOT_WEBHOOK: '', DINGTALK_WEBHOOK_SECRET: '', DINGTALK_ROBOT_SECRET: '', DINGTALK_CARD_CALLBACK_SECRET: '', DINGTALK_APP_KEY: '', DINGTALK_APP_SECRET: '', DINGTALK_USER_MAP_JSON: '{}',
-    DINGTALK_SSO_CLIENT_ID: '', DINGTALK_SSO_CLIENT_SECRET: '', DINGTALK_SSO_CORP_ID: '',
+    DINGTALK_SSO_CLIENT_ID: '', DINGTALK_SSO_CLIENT_SECRET: '', DINGTALK_SSO_CORP_ID: '', DINGTALK_SSO_TENANT_ID: '', DINGTALK_SSO_ORGANIZATION_ID: '', DINGTALK_SSO_ACCOUNT_ID: '',
+    CONNECTOR_DEFAULT_TENANT_ID: '', CONNECTOR_DEFAULT_ORGANIZATION_ID: '', CONNECTOR_DEFAULT_ACCOUNT_ID: '',
   }
   child = spawn(process.execPath, ['dist/index.js'], { cwd: serverDir, env, stdio: ['ignore', 'pipe', 'pipe'] })
   child.stdoutText = ''; child.stderrText = ''
@@ -333,7 +334,7 @@ test('project workbench template, scoped plans/files, atomic KPI set, and dual-r
   assert.equal(activated.data.rules.filter(rule => rule.status === 'active' && [ruleOne.data.id, ruleTwo.data.id].includes(rule.id)).reduce((sum, rule) => sum + rule.weight, 0), 100)
 
   const eventCreated = await api('/api/project-events', { method: 'POST', body: {
-    projectId: project.id, phaseId: projectPhase.id, taskId: projectTask.id, code: 'QA-EVENT-REVIEW', type: 'deliverable', title: 'QA 双阶段评审验收', description: '验证项目事件绩效自评与主管评审。', owner: 'Isolation Admin', department: 'QA', startDate: today, dueDate: today, status: 'open', projectWeight: 25,
+    projectId: project.id, phaseId: projectPhase.id, taskId: projectTask.id, code: 'QA-EVENT-REVIEW', type: 'deliverable', title: 'QA 双阶段评审验收', description: '验证项目事件绩效自评与主管评审。', owner: 'Isolation Admin', ownerId: tokenScopes.get(accessToken).id, department: 'QA', startDate: today, dueDate: today, status: 'open', projectWeight: 25,
   } })
   assert.equal(eventCreated.response.status, 201, JSON.stringify(eventCreated.data))
   const completedEvent = await api(`/api/project-events/${encodeURIComponent(eventCreated.data.id)}`, { method: 'PATCH', body: { status: 'completed' } })
@@ -582,4 +583,223 @@ test('controlled document revisions, private file access, and upload RBAC stay s
   const switchBackA = await api('/api/auth/switch-scope', { method: 'POST', body: { accountId: accountA } })
   assert.equal(switchBackA.response.status, 200)
   tokenScopes.set(accessToken, switchBackA.data.user)
+})
+
+test('tenant, organization, and account scope plus core API reference and RBAC matrix stay isolated', { concurrency: false }, async () => {
+  const adminScopeA = tokenScopes.get(accessToken)
+  assert.equal(adminScopeA?.accountId, accountA, 'scope audit starts in account A')
+
+  for (const [header, forged] of [
+    ['X-Tenant-ID', 'forged-tenant'],
+    ['X-Organization-ID', 'forged-organization'],
+    ['X-Account-ID', accountB],
+  ]) {
+    const denied = await api('/api/materials', { headers: { [header]: forged } })
+    assert.equal(denied.response.status, 403, `${header} must independently match the verified session scope`)
+  }
+  for (const header of ['X-Tenant-ID', 'X-Organization-ID', 'X-Account-ID']) {
+    const missing = await api('/api/materials', { headers: { [header]: '' } })
+    assert.equal(missing.response.status, 400, `${header} is independently required on protected APIs`)
+  }
+
+  const scopesResponse = await api('/api/auth/scopes')
+  assert.equal(scopesResponse.response.status, 200)
+  const scopeB = scopesResponse.data.scopes.find(scope => scope.accountId === accountB)
+  assert.ok(scopeB, 'platform admin should have an explicit authorized scope for account B')
+  const db = new Database(databaseFile)
+  try {
+    const membership = db.prepare('SELECT id FROM tenant_memberships WHERE user_id=? AND account_id=?').get(adminScopeA.id, accountA)
+    assert.ok(membership, 'admin must have a persisted membership row for account A')
+    assert.throws(() => db.prepare('UPDATE tenant_memberships SET tenant_id=?,organization_id=? WHERE id=?').run(scopeB.tenantId, scopeB.organizationId, membership.id), /membership scope mismatch/, 'database must reject a membership that splices account A to tenant/organization B')
+  } finally { db.close() }
+
+  const envKeys = ['FLOWABLE_BASE_URL', 'FLOWABLE_USERNAME', 'FLOWABLE_PASSWORD', 'K3CLOUD_BASE_URL', 'K3CLOUD_ACCOUNT_ID', 'K3CLOUD_USERNAME', 'K3CLOUD_ORGANIZATION', 'K3CLOUD_APP_ID', 'K3CLOUD_APP_SECRET', 'K3CLOUD_LCID', 'DINGTALK_WEBHOOK_URL', 'DINGTALK_WEBHOOK_SECRET', 'DINGTALK_SSO_CLIENT_ID', 'DINGTALK_SSO_CLIENT_SECRET', 'DINGTALK_SSO_CORP_ID', 'DINGTALK_SSO_TENANT_ID', 'DINGTALK_SSO_ORGANIZATION_ID', 'DINGTALK_SSO_ACCOUNT_ID']
+  const originalEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]))
+  try {
+    Object.assign(process.env, {
+      FLOWABLE_BASE_URL: 'http://127.0.0.1:1', FLOWABLE_USERNAME: 'test-placeholder', FLOWABLE_PASSWORD: 'not-a-credential',
+      K3CLOUD_BASE_URL: 'http://127.0.0.1:1', K3CLOUD_ACCOUNT_ID: 'test-placeholder', K3CLOUD_USERNAME: 'test-placeholder', K3CLOUD_ORGANIZATION: 'test-placeholder', K3CLOUD_APP_ID: 'test-placeholder', K3CLOUD_APP_SECRET: 'not-a-credential', K3CLOUD_LCID: '2052',
+      DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=not-a-credential', DINGTALK_WEBHOOK_SECRET: 'not-a-credential',
+      DINGTALK_SSO_CLIENT_ID: 'test-placeholder', DINGTALK_SSO_CLIENT_SECRET: 'not-a-credential', DINGTALK_SSO_CORP_ID: 'test-placeholder',
+    })
+    const flowable = await import('../dist/integrations/flowable.js')
+    const k3cloud = await import('../dist/integrations/k3cloud.js')
+    const dingtalk = await import('../dist/integrations/dingtalk.js')
+    assert.equal(flowable.getFlowableStatus().configured, false, 'Flowable client must not apply unbound global credentials')
+    assert.equal(k3cloud.k3cloudStatus().configured, false, 'K3Cloud client must not apply unbound global credentials')
+    assert.equal(dingtalk.getDingTalkStatus().configured, false, 'DingTalk client must not apply unbound global webhook configuration')
+    const sso = await import('../dist/dingtalk-sso.js')
+    assert.equal(sso.dingtalkSsoStatus().configured, false, 'DingTalk SSO credentials without a three-layer binding must not be marked configured')
+    Object.assign(process.env, { DINGTALK_SSO_TENANT_ID: 'test-tenant', DINGTALK_SSO_ORGANIZATION_ID: 'test-organization', DINGTALK_SSO_ACCOUNT_ID: 'test-account' })
+    assert.equal(sso.dingtalkSsoStatus().configured, true, 'DingTalk SSO readiness requires credentials plus all three explicit scope IDs')
+    assert.deepEqual(sso.dingtalkSsoScope(), { tenantId: 'test-tenant', organizationId: 'test-organization', accountId: 'test-account' })
+  } finally {
+    for (const key of envKeys) { if (originalEnv[key] === undefined) delete process.env[key]; else process.env[key] = originalEnv[key] }
+  }
+
+  async function makeUser(role, label) {
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+    const email = `${label}-${suffix}@example.test`, password = `local-${label}-password-123`
+    const created = await api('/api/auth/users', { method: 'POST', body: { displayName: `Scope QA ${label}`, email, role } })
+    assert.equal(created.response.status, 201, JSON.stringify(created.data))
+    const activated = await api('/api/auth/activate', { method: 'POST', token: '', body: { token: created.data.activationToken, password } })
+    assert.equal(activated.response.status, 200, JSON.stringify(activated.data))
+    const loggedIn = await api('/api/auth/mobile/login', { method: 'POST', token: '', body: { email, password } })
+    assert.equal(loggedIn.response.status, 200, JSON.stringify(loggedIn.data))
+    tokenScopes.set(loggedIn.data.accessToken, loggedIn.data.user)
+    return loggedIn.data.accessToken
+  }
+
+  const memberToken = await makeUser('member', 'readonly')
+  const memberScopes = await api('/api/auth/scopes', { token: memberToken })
+  assert.equal(memberScopes.data.scopes.length, 1, 'a single-account member should only receive the membership-backed account scope')
+  assert.equal(memberScopes.data.scopes[0].accountId, accountA)
+  const nonMemberSwitch = await api('/api/auth/switch-scope', { method: 'POST', token: memberToken, body: { accountId: accountB } })
+  assert.equal(nonMemberSwitch.response.status, 403, 'a valid session cannot switch into an account without a membership')
+  for (const path of ['/api/projects', '/api/tasks', '/api/materials', '/api/boms', '/api/documents', '/api/kpi-rules', '/api/reviews', '/api/project-reports', '/api/reports/preview', '/api/reports/schedules']) {
+    const readable = await api(path, { token: memberToken })
+    assert.equal(readable.response.status, 200, `member should be able to read scoped resource ${path}`)
+  }
+  for (const [method, path, body] of [
+    ['POST', '/api/materials', {}], ['POST', '/api/boms', {}], ['POST', '/api/documents', {}], ['POST', '/api/kpi-rules', {}], ['POST', '/api/reviews', {}],
+    ['GET', '/api/integrations/settings', undefined], ['PUT', '/api/integrations/settings/flowable', {}], ['POST', '/api/reports/schedules', {}], ['POST', '/api/reports/send', {}], ['POST', '/api/k3cloud/query', {}],
+  ]) {
+    const denied = await api(path, { method, body, token: memberToken })
+    assert.equal(denied.response.status, 403, `member role must be denied ${method} ${path}`)
+  }
+  const memberProject = await api('/api/projects', { method: 'POST', token: memberToken, body: { name: '成员可创建工作项目' } })
+  assert.equal(memberProject.response.status, 201, 'the existing product policy allows members to manage project work')
+  const memberTask = await api('/api/tasks', { method: 'POST', token: memberToken, body: { title: '成员可创建任务', projectId: memberProject.data.id } })
+  assert.equal(memberTask.response.status, 201, JSON.stringify(memberTask.data))
+  const memberReport = await api('/api/project-reports', { method: 'POST', token: memberToken, body: { projectId: memberProject.data.id, period: '2026-Q4', progress: 10, achievements: 'member', blockers: 'none', risks: 'none', decisionsNeeded: 'none', nextSteps: 'continue' } })
+  assert.equal(memberReport.response.status, 201, JSON.stringify(memberReport.data))
+
+  const reviewerToken = await makeUser('reviewer', 'reviewer')
+  const reviewerRecord = await api('/api/reviews', { method: 'POST', token: reviewerToken, body: { id: `QA-REVIEW-${Date.now()}`, employee: 'QA Employee', department: 'QA', period: '2026-Q4', reviewer: 'QA Reviewer', status: 'draft' } })
+  assert.equal(reviewerRecord.response.status, 201, JSON.stringify(reviewerRecord.data))
+  for (const [method, path, body] of [['POST', '/api/materials', {}], ['POST', '/api/boms', {}], ['POST', '/api/kpi-rules', {}], ['PUT', '/api/integrations/settings/dingtalk', {}], ['POST', '/api/reports/schedules', {}]]) {
+    const denied = await api(path, { method, body, token: reviewerToken })
+    assert.equal(denied.response.status, 403, `reviewer role must not gain PLM administration rights through ${method} ${path}`)
+  }
+
+  const suffix = Date.now(), commonProjectId = `QA-SCOPE-PROJECT-${suffix}`, commonTaskId = `QA-SCOPE-TASK-${suffix}`
+  const commonMaterialId = `QA-SCOPE-MATERIAL-${suffix}`, commonBomId = `QA-SCOPE-BOM-${suffix}`, commonDocumentId = `QA-SCOPE-DOC-${suffix}`
+  const commonRuleId = `QA-SCOPE-KPI-${suffix}`, commonReportId = `QA-SCOPE-REPORT-${suffix}`, commonReviewId = `QA-SCOPE-REVIEW-${suffix}`, commonSnapshotId = `QA-SCOPE-SNAPSHOT-${suffix}`
+  const bOnlyProjectId = `QA-SCOPE-B-ONLY-PROJECT-${suffix}`, bOnlyTaskId = `QA-SCOPE-B-ONLY-TASK-${suffix}`, bOnlyMaterialId = `QA-SCOPE-B-ONLY-MATERIAL-${suffix}`, bOnlyBomId = `QA-SCOPE-B-ONLY-BOM-${suffix}`
+  const projectA = await api('/api/projects', { method: 'POST', body: { id: commonProjectId, name: 'scope marker A' } })
+  assert.equal(projectA.response.status, 201, JSON.stringify(projectA.data))
+  const duplicateProject = await api('/api/projects', { method: 'POST', body: { id: commonProjectId, name: 'must not overwrite' } })
+  assert.equal(duplicateProject.response.status, 409, 'a caller-supplied project id cannot overwrite an existing project in the same account')
+  const taskA = await api('/api/tasks', { method: 'POST', body: { id: commonTaskId, title: 'scope marker task A', projectId: commonProjectId } })
+  assert.equal(taskA.response.status, 201, JSON.stringify(taskA.data))
+  const materialA = await api('/api/materials', { method: 'POST', body: { id: commonMaterialId, partNo: `A-${suffix}`, name: 'scope marker material A', unit: 'pcs', lifecycle: 'draft' } })
+  assert.equal(materialA.response.status, 201, JSON.stringify(materialA.data))
+  const bomA = await api('/api/boms', { method: 'POST', body: { id: commonBomId, bomNo: `A-BOM-${suffix}`, parentMaterialId: commonMaterialId, kind: 'sales', revision: 'A', lifecycle: 'draft', lines: [], salesRules: [] } })
+  assert.equal(bomA.response.status, 201, JSON.stringify(bomA.data))
+  const documentA = await api('/api/documents', { method: 'POST', body: { id: commonDocumentId, docNo: `A-DOC-${suffix}`, title: 'scope marker document A', type: 'drawing', materialId: commonMaterialId, revision: 'A', lifecycle: 'draft' } })
+  assert.equal(documentA.response.status, 201, JSON.stringify(documentA.data))
+  const ruleA = await api('/api/kpi-rules', { method: 'POST', body: { id: commonRuleId, code: `A-KPI-${suffix}`, name: 'scope marker KPI A', formula: 'value', target: 100, direction: 'higher', weight: 100, status: 'draft' } })
+  assert.equal(ruleA.response.status, 201, JSON.stringify(ruleA.data))
+  const reportA = await api('/api/project-reports', { method: 'POST', body: { id: commonReportId, projectId: commonProjectId, period: '2026-Q4', progress: 20, achievements: 'scope marker A report', blockers: 'none', risks: 'none', decisionsNeeded: 'none', nextSteps: 'continue A' } })
+  assert.equal(reportA.response.status, 201, JSON.stringify(reportA.data))
+  const reviewA = await api('/api/reviews', { method: 'POST', body: { id: commonReviewId, employee: 'scope marker employee A', department: 'QA', period: '2026-Q4', reviewer: 'QA', status: 'draft' } })
+  assert.equal(reviewA.response.status, 201, JSON.stringify(reviewA.data))
+  const snapshotA = await api('/api/sales-bom-snapshots', { method: 'POST', body: { id: commonSnapshotId, orderNo: `A-ORDER-${suffix}`, parentMaterialId: commonMaterialId, bomId: commonBomId, bomNo: bomA.data.bomNo, bomRevision: bomA.data.revision, quantity: 1, attributes: {}, lines: [] } })
+  assert.equal(snapshotA.response.status, 201, JSON.stringify(snapshotA.data))
+
+  const deleteProjectId = `QA-SCOPE-DELETE-${suffix}`
+  const disposableProject = await api('/api/projects', { method: 'POST', body: { id: deleteProjectId, name: 'attachment cleanup regression' } })
+  assert.equal(disposableProject.response.status, 201)
+  const attachmentForm = new FormData()
+  attachmentForm.append('title', '删除清理验证附件')
+  attachmentForm.append('file', new Blob(['delete-project-file-marker'], { type: 'text/plain' }), 'delete-marker.txt')
+  const disposableAttachment = await api(`/api/projects/${encodeURIComponent(deleteProjectId)}/files`, { method: 'POST', body: attachmentForm })
+  assert.equal(disposableAttachment.response.status, 201, JSON.stringify(disposableAttachment.data))
+  const cleanupDb = new Database(databaseFile)
+  const stored = cleanupDb.prepare('SELECT stored_name AS storedName FROM project_files WHERE id=?').get(disposableAttachment.data.file.id)
+  assert.ok(stored && existsSync(join(tempDir, 'documents', stored.storedName)), 'uploaded project file should exist before project deletion')
+  const deletedProject = await api(`/api/projects/${encodeURIComponent(deleteProjectId)}`, { method: 'DELETE' })
+  assert.equal(deletedProject.response.status, 204)
+  assert.equal(cleanupDb.prepare('SELECT 1 FROM project_files WHERE id=?').get(disposableAttachment.data.file.id), undefined, 'project deletion removes scoped attachment metadata')
+  assert.equal(existsSync(join(tempDir, 'documents', stored.storedName)), false, 'project deletion removes the physical attachment')
+  const recreatedProject = await api('/api/projects', { method: 'POST', body: { id: deleteProjectId, name: 'safe project id reuse' } })
+  assert.equal(recreatedProject.response.status, 201)
+  const noOrphanedFiles = await api(`/api/projects/${encodeURIComponent(deleteProjectId)}/files`)
+  assert.equal(noOrphanedFiles.response.status, 200)
+  assert.equal(noOrphanedFiles.data.length, 0, 'reusing a deleted project id cannot expose a prior attachment')
+  cleanupDb.close()
+
+  const switchToB = await api('/api/auth/switch-scope', { method: 'POST', body: { accountId: accountB } })
+  assert.equal(switchToB.response.status, 200, JSON.stringify(switchToB.data))
+  tokenScopes.set(accessToken, switchToB.data.user)
+  const projectB = await api('/api/projects', { method: 'POST', body: { id: commonProjectId, name: 'scope marker B' } })
+  assert.equal(projectB.response.status, 201, JSON.stringify(projectB.data))
+  const bOnlyProject = await api('/api/projects', { method: 'POST', body: { id: bOnlyProjectId, name: 'B-only foreign reference project' } })
+  assert.equal(bOnlyProject.response.status, 201, JSON.stringify(bOnlyProject.data))
+  const taskB = await api('/api/tasks', { method: 'POST', body: { id: commonTaskId, title: 'scope marker task B', projectId: commonProjectId } })
+  assert.equal(taskB.response.status, 201, JSON.stringify(taskB.data))
+  const bOnlyTask = await api('/api/tasks', { method: 'POST', body: { id: bOnlyTaskId, title: 'B-only foreign reference task', projectId: bOnlyProjectId } })
+  assert.equal(bOnlyTask.response.status, 201, JSON.stringify(bOnlyTask.data))
+  const materialB = await api('/api/materials', { method: 'POST', body: { id: commonMaterialId, partNo: `B-${suffix}`, name: 'scope marker material B', unit: 'pcs', lifecycle: 'draft' } })
+  assert.equal(materialB.response.status, 201, JSON.stringify(materialB.data))
+  const bOnlyMaterial = await api('/api/materials', { method: 'POST', body: { id: bOnlyMaterialId, partNo: `B-ONLY-${suffix}`, name: 'B-only foreign reference material', unit: 'pcs', lifecycle: 'draft' } })
+  assert.equal(bOnlyMaterial.response.status, 201, JSON.stringify(bOnlyMaterial.data))
+  const bomB = await api('/api/boms', { method: 'POST', body: { id: commonBomId, bomNo: `B-BOM-${suffix}`, parentMaterialId: commonMaterialId, kind: 'sales', revision: 'B', lifecycle: 'draft', lines: [], salesRules: [] } })
+  assert.equal(bomB.response.status, 201, JSON.stringify(bomB.data))
+  const bOnlyBom = await api('/api/boms', { method: 'POST', body: { id: bOnlyBomId, bomNo: `B-ONLY-BOM-${suffix}`, parentMaterialId: bOnlyMaterialId, kind: 'sales', revision: 'A', lifecycle: 'draft', lines: [], salesRules: [] } })
+  assert.equal(bOnlyBom.response.status, 201, JSON.stringify(bOnlyBom.data))
+  const documentB = await api('/api/documents', { method: 'POST', body: { id: commonDocumentId, docNo: `B-DOC-${suffix}`, title: 'scope marker document B', type: 'drawing', materialId: commonMaterialId, revision: 'B', lifecycle: 'draft' } })
+  assert.equal(documentB.response.status, 201, JSON.stringify(documentB.data))
+  const ruleB = await api('/api/kpi-rules', { method: 'POST', body: { id: commonRuleId, code: `B-KPI-${suffix}`, name: 'scope marker KPI B', formula: 'value', target: 100, direction: 'higher', weight: 100, status: 'draft' } })
+  assert.equal(ruleB.response.status, 201, JSON.stringify(ruleB.data))
+  const reportB = await api('/api/project-reports', { method: 'POST', body: { id: commonReportId, projectId: commonProjectId, period: '2026-Q4', progress: 30, achievements: 'scope marker B report', blockers: 'none', risks: 'none', decisionsNeeded: 'none', nextSteps: 'continue B' } })
+  assert.equal(reportB.response.status, 201, JSON.stringify(reportB.data))
+  const reviewB = await api('/api/reviews', { method: 'POST', body: { id: commonReviewId, employee: 'scope marker employee B', department: 'QA', period: '2026-Q4', reviewer: 'QA', status: 'draft' } })
+  assert.equal(reviewB.response.status, 201, JSON.stringify(reviewB.data))
+  const snapshotB = await api('/api/sales-bom-snapshots', { method: 'POST', body: { id: commonSnapshotId, orderNo: `B-ORDER-${suffix}`, parentMaterialId: commonMaterialId, bomId: commonBomId, bomNo: bomB.data.bomNo, bomRevision: bomB.data.revision, quantity: 1, attributes: {}, lines: [] } })
+  assert.equal(snapshotB.response.status, 201, JSON.stringify(snapshotB.data))
+
+  for (const [path, id, marker] of [
+    ['/api/projects', commonProjectId, 'scope marker B'], ['/api/tasks', commonTaskId, 'scope marker task B'], ['/api/materials', commonMaterialId, 'scope marker material B'],
+    ['/api/boms', commonBomId, 'B-BOM-'], ['/api/documents', commonDocumentId, 'scope marker document B'], ['/api/kpi-rules', commonRuleId, 'scope marker KPI B'],
+    ['/api/reviews', commonReviewId, 'scope marker employee B'], ['/api/project-reports', commonReportId, 'scope marker B report'], ['/api/sales-bom-snapshots', commonSnapshotId, `B-ORDER-${suffix}`],
+  ]) {
+    const collection = await api(path)
+    assert.equal(collection.response.status, 200, `${path} should be readable in account B`)
+    const record = collection.data.find(item => item.id === id)
+    assert.ok(record, `${path} should return same-key record created in account B`)
+    const searchable = JSON.stringify(record)
+    assert.ok(searchable.includes(marker), `${path} must return B's record rather than A's record`)
+  }
+  const connectorSettingsB = await api('/api/integrations/settings')
+  assert.equal(connectorSettingsB.response.status, 200)
+  assert.equal(connectorSettingsB.data.providers.dingtalk.secrets.webhookSecret, false, 'DingTalk credentials saved in A must not be inherited in B')
+  assert.equal(connectorSettingsB.data.providers.dingtalk.source, 'unconfigured', 'an unconfigured B scope must not inherit global or A-specific connector settings')
+
+  const switchBackA = await api('/api/auth/switch-scope', { method: 'POST', body: { accountId: accountA } })
+  assert.equal(switchBackA.response.status, 200)
+  tokenScopes.set(accessToken, switchBackA.data.user)
+  for (const [path, id, marker] of [
+    ['/api/projects', commonProjectId, 'scope marker A'], ['/api/tasks', commonTaskId, 'scope marker task A'], ['/api/materials', commonMaterialId, 'scope marker material A'],
+    ['/api/boms', commonBomId, 'A-BOM-'], ['/api/documents', commonDocumentId, 'scope marker document A'], ['/api/kpi-rules', commonRuleId, 'scope marker KPI A'],
+    ['/api/reviews', commonReviewId, 'scope marker employee A'], ['/api/project-reports', commonReportId, 'scope marker A report'], ['/api/sales-bom-snapshots', commonSnapshotId, `A-ORDER-${suffix}`],
+  ]) {
+    const collection = await api(path)
+    const record = collection.data.find(item => item.id === id)
+    assert.ok(record && JSON.stringify(record).includes(marker), `${path} should return only account A's same-key record`)
+  }
+  const crossTask = await api(`/api/tasks/${encodeURIComponent(bOnlyTaskId)}`, { method: 'PATCH', body: { title: 'cross-account write must fail' } })
+  assert.equal(crossTask.response.status, 404, 'a same-ID task in account B must not be editable from account A')
+  const crossPhase = await api('/api/project-phases', { method: 'POST', body: { projectId: bOnlyProjectId, code: 'X', name: 'foreign', order: 1, startDate: '2026-10-16', dueDate: '2026-10-16', owner: 'QA', status: 'not-started', progress: 0 } })
+  assert.equal(crossPhase.response.status, 404, 'a project phase cannot be attached to a project outside the current workspace')
+  const foreignTaskProject = await api('/api/tasks', { method: 'POST', body: { title: 'cross project', projectId: `foreign-${suffix}` } })
+  assert.equal(foreignTaskProject.response.status, 400, 'a task cannot reference a project from another account')
+  const foreignDocumentMaterial = await api('/api/documents', { method: 'POST', body: { id: `QA-FOREIGN-DOC-${suffix}`, docNo: `FOREIGN-${suffix}`, title: 'invalid foreign material reference', type: 'drawing', materialId: bOnlyMaterialId, revision: 'A', lifecycle: 'draft' } })
+  assert.equal(foreignDocumentMaterial.response.status, 400, 'a document cannot reference a material from another account')
+  const foreignBomMaterial = await api('/api/boms', { method: 'POST', body: { id: `QA-FOREIGN-BOM-${suffix}`, bomNo: `FOREIGN-BOM-${suffix}`, parentMaterialId: bOnlyMaterialId, kind: 'design', revision: 'A', lifecycle: 'draft', lines: [] } })
+  assert.equal(foreignBomMaterial.response.status, 400, 'a BOM cannot use a parent material from another account')
+  const foreignBomLine = await api('/api/boms', { method: 'POST', body: { id: `QA-FOREIGN-LINE-BOM-${suffix}`, bomNo: `FOREIGN-LINE-BOM-${suffix}`, parentMaterialId: commonMaterialId, kind: 'design', revision: 'A', lifecycle: 'draft', lines: [{ id: 'foreign-line', materialId: bOnlyMaterialId, quantity: 1 }] } })
+  assert.equal(foreignBomLine.response.status, 400, 'a BOM line cannot reference a material from another account')
+  const foreignSnapshot = await api('/api/sales-bom-snapshots', { method: 'POST', body: { id: `QA-FOREIGN-SNAPSHOT-${suffix}`, orderNo: 'foreign', parentMaterialId: bOnlyMaterialId, bomId: bOnlyBomId, bomNo: bOnlyBom.data.bomNo, bomRevision: bOnlyBom.data.revision, quantity: 1, attributes: {}, lines: [] } })
+  assert.equal(foreignSnapshot.response.status, 400, 'an order snapshot cannot reference a BOM or parent material outside the current account')
 })

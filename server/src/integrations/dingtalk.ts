@@ -4,10 +4,7 @@ export type DingTalkStatus = { configured: boolean; connected: boolean; message:
 export type ApprovalAction = 'approve' | 'reject'
 export type DingTalkConfig = { webhookUrl?: string; webhookSecret?: string; cardCallbackSecret?: string; appKey?: string; appSecret?: string; templateId?: string; corpId?: string; publicAppUrl?: string; userMapping?: Record<string, unknown> }
 
-function configFromEnvironment(): DingTalkConfig {
-  return { webhookUrl: process.env.DINGTALK_WEBHOOK_URL?.trim() || process.env.DINGTALK_ROBOT_WEBHOOK?.trim() || '', webhookSecret: process.env.DINGTALK_WEBHOOK_SECRET ?? process.env.DINGTALK_ROBOT_SECRET ?? '', cardCallbackSecret: process.env.DINGTALK_CARD_CALLBACK_SECRET ?? '', appKey: process.env.DINGTALK_APP_KEY?.trim() ?? '', appSecret: process.env.DINGTALK_APP_SECRET ?? '', templateId: process.env.DINGTALK_CARD_TEMPLATE_ID?.trim() ?? '', corpId: process.env.DINGTALK_CORP_ID?.trim() ?? '', publicAppUrl: process.env.PUBLIC_APP_URL?.trim() ?? '' }
-}
-function effectiveConfig(input?: Partial<DingTalkConfig>): DingTalkConfig { return input ?? configFromEnvironment() }
+function effectiveConfig(input?: Partial<DingTalkConfig>): DingTalkConfig { return input ?? {} }
 
 export function getDingTalkStatus(input?: Partial<DingTalkConfig>): DingTalkStatus {
   const webhook = effectiveConfig(input).webhookUrl?.trim()
@@ -64,7 +61,7 @@ export function buildApprovalPreviewUrl(path: string, params: Record<string, str
 export const buildApprovalUrl = buildApprovalPreviewUrl
 
 /** Verify DingTalk card callback signature over timestamp + newline + app secret. */
-export function verifyCardCallbackSignature(headers: Headers | Record<string, string | string[] | undefined>, secret = process.env.DINGTALK_CARD_CALLBACK_SECRET): boolean {
+export function verifyCardCallbackSignature(headers: Headers | Record<string, string | string[] | undefined>, secret?: string): boolean {
   if (!secret) return false
   const get = (key: string): string | undefined => {
     if (typeof Headers !== 'undefined' && headers instanceof Headers) return headers.get(key) ?? undefined

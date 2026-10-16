@@ -14,7 +14,7 @@
 | `POST` | `/api/auth/activate` | 公开，单次令牌 | 接收 `{ "token": "…", "password": "…" }`，成员自行设置至少 12 位个人密码；令牌 48 小时有效、一次性使用。 |
 | `POST` | `/api/auth/login` | 公开 | 邮箱/密码登录，写入 HttpOnly Cookie，返回当前用户及可访问账套列表。 |
 | `POST` | `/api/auth/mobile/login` | 公开 | 移动 Bearer 登录；请求可带 `accountId`，但仅在该用户已加入该账套时接受。 |
-| `POST` | `/api/auth/dingtalk/mobile-login` | 公开，钉钉小程序 | 接收小程序一次性 `authCode`；服务端向钉钉验证并换取 `userId/unionId`，只登录已绑定且启用的既有用户。未绑定或无有效成员关系均拒绝，不自动建用户/分配角色。 |
+| `POST` | `/api/auth/dingtalk/mobile-login` | 公开，钉钉小程序 | 接收小程序一次性 `authCode`；服务端使用绑定到明确 tenant/organization/account 三元组的钉钉凭证验证身份。可选 `accountId` 必须等于绑定账套，且用户必须是该三元组的有效成员；未绑定或无有效成员关系均拒绝，不自动建用户/分配角色。 |
 | `POST` | `/api/auth/logout` | 会话 | 撤销当前会话并清除 Cookie。 |
 | `GET` | `/api/auth/me` | 会话 | 返回当前用户与其可访问账套。 |
 | `GET` | `/api/auth/scopes` | 会话 | 返回 scope 列表及当前账套 ID。 |
@@ -44,7 +44,7 @@
 | `GET` | `/api/projects` | 已登录 | 当前账套项目。 |
 | `POST` | `/api/projects` | 已登录 | 新建项目；必需 `name`，可带 `description`、`color` (`#RRGGBB`) 与 `dueDate`。 |
 | `PATCH` | `/api/projects/:id` | 已登录 | 更新项目名称、描述、颜色、截止日。 |
-| `DELETE` | `/api/projects/:id` | 已登录 | 删除项目；关联任务解除项目引用。 |
+| `DELETE` | `/api/projects/:id` | `admin`, `plm_manager` | 删除当前账套项目及所属任务、阶段、里程碑、事件/评审、报告和项目附件索引；事务完成后清理该项目附件二进制，不触碰其他三层范围数据。 |
 | `POST` | `/api/projects/:id/import-plan` | `admin`, `plm_manager` | 通过 `multipart/form-data` 的 `file` 导入 CSV/XLSX；最大 10 MB。解析后校验阶段/里程碑引用、重复 WBS 和日期，再原子写入当前项目。 |
 | `GET` | `/api/projects/:id/export.csv` | 已登录 | 导出当前项目任务计划 CSV；记录不存在于当前 scope 时返回 `404`。 |
 | `GET` | `/api/projects/:id/export.xlsx` | 已登录 | 导出当前项目 Excel 工作簿（项目、阶段、里程碑、任务、事件/评审、报告和附件清单）。 |
@@ -59,9 +59,9 @@
 | `/api/kpi-rules` | `kpiRules` | `admin`, `plm_manager` | `code/name/formula/target/weight/direction/status` 必需；目标与权重必须为正。 |
 | `/api/reviews` | `reviews` | `admin`, `plm_manager`, `reviewer` | 被考核人、部门、周期、评审人、状态必需。 |
 | `/api/materials` | `materials` | `admin`, `plm_manager` | `partNo/name/unit/lifecycle` 必需；不允许将未核验物料冒充 ERP 已同步。 |
-| `/api/boms` | `boms` | `admin`, `plm_manager` | 视图类型限 `design/manufacturing/sales`；发布前验证来源 BOM/修订与 SBOM 配置规则。 |
-| `/api/documents` | `documents` | `admin`, `plm_manager` | 文档号、标题、类型、修订、状态必需。 |
-| `/api/sales-bom-snapshots` | `salesBomSnapshots` | `admin`, `plm_manager` 创建 | 销售订单配置结果；不可修改，作为不可变历史快照保存。 |
+| `/api/boms` | `boms` | `admin`, `plm_manager` | 视图类型限 `design/manufacturing/sales`；父物料、行项目物料、来源 BOM 与修订必须属于并匹配当前三层范围，发布前验证业务规则。 |
+| `/api/documents` | `documents` | `admin`, `plm_manager` | 文档号、标题、类型、修订、状态必需；若关联物料，物料必须属于当前三层范围。 |
+| `/api/sales-bom-snapshots` | `salesBomSnapshots` | `admin`, `plm_manager` 创建 | 快照 BOM、父物料、编号、修订及行项目须匹配当前范围；不可修改，作为不可变历史快照保存。 |
 
 **KPI 规则维护：** `PATCH /api/kpi-rules/:id` 更新规则并递增修订号；直接修改 `status` 会被拒绝。使用 `POST /api/kpi-rules/activate-set`，请求 `{ "ids": ["…"] }`，原子切换目标规则集；所选规则权重必须合计 **100%**，未选中规则转为草稿。`DELETE /api/kpi-rules/:id` 仅允许删除未生效且未被绩效记录/评审快照引用的规则；被保护规则返回 `409`。
 
@@ -83,16 +83,16 @@
 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
-| `POST` | `/api/boms/:id/lines` | `admin`, `plm_manager` | 为当前 scope BOM 增加行；要求 `materialId` 和正数量。不可为销售 BOM 添加静态行。 |
+| `POST` | `/api/boms/:id/lines` | `admin`, `plm_manager` | 为当前 scope BOM 增加行；要求当前范围内非父项的 `materialId` 和有限正数量。不可为销售 BOM 添加静态行。 |
 | `DELETE` | `/api/boms/:id/lines/:lineId` | `admin`, `plm_manager` | 删除指定行。 |
 
 ## 4. 系统集成与 K3Cloud
 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
-| `GET` | `/api/integrations/status` | 已登录 | 当前账套 Flowable、K3Cloud、钉钉和缓存状态。 |
-| `GET` | `/api/integrations/settings` | `admin` | 返回当前账套连接器配置摘要；秘密值只返回是否已设置，不返回明文。 |
-| `PUT` | `/api/integrations/settings/:provider` | `admin` | 保存 `flowable`、`k3cloud` 或 `dingtalk` 配置。秘密字段保留策略/清除机制见 [连接器说明](INTEGRATIONS.md)。 |
+| `GET` | `/api/integrations/status` | 已登录 | 当前 tenant/organization/account 三元组的 Flowable、K3Cloud、钉钉和缓存状态。 |
+| `GET` | `/api/integrations/settings` | `admin` | 返回当前三元组连接器配置摘要；秘密值只返回是否已设置，不返回明文。 |
+| `PUT` | `/api/integrations/settings/:provider` | `admin` | 将 `flowable`、`k3cloud` 或 `dingtalk` 配置保存至当前三元组。秘密字段保留策略/清除机制见 [连接器说明](INTEGRATIONS.md)。 |
 | `POST` | `/api/integrations/settings/:provider/test` | `admin` | 手动测试 Flowable、K3Cloud 登录或钉钉机器人；会实际请求配置的第三方服务，钉钉测试会向配置目标发送一条测试消息。 |
 | `GET` | `/api/k3cloud/status` | 已登录 | 当前账套 K3Cloud 配置/连接状态。 |
 | `POST` | `/api/k3cloud/query` | `admin`, `plm_manager` | 只读查询；`formId` 与每个 `FieldKeys` 必须在当前账套服务端 allowlist 中；最大页大小 200。 |
@@ -104,8 +104,8 @@ K3Cloud API 是**只读**。过滤字段、排序字段和列必须被 allowlist
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | `GET` | `/api/workflow/status` | 已登录 | Flowable 状态与当前 scope 演示任务数量。 |
-| `GET` | `/api/workflow/tasks` | 已登录 | Flowable 连通时按当前用户映射、账号租户过滤；仅未配置引擎时返回账套演示任务。引擎已配置但不可用时返回 `502`，不回退成演示数据。 |
-| `GET` | `/api/workflow/tasks/:id` | 已登录 | 返回演示任务，或验证 Flowable 租户/经映射的办理人后返回真实任务。 |
+| `GET` | `/api/workflow/tasks` | 已登录 | Flowable 连通时按当前用户显式映射及组合 tenant/organization/account tenant ID 过滤；仅未配置引擎时返回当前三元组演示任务。引擎已配置但不可用时返回 `502`，不回退成演示数据。 |
+| `GET` | `/api/workflow/tasks/:id` | 已登录 | 返回演示任务，或同时验证组合 Flowable tenant 与经当前范围映射的办理人后返回真实任务。 |
 | `GET` | `/api/workflow/audit` | 已登录 | 返回当前账套本地演示审计，或当前映射审批人的 Flowable 操作记录。 |
 | `POST` | `/api/workflow/demo-tasks` | `admin`, `plm_manager` | Flowable 未配置时创建本地演示待办；Flowable 已配置时拒绝新演示任务。 |
 | `POST` | `/api/workflow/instances` | `admin`, `plm_manager` | 通过 allowlist 流程定义 key 发起 Flowable 实例；仅接受经校验的变量并由服务端加入 initiator/tenant。 |

@@ -3,7 +3,7 @@ import { promisify } from 'node:util'
 import { Router, type Request, type RequestHandler, type Response } from 'express'
 import { nanoid } from 'nanoid'
 import { db, getAppState, recordSecurityEvent, setAppState } from './database.js'
-import { dingtalkSsoStatus, exchangeDingTalkAuthCode } from './dingtalk-sso.js'
+import { dingtalkSsoScope, dingtalkSsoStatus, exchangeDingTalkAuthCode } from './dingtalk-sso.js'
 import { migrateLegacyWorkspace } from './workspace-store.js'
 
 const scrypt = promisify(scryptCallback)
@@ -86,16 +86,32 @@ function getUserById(userId: string): StoredUser | undefined {
   return row ? { id: row.id, email: row.email, displayName: row.displayName, passwordHash: row.passwordHash, passwordEnabled: bool(row.passwordEnabled), createdAt: row.createdAt, disabled: bool(row.disabled), isPlatformAdmin: bool(row.isPlatformAdmin) } : undefined
 }
 function defaultAccountForUser(userId: string): string | undefined {
-  const row = db.prepare(`SELECT account_id AS accountId FROM tenant_memberships WHERE user_id=? AND disabled=0 ORDER BY created_at LIMIT 1`).get(userId) as { accountId: string } | undefined
+  const row = db.prepare(`SELECT m.account_id AS accountId FROM tenant_memberships m
+    JOIN accounts a ON a.id=m.account_id AND a.tenant_id=m.tenant_id AND a.organization_id=m.organization_id
+    JOIN organizations o ON o.id=a.organization_id AND o.tenant_id=a.tenant_id
+    JOIN tenants t ON t.id=a.tenant_id
+    WHERE m.user_id=? AND m.disabled=0 AND a.status='active' AND o.status='active' AND t.status='active'
+    ORDER BY m.created_at LIMIT 1`).get(userId) as { accountId: string } | undefined
   return row?.accountId
 }
 function scopesForUser(userId: string) {
   return db.prepare(`SELECT m.id AS membershipId,m.role,a.id AS accountId,a.name AS accountName,a.code AS accountCode,
       o.id AS organizationId,o.name AS organizationName,o.code AS organizationCode,t.id AS tenantId,t.name AS tenantName,t.code AS tenantCode
-    FROM tenant_memberships m JOIN accounts a ON a.id=m.account_id JOIN organizations o ON o.id=m.organization_id AND o.tenant_id=m.tenant_id
-      JOIN tenants t ON t.id=m.tenant_id
+    FROM tenant_memberships m JOIN accounts a ON a.id=m.account_id AND a.tenant_id=m.tenant_id AND a.organization_id=m.organization_id
+      JOIN organizations o ON o.id=a.organization_id AND o.tenant_id=a.tenant_id
+      JOIN tenants t ON t.id=a.tenant_id
     WHERE m.user_id=? AND m.disabled=0 AND a.status='active' AND o.status='active' AND t.status='active'
     ORDER BY t.name,o.name,a.name`).all(userId) as Array<UserScope & { tenantCode: string; organizationCode: string; accountCode: string }>
+}
+function activeDingTalkSsoScope() {
+  const scope = dingtalkSsoScope()
+  if (!scope) return undefined
+  const row = db.prepare(`SELECT a.id FROM accounts a
+    JOIN organizations o ON o.id=a.organization_id AND o.tenant_id=a.tenant_id
+    JOIN tenants t ON t.id=a.tenant_id
+    WHERE a.id=? AND a.tenant_id=? AND a.organization_id=? AND a.status='active' AND o.status='active' AND t.status='active'`)
+    .get(scope.accountId, scope.tenantId, scope.organizationId)
+  return row ? scope : undefined
 }
 function resolveSession(token: string): { user: AuthUser; digest: string } | undefined {
   const digest = tokenDigest(token)
@@ -106,7 +122,7 @@ function resolveSession(token: string): { user: AuthUser; digest: string } | und
       LEFT JOIN accounts a ON a.id=s.active_account_id
       LEFT JOIN organizations o ON o.id=a.organization_id
       LEFT JOIN tenants t ON t.id=a.tenant_id
-      LEFT JOIN tenant_memberships m ON m.user_id=u.id AND m.account_id=a.id AND m.disabled=0 AND a.status='active' AND o.status='active' AND t.status='active'
+      LEFT JOIN tenant_memberships m ON m.user_id=u.id AND m.account_id=a.id AND m.tenant_id=a.tenant_id AND m.organization_id=a.organization_id AND m.disabled=0 AND a.status='active' AND o.status='active' AND t.status='active'
     WHERE s.token_hash=? AND s.expires_at>?`).get(digest, new Date().toISOString()) as Record<string, unknown> | undefined
   if (!row) return undefined
   if (!row.accountId) {
@@ -218,7 +234,10 @@ function scopeReply(scope: UserScope & { tenantCode?: string; organizationCode?:
 export function createAuthRouter() {
   const router = Router()
   router.use(sameOriginGuard)
-  router.get('/status', (_req, res) => res.json({ setupRequired: userCount() === 0, authMode: 'password-session', passwordLoginAvailable: true, dingtalkSso: dingtalkSsoStatus(), tenancy: 'tenant-organization-account' }))
+  router.get('/status', (_req, res) => {
+    const sso = dingtalkSsoStatus(), scopeReady = Boolean(sso.configured && activeDingTalkSsoScope())
+    return res.json({ setupRequired: userCount() === 0, authMode: 'password-session', passwordLoginAvailable: true, dingtalkSso: { ...sso, configured: scopeReady, ...(sso.configured && !scopeReady ? { missing: ['DINGTALK_SSO_SCOPE'] } : {}) }, tenancy: 'tenant-organization-account' })
+  })
 
   router.post('/activate', async (req, res) => {
     const token = typeof req.body?.token === 'string' ? req.body.token.trim() : ''
@@ -315,6 +334,10 @@ export function createAuthRouter() {
       if (!checkLoginRate(req, res)) return
       const authCode = typeof req.body?.authCode === 'string' ? req.body.authCode.trim() : ''
       if (!authCode || authCode.length > 1024) return res.status(400).json({ error: 'invalid_auth_code', message: '未取得有效的钉钉免登授权码，请重试。' })
+      const configuredScope = activeDingTalkSsoScope()
+      if (!configuredScope) return res.status(503).json({ error: 'dingtalk_sso_scope_unavailable', message: '钉钉免登绑定的租户、组织或账套不存在或未启用。' })
+      const requestedAccount = typeof req.body?.accountId === 'string' ? req.body.accountId : ''
+      if (requestedAccount && requestedAccount !== configuredScope.accountId) return res.status(403).json({ error: 'dingtalk_sso_scope_mismatch', message: '当前钉钉免登应用未绑定到所选账套。' })
       let identity: Awaited<ReturnType<typeof exchangeDingTalkAuthCode>>
       try { identity = await exchangeDingTalkAuthCode(authCode) }
       catch (error) {
@@ -342,11 +365,14 @@ export function createAuthRouter() {
         recordSecurityEvent({ userId: user.id, event: 'dingtalk_login_denied_no_membership', subject: user.email, ip: req.ip, userAgent: req.get('user-agent') })
         return res.status(403).json({ error: 'no_workspace_membership', message: '此账号没有启用的组织和账套访问权限。' })
       }
-      const requestedAccount = typeof req.body?.accountId === 'string' ? req.body.accountId : ''
-      const selected = (requestedAccount ? scopes.find(scope => scope.accountId === requestedAccount) : undefined) ?? scopes[0]
-      if (requestedAccount && !scopes.some(scope => scope.accountId === requestedAccount)) return res.status(403).json({ error: 'scope_not_allowed', message: '该账号没有权限进入所选账套。' })
+      const selected = scopes.find(scope => scope.accountId === configuredScope.accountId && scope.tenantId === configuredScope.tenantId && scope.organizationId === configuredScope.organizationId)
+      if (!selected) {
+        recordLoginFailure(req)
+        recordSecurityEvent({ userId: user.id, event: 'dingtalk_login_denied_scope_mismatch', subject: configuredScope.accountId, ip: req.ip, userAgent: req.get('user-agent') })
+        return res.status(403).json({ error: 'dingtalk_scope_membership_required', message: '此钉钉身份未加入免登应用绑定的租户、组织和账套。' })
+      }
       nextLoginRateSuccess(req)
-      const token = createSession(user.id, selected!.accountId, req, res, true)
+      const token = createSession(user.id, selected.accountId, req, res, true)
       const result = resolveSession(token)!
       req.authUser = result.user
       logEvent(req, 'dingtalk_login_succeeded', user.id, user.email, result.user)

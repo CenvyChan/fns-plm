@@ -1,4 +1,4 @@
-type DingTalkConfig = { clientId: string; clientSecret: string; corpId: string }
+type DingTalkConfig = { clientId: string; clientSecret: string; corpId: string; tenantId: string; organizationId: string; accountId: string }
 export type DingTalkIdentity = { userId: string; unionId?: string; name?: string }
 type CachedToken = { fingerprint: string; accessToken: string; expiresAt: number }
 let cachedToken: CachedToken | undefined
@@ -7,7 +7,10 @@ function config(): DingTalkConfig | undefined {
   const clientId = process.env.DINGTALK_SSO_CLIENT_ID?.trim() ?? ''
   const clientSecret = process.env.DINGTALK_SSO_CLIENT_SECRET?.trim() ?? ''
   const corpId = process.env.DINGTALK_SSO_CORP_ID?.trim() ?? ''
-  return clientId && clientSecret && corpId ? { clientId, clientSecret, corpId } : undefined
+  const tenantId = process.env.DINGTALK_SSO_TENANT_ID?.trim() ?? ''
+  const organizationId = process.env.DINGTALK_SSO_ORGANIZATION_ID?.trim() ?? ''
+  const accountId = process.env.DINGTALK_SSO_ACCOUNT_ID?.trim() ?? ''
+  return clientId && clientSecret && corpId && tenantId && organizationId && accountId ? { clientId, clientSecret, corpId, tenantId, organizationId, accountId } : undefined
 }
 
 export function dingtalkSsoStatus() {
@@ -15,7 +18,15 @@ export function dingtalkSsoStatus() {
   if (!process.env.DINGTALK_SSO_CLIENT_ID?.trim()) missing.push('DINGTALK_SSO_CLIENT_ID')
   if (!process.env.DINGTALK_SSO_CLIENT_SECRET?.trim()) missing.push('DINGTALK_SSO_CLIENT_SECRET')
   if (!process.env.DINGTALK_SSO_CORP_ID?.trim()) missing.push('DINGTALK_SSO_CORP_ID')
+  if (!process.env.DINGTALK_SSO_TENANT_ID?.trim()) missing.push('DINGTALK_SSO_TENANT_ID')
+  if (!process.env.DINGTALK_SSO_ORGANIZATION_ID?.trim()) missing.push('DINGTALK_SSO_ORGANIZATION_ID')
+  if (!process.env.DINGTALK_SSO_ACCOUNT_ID?.trim()) missing.push('DINGTALK_SSO_ACCOUNT_ID')
   return { configured: missing.length === 0, missing }
+}
+
+export function dingtalkSsoScope() {
+  const settings = config()
+  return settings ? { tenantId: settings.tenantId, organizationId: settings.organizationId, accountId: settings.accountId } : undefined
 }
 
 async function fetchJson(url: string, init: RequestInit): Promise<Record<string, unknown>> {
@@ -27,7 +38,7 @@ async function fetchJson(url: string, init: RequestInit): Promise<Record<string,
 }
 
 async function getAppAccessToken(settings: DingTalkConfig): Promise<string> {
-  const fingerprint = `${settings.clientId}:${settings.corpId}`
+  const fingerprint = `${settings.tenantId}:${settings.organizationId}:${settings.accountId}:${settings.clientId}:${settings.corpId}`
   if (cachedToken?.fingerprint === fingerprint && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.accessToken
   const payload = await fetchJson(`https://api.dingtalk.com/v1.0/oauth2/${encodeURIComponent(settings.corpId)}/token`, {
     method: 'POST',

@@ -4,6 +4,7 @@ import type { WorkspaceScope } from '../scope.js'
 
 export type ConnectorProvider = 'k3cloud' | 'flowable' | 'dingtalk'
 export type ConnectorConfig = Record<string, unknown>
+type ConnectorScope = Pick<WorkspaceScope, 'tenantId' | 'organizationId' | 'accountId'>
 const secretFields: Record<ConnectorProvider, string[]> = {
   k3cloud: ['appSecret', 'password', 'clientSecret'],
   flowable: ['password', 'clientSecret'],
@@ -12,7 +13,16 @@ const secretFields: Record<ConnectorProvider, string[]> = {
 function jsonObjectEnv(name: string): Record<string, unknown> {
   try { const value = JSON.parse(process.env[name] ?? '{}'); return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {} } catch { return {} }
 }
-function envConfig(provider: ConnectorProvider): ConnectorConfig {
+function environmentScopeMatches(scope: ConnectorScope): boolean {
+  const tenantId = process.env.CONNECTOR_DEFAULT_TENANT_ID?.trim() ?? ''
+  const organizationId = process.env.CONNECTOR_DEFAULT_ORGANIZATION_ID?.trim() ?? ''
+  const accountId = process.env.CONNECTOR_DEFAULT_ACCOUNT_ID?.trim() ?? ''
+  return Boolean(tenantId && organizationId && accountId && tenantId === scope.tenantId && organizationId === scope.organizationId && accountId === scope.accountId)
+}
+function envConfig(scope: ConnectorScope, provider: ConnectorProvider): ConnectorConfig {
+  // Global environment values are never implicitly shared across tenants. They are
+  // available only when an operator explicitly binds them to this exact scope.
+  if (!environmentScopeMatches(scope)) return {}
   if (provider === 'flowable') return { baseUrl: process.env.FLOWABLE_BASE_URL?.trim() ?? '', username: process.env.FLOWABLE_USERNAME?.trim() ?? '', password: process.env.FLOWABLE_PASSWORD ?? '', timeoutMs: Number(process.env.FLOWABLE_TIMEOUT_MS ?? 10000), userMap: jsonObjectEnv('FLOWABLE_USER_MAP_JSON') }
   if (provider === 'k3cloud') return {
     baseUrl: process.env.K3CLOUD_BASE_URL?.trim() ?? '', accountId: process.env.K3CLOUD_ACCOUNT_ID?.trim() ?? '', username: process.env.K3CLOUD_USERNAME?.trim() ?? '', organization: process.env.K3CLOUD_ORGANIZATION?.trim() ?? '',
@@ -23,11 +33,6 @@ function envConfig(provider: ConnectorProvider): ConnectorConfig {
     cardCallbackSecret: process.env.DINGTALK_CARD_CALLBACK_SECRET ?? '', appKey: process.env.DINGTALK_APP_KEY?.trim() ?? '', appSecret: process.env.DINGTALK_APP_SECRET ?? '',
     templateId: process.env.DINGTALK_CARD_TEMPLATE_ID?.trim() ?? '', corpId: process.env.DINGTALK_CORP_ID?.trim() ?? '', publicAppUrl: process.env.PUBLIC_APP_URL?.trim() ?? '', userMapping: jsonObjectEnv('DINGTALK_USER_MAP_JSON'),
   }
-}
-
-export function getConnectorConfig<T extends ConnectorConfig = ConnectorConfig>(scope: WorkspaceScope, provider: ConnectorProvider): T {
-  const row = getConnectorRow(scope.accountId, provider)
-  return (row ? decryptConfig<T>(row.encryptedConfig) : envConfig(provider)) as T
 }
 function requiredFields(provider: ConnectorProvider, config: ConnectorConfig): string[] {
   if (provider === 'flowable') return ['baseUrl', 'username', 'password'].filter(key => !String(config[key] ?? '').trim())
@@ -66,8 +71,10 @@ function validateConfig(provider: ConnectorProvider, config: ConnectorConfig): v
 }
 
 export function saveConnectorConfig(scope: WorkspaceScope, provider: ConnectorProvider, incoming: ConnectorConfig, updatedBy: string): { revision: number; updatedAt: string } {
-  const previous = getConnectorRow(scope.accountId, provider)
-  const existing = previous ? decryptConfig<ConnectorConfig>(previous.encryptedConfig) : envConfig(provider)
+  const previous = getConnectorRow(scope, provider)
+  const conflicting = db.prepare(`SELECT id,tenant_id AS tenantId,organization_id AS organizationId FROM connector_configs WHERE account_id=? AND provider=?`).get(scope.accountId, provider) as { id: string; tenantId: string; organizationId: string } | undefined
+  if (conflicting && (conflicting.tenantId !== scope.tenantId || conflicting.organizationId !== scope.organizationId)) throw new Error('connector_scope_mismatch')
+  const existing = previous ? decryptConfig<ConnectorConfig>(previous.encryptedConfig) : envConfig(scope, provider)
   const next: ConnectorConfig = { ...existing, ...incoming }
   for (const key of secretFields[provider]) if (incoming[key] === '' || incoming[key] === undefined) next[key] = existing[key] ?? ''
   const clear = Array.isArray(incoming.clearSecrets) ? incoming.clearSecrets.filter((key): key is string => typeof key === 'string') : []
@@ -76,27 +83,32 @@ export function saveConnectorConfig(scope: WorkspaceScope, provider: ConnectorPr
   validateConfig(provider, next)
   const now = new Date().toISOString(), revision = (previous?.revision ?? 0) + 1
   db.prepare(`INSERT INTO connector_configs(id,tenant_id,organization_id,account_id,provider,encrypted_config,revision,updated_by,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(account_id,provider) DO UPDATE SET encrypted_config=excluded.encrypted_config,revision=excluded.revision,updated_by=excluded.updated_by,updated_at=excluded.updated_at`)
+    VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(account_id,provider) DO UPDATE SET tenant_id=excluded.tenant_id,organization_id=excluded.organization_id,encrypted_config=excluded.encrypted_config,revision=excluded.revision,updated_by=excluded.updated_by,updated_at=excluded.updated_at`)
     .run(previous?.id ?? nanoid(), scope.tenantId, scope.organizationId, scope.accountId, provider, encryptConfig(next), revision, updatedBy, now)
   return { revision, updatedAt: now }
 }
 
 export function connectorSummary(scope: WorkspaceScope, provider: ConnectorProvider) {
-  const row = getConnectorRow(scope.accountId, provider), config = getConnectorConfig(scope, provider), missingFields = requiredFields(provider, config), safe: Record<string, unknown> = {}
+  const row = getConnectorRow(scope, provider), config = getConnectorConfig(scope, provider), missingFields = requiredFields(provider, config), safe: Record<string, unknown> = {}
   const safeFields = provider === 'k3cloud'
     ? ['baseUrl', 'accountId', 'username', 'organization', 'appId', 'lcid', 'timeoutMs', 'formAllowlist']
     : provider === 'flowable' ? ['baseUrl', 'username', 'timeoutMs', 'userMap'] : ['webhookUrl', 'appKey', 'templateId', 'corpId', 'publicAppUrl', 'userMapping']
   for (const key of safeFields) if (config[key] !== undefined && config[key] !== '') safe[key] = config[key]
   const presentSecrets = secretFields[provider].filter(key => typeof config[key] === 'string' && String(config[key]).length > 0)
-  return { provider, configured: missingFields.length === 0, missingFields, config: safe, secrets: Object.fromEntries(secretFields[provider].map(key => [key, presentSecrets.includes(key)])), revision: row?.revision ?? 0, updatedAt: row?.updatedAt ?? null, source: row ? 'encrypted-account-setting' : 'environment-default' }
+  const source = row ? 'encrypted-scope-setting' : environmentScopeMatches(scope) ? 'environment-scope-default' : 'unconfigured'
+  return { provider, configured: missingFields.length === 0, missingFields, config: safe, secrets: Object.fromEntries(secretFields[provider].map(key => [key, presentSecrets.includes(key)])), revision: row?.revision ?? 0, updatedAt: row?.updatedAt ?? null, source }
 }
 export function connectorCredentialConfig(scope: WorkspaceScope, provider: ConnectorProvider): ConnectorConfig { return getConnectorConfig(scope, provider) }
+export function getConnectorConfig<T extends ConnectorConfig = ConnectorConfig>(scope: WorkspaceScope, provider: ConnectorProvider): T {
+  const row = getConnectorRow(scope, provider)
+  return (row ? decryptConfig<T>(row.encryptedConfig) : envConfig(scope, provider)) as T
+}
 
 export function listConnectorConfigs(provider: ConnectorProvider): Array<{ scope: WorkspaceScope; config: ConnectorConfig }> {
   const rows = db.prepare(`SELECT t.id AS tenantId,t.name AS tenantName,o.id AS organizationId,o.name AS organizationName,
       a.id AS accountId,a.name AS accountName,c.encrypted_config AS encryptedConfig
-    FROM connector_configs c JOIN accounts a ON a.id=c.account_id AND a.status='active'
-      JOIN organizations o ON o.id=a.organization_id AND o.status='active'
+    FROM connector_configs c JOIN accounts a ON a.id=c.account_id AND a.tenant_id=c.tenant_id AND a.organization_id=c.organization_id AND a.status='active'
+      JOIN organizations o ON o.id=a.organization_id AND o.tenant_id=a.tenant_id AND o.status='active'
       JOIN tenants t ON t.id=a.tenant_id AND t.status='active'
     WHERE c.provider=? ORDER BY t.name,o.name,a.name`).all(provider) as Array<{ tenantId: string; tenantName: string; organizationId: string; organizationName: string; accountId: string; accountName: string; encryptedConfig: string }>
   return rows.map(row => ({ scope: { tenantId: row.tenantId, tenantName: row.tenantName, organizationId: row.organizationId, organizationName: row.organizationName, accountId: row.accountId, accountName: row.accountName, role: 'admin', isPlatformAdmin: false }, config: decryptConfig<ConnectorConfig>(row.encryptedConfig) }))
