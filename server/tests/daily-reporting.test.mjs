@@ -450,6 +450,31 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
 })
 
 test('historical daily import validates CSV/XLSX and commits atomically within the authenticated scope', { concurrency: false }, async () => {
+  const invalidUtf8Csv = Buffer.concat([
+    Buffer.from('日期,客户名称,原币金额\n2024-05-04,校验客户,'),
+    Buffer.from([0xff]),
+    Buffer.from('\n'),
+  ])
+  const invalidUtf8Preview = await uploadImport('/api/daily-reports/import/preview', { fileName: 'invalid-utf8.csv', content: invalidUtf8Csv })
+  assert.equal(invalidUtf8Preview.response.status, 400)
+  assert.equal(invalidUtf8Preview.data.error, 'daily_report_import_parse_failed')
+  assert.match(invalidUtf8Preview.data.message, /不是有效的 UTF-8/)
+
+  const duplicateHeaderPreview = await uploadImport('/api/daily-reports/import/preview', { fileName: 'duplicate-header.csv', content: '日期,业务日期,客户名称\n2024-05-04,2024-05-04,校验客户\n' })
+  assert.equal(duplicateHeaderPreview.response.status, 400)
+  assert.match(duplicateHeaderPreview.data.message, /映射到重复字段/)
+
+  const mismatchedFieldsCsv = '日期,客户名称,单据编号,原币金额\n2024-05-01,校验客户,IMP-WIDTH-VALID,10\n2024-05-02,校验客户,IMP-WIDTH-SHORT\n2024-05-03,校验客户,IMP-WIDTH-LONG,20,意外字段\n'
+  const mismatchedFieldsPreview = await uploadImport('/api/daily-reports/import/preview', { fileName: 'mismatched-fields.csv', content: mismatchedFieldsCsv })
+  assert.equal(mismatchedFieldsPreview.response.status, 200, JSON.stringify(mismatchedFieldsPreview.data))
+  assert.equal(mismatchedFieldsPreview.data.errorRows, 2)
+  assert.match(mismatchedFieldsPreview.data.rows.find(row => row.line === 3).errors.join(' '), /字段数不匹配.*表头有 4 列.*当前行有 3 列/)
+  assert.match(mismatchedFieldsPreview.data.rows.find(row => row.line === 4).errors.join(' '), /字段数不匹配.*表头有 4 列.*当前行有 5 列/)
+  const mismatchedFieldsCommit = await api('/api/daily-reports/import/commit', { method: 'POST', body: { previewId: mismatchedFieldsPreview.data.previewId } })
+  assert.equal(mismatchedFieldsCommit.response.status, 422)
+  const mismatchedFieldsCheck = await api('/api/daily-reports?from=2024-05-01&to=2024-05-03')
+  assert.equal(mismatchedFieldsCheck.data.reports.some(report => report.documentNo.startsWith('IMP-WIDTH-')), false, 'any malformed row prevents the whole batch from being written')
+
   const invalidCsv = '业务日期,客户/供应商,单据编号,数量,币种,原币金额,汇率,备注\n2024-03-01,历史客户,IMP-ATOMIC-001,2,USD,10,7.2,"逗号,备注"\nnot-a-date,历史客户,IMP-ATOMIC-002,1,CNY,20,1,无效日期\n'
   const invalidPreview = await uploadImport('/api/daily-reports/import/preview', { fileName: 'history.csv', content: invalidCsv })
   assert.equal(invalidPreview.response.status, 200, JSON.stringify(invalidPreview.data))

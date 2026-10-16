@@ -39,6 +39,13 @@ test('CSV rejects duplicate normalized headers and multiple aliases for one fiel
   await assert.rejects(parseCsv('日期,业务日期,客户名称\n2024-02-01,2024-02-01,客户甲\n'), /映射到重复字段/)
 })
 
+test('CSV marks rows with too few or too many fields as preview errors', async () => {
+  const parsed = await parseCsv('日期,客户名称,原币金额\n2024-02-01,客户甲\n2024-02-02,客户乙,10,意外字段\n')
+  assert.equal(parsed.rows.length, 2)
+  assert.match(parsed.rows[0].errors[0], /第 2 行字段数不匹配：表头有 3 列，当前行有 2 列/)
+  assert.match(parsed.rows[1].errors[0], /第 3 行字段数不匹配：表头有 3 列，当前行有 4 列/)
+})
+
 test('CSV rejects quotes inside unquoted cells and characters after a closing quote', async () => {
   await assert.rejects(parseCsv('日期,客户名称\n2024-02-01,客"户\n'), /引号必须位于字段开头/)
   await assert.rejects(parseCsv('日期,客户名称\n2024-02-01,"客户甲"x\n'), /闭合引号后/)

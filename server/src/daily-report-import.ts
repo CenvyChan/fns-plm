@@ -133,6 +133,9 @@ function parseGrid(headers: string[], rows: Array<{ line: number; values: unknow
   const parsedRows = rows.map(row => {
     const values: Record<string, unknown> = {}
     const errors = [...(row.errors ?? [])]
+    if (row.values.length !== headers.length) {
+      errors.push(`第 ${row.line} 行字段数不匹配：表头有 ${headers.length} 列，当前行有 ${row.values.length} 列。`)
+    }
     for (const field of Object.keys(aliases)) {
       const index = indices[field]
       if (index === undefined) continue
