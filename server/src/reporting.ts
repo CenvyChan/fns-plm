@@ -8,6 +8,7 @@ export interface ReportWorkspace {
   documents?: object[]
   salesBomSnapshots?: object[]
   workflowTasks?: object[]
+  dailyReport?: Record<string, unknown>
 }
 
 const asRecord = (value: object) => value as Record<string, unknown>
@@ -61,7 +62,20 @@ export function buildWorkspaceReport(workspace: ReportWorkspace, now = new Date(
     approvalPending: workflowTasks.filter(item => item.status === 'pending').length,
     approvalApproved: workflowTasks.filter(item => item.status === 'approved').length,
     approvalRejected: workflowTasks.filter(item => item.status === 'rejected').length,
+    ...(workspace.dailyReport ? {
+      dailyReportDate: String(workspace.dailyReport.reportDate ?? ''),
+      dailySalesAmountCny: Number((((workspace.dailyReport.sales as Record<string, unknown> | undefined)?.daily as Record<string, unknown> | undefined)?.amountCny) ?? 0),
+      dailyPurchaseAmountCny: Number((((workspace.dailyReport.purchase as Record<string, unknown> | undefined)?.daily as Record<string, unknown> | undefined)?.amountCny) ?? 0),
+    } : {}),
   }
+  const dailyReport = workspace.dailyReport
+  const dailySales = (dailyReport?.sales as Record<string, unknown> | undefined)?.daily as Record<string, unknown> | undefined
+  const dailyPurchase = (dailyReport?.purchase as Record<string, unknown> | undefined)?.daily as Record<string, unknown> | undefined
+  const orders = dailyReport?.orders as Record<string, unknown> | undefined
+  const receivables = (dailyReport?.balances as Record<string, unknown> | undefined)?.receivables as Record<string, unknown> | undefined
+  const payables = (dailyReport?.balances as Record<string, unknown> | undefined)?.payables as Record<string, unknown> | undefined
+  const salesOrders = orders?.sales as Record<string, unknown> | undefined
+  const purchaseOrders = orders?.purchase as Record<string, unknown> | undefined
   const markdown = [
     `### PLM 工作区报告 · ${today}`,
     `生成时间：${generatedAt.replace('T', ' ').slice(0, 16)} UTC`,
@@ -69,6 +83,14 @@ export function buildWorkspaceReport(workspace: ReportWorkspace, now = new Date(
     `**任务**：${tasks.length} 项，待完成 ${open} 项，已完成 ${done} 项，逾期 ${overdue} 项。`,
     `**项目**：${projects.length} 个；**KPI 规则**：${rules.length} 条；待评审 ${pendingReviews} 份；流程待办 ${summary.approvalPending} 项。`,
     `**PLM**：物料 ${materials.length} 项（已发布 ${releasedMaterials}）；BOM ${boms.length} 份（已发布 ${releasedBoms}）；图文档 ${documents.length} 份（已发布 ${releasedDocuments}）。`,
+    ...(dailyReport ? [
+      '',
+      `### 销售 / 采购经营日报 · ${text(dailyReport.reportDate, 20)}`,
+      `**销售日报**：${Number(dailySales?.count ?? 0)} 笔，¥${Number(dailySales?.amountCny ?? 0).toFixed(2)}；**采购日报**：${Number(dailyPurchase?.count ?? 0)} 笔，¥${Number(dailyPurchase?.amountCny ?? 0).toFixed(2)}。`,
+      `**订单摘要**：销售订单 ${Number(salesOrders?.count ?? 0)} 笔 / ¥${Number(salesOrders?.amountCny ?? 0).toFixed(2)}；采购订单 ${Number(purchaseOrders?.count ?? 0)} 笔 / ¥${Number(purchaseOrders?.amountCny ?? 0).toFixed(2)}。`,
+      `**往来余额**：应收未收 ¥${Number(receivables?.outstandingAmountCny ?? 0).toFixed(2)}；应付未付 ¥${Number(payables?.outstandingAmountCny ?? 0).toFixed(2)}。`,
+      `**数据提示**：${text(dailyReport.notice, 180)}`,
+    ] : []),
     ...(projectLines.length ? ['', '**项目进度**', ...projectLines] : []),
     '',
     '由 PLM 工作区自动生成；发布状态以源系统记录为准。',

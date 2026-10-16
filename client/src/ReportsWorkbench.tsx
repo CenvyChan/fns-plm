@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { CalendarClock, Pencil, Play, RefreshCw, Trash2 } from 'lucide-react'
 import { apiFetch } from './api'
+import DailyReportingWorkbench from './DailyReportingWorkbench'
 
 type Schedule = {
   id: string
@@ -211,6 +212,7 @@ export default function ReportsWorkbench() {
       <div><div className="iw-eyebrow">经营分析 / REPORTING</div><h1>报告中心</h1><p>预览报告内容并管理日报、周报计划；推送由已配置渠道及计划决定。</p></div>
       <button className="iw-button iw-secondary" onClick={() => { void loadPreview(); void loadSchedules() }} disabled={loadingPreview || loadingSchedules}><RefreshCw size={15}/>刷新</button>
     </header>
+    <DailyReportingWorkbench />
     <div className="iw-columns iw-report-columns">
       <section className="iw-card">
         <div className="iw-card-head"><div><h2>报告预览</h2><p>{preview?.title || '摘要与文本内容'}</p></div><div><button className="iw-button iw-approve iw-small" onClick={() => void sendNow()} disabled={sending || loadingPreview || !channelReady} title={!channelReady ? '请先配置钉钉机器人' : undefined}>{sending ? '推送中…' : '立即推送'}</button> <button className="iw-button iw-secondary iw-small" onClick={() => void loadPreview()} disabled={loadingPreview}><RefreshCw size={14}/>刷新预览</button></div></div>

@@ -10,7 +10,7 @@
 - **多视图 BOM**：EBOM/MBOM/SBOM 分开版本化；受控来源、配置条件与订单级销售 BOM 快照。
 - **图文档**：文档号、修订、生命周期、物料关联；真实附件可上传到服务端受控文件目录，验证文件类型/内容、大小上限 25 MB、SHA-256 校验和，并通过认证 API 下载。
 - **流程工作台**：本地流程演练支持意见留痕；配置 Flowable 后使用真实引擎 API 查询、发起、完成任务。
-- **报告与钉钉**：账套报告预览、日报/周报计划、手动/计划推送钉钉 Markdown；Redis 可用于跨副本报告任务去重。
+- **报告与钉钉**：账套报告预览、日报/周报计划、手动/计划推送钉钉 Markdown；新增销售/采购日报录入、K3 快照行部分分摊、三维金额对账、不可变快照及 HTML/多工作表 Excel 导出。当前 K3 日报采用按账套隔离的本地演示数据；邮件与快照渠道仅模拟，不触达真实接收人。
 - **开发期上下文工具**：`dev-tools/openviking.mjs` 为开发者提供本机 OpenViking health/搜索和资料导入命令；默认连接 `http://127.0.0.1:1933`、拒绝远程地址，与生产客户端/服务分离，导入默认只预览。
 - **原生钉钉小程序源码**：`dingtalk-miniapp/` 包含一次性 authCode 免登实现、显式密码备用入口、账套选择、待审批列表/详情、审批操作与报告预览；真实应用凭证、身份绑定、安全域名/授权和发布仍待企业管理员完成。
 - **账号与多租户权限**：企业（tenant）/组织/account/账套成员关系、单次成员激活链接、平台管理员核验钉钉身份绑定、租户/组织/账套管理页、scope 切换、基于角色的服务端授权、审计事件、连接器按完整 tenant/organization/account 三元组加密保存。
@@ -62,6 +62,7 @@ npm test --prefix server
 - [独立 Flowable 引擎部署](deploy/ubuntu/flowable-service-README.md)
 - [完整 REST API 文档](docs/API.md)
 - [中文用户操作指南](docs/USER_GUIDE.md)
+- [销售/采购日报与 K3Cloud 对账说明](docs/DAILY_REPORTING.md)
 - [连接器加密、配置与边界说明](docs/INTEGRATIONS.md)
 - [开发期 OpenViking 工具说明](docs/INTEGRATIONS.md#5-openviking-开发期上下文工具)
 - [Android APK 构建与配置说明](android-app/README.md)

@@ -124,6 +124,23 @@ K3Cloud API 是**只读**。过滤字段、排序字段和列必须被 allowlist
 | `POST` | `/api/reports/schedules/:id/run` | `admin` | 手动执行指定计划，可能发送钉钉消息；无凭据返回 `503`，同一计划并发执行会被锁拒绝。 |
 | `POST` | `/api/reports/send` | `admin` | 手动推送当前账套报告，可能向当前账套配置的机器人发消息。 |
 
+### 销售 / 采购日报与 K3Cloud 对账
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| `GET` | `/api/daily-reports?from=...&to=...&type=sales\|purchase` | 已登录 | 当前账套日报历史。 |
+| `POST` | `/api/daily-reports` | `admin`, `plm_manager`, `member` | 手工录入；服务端计算 CNY 金额并绑定操作者。 |
+| `PATCH` / `DELETE` | `/api/daily-reports/:id` | 同上 | 更正或软删除；已归档数据产生更正记录，不改写历史快照。 |
+| `GET` | `/api/daily-reports/k3-lines?type=...` | 已登录 | 当前账套 K3 快照行。 |
+| `PUT` | `/api/daily-reports/:id/links` | `admin`, `plm_manager`, `member` | 多对多部分分摊；类型/账套校验，超额/跨日显式警告。 |
+| `GET` | `/api/daily-reports/summary?date=...&scope=both` | 已登录 | 日报覆盖率、月/年同期间差异、K3 行分摊三维对账。 |
+| `GET` / `POST` | `/api/daily-reports/snapshots` | 已登录 / 写角色 | 查询或追加不可变归档快照；晚到更正进入后续快照。 |
+| `GET` | `/api/daily-reports/snapshots/:id/export.html` / `.xlsx` | 已登录 | 导出已归档 HTML / 多工作表 Excel。 |
+| `POST` | `/api/daily-reports/snapshots/:id/deliveries` | 写角色 | 仅记录隔离 email/DingTalk 模拟结果，不发送外部消息。 |
+| `POST` | `/api/daily-reports/mock-refresh` | `admin`, `plm_manager`；非生产 | 刷新本地演示 K3 快照，不访问真实 ERP。 |
+
+完整字段、数据完整性和收发边界见[日报与对账说明](DAILY_REPORTING.md)。该日报模块遵守与其它业务相同的服务端认证及 tenant/organization/account 授权。
+
 计划与报告数据始终从当前完整三层 scope 读取和保存。Redis `SET NX` 锁用于跨副本的同计划/同本地分钟去重及在途发送互斥；成功后保留短期去重锁，失败会释放该分钟锁以允许重试。没有 Redis 时使用进程内备用锁/缓存，不具备跨副本全局去重保证。
 
 ## 7. 共同响应与错误

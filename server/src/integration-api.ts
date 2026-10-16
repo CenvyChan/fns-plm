@@ -12,6 +12,7 @@ import { completeTask, flowableHealth, getTaskForActor, listTasksForActor, start
 import { buildApprovalPreviewUrl, dingtalkStatus, parseCardApprovalAction, sendMarkdown, verifyCardCallbackSignature, type DingTalkConfig } from './integrations/dingtalk.js'
 import { connectorCredentialConfig, connectorSummary, listConnectorConfigs, saveConnectorConfig, type ConnectorConfig, type ConnectorProvider } from './integrations/configuration.js'
 import { buildWorkspaceReport } from './reporting.js'
+import { dailyReportPushDigest } from './daily-reporting.js'
 import { reportScheduleBucket, runWithReportLocks } from './report-scheduling.js'
 import { currentWorkspaceScope, type WorkspaceScope } from './scope.js'
 import { readScopedWorkspace } from './workspace-store.js'
@@ -82,7 +83,11 @@ function scheduleStatus(scope: WorkspaceScope, schedule: ReportSchedule) {
 }
 function reportForScope(scope: WorkspaceScope, workflowTasks?: object[]) {
   const workspace = readScopedWorkspace(scope), state = workflowFor(scope)
-  return buildWorkspaceReport({ ...workspace, workflowTasks: workflowTasks ?? state.tasks })
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+  const reportDate = new Date(`${today}T00:00:00.000Z`)
+  reportDate.setUTCDate(reportDate.getUTCDate() - 1)
+  const dailyReport = dailyReportPushDigest(scope, reportDate.toISOString().slice(0, 10))
+  return buildWorkspaceReport({ ...workspace, workflowTasks: workflowTasks ?? state.tasks, ...(dailyReport ? { dailyReport } : {}) })
 }
 function recordScheduleRun(scope: WorkspaceScope, id: string, result: string): void {
   const schedules = schedulesFor(scope), current = schedules.find(item => item.id === id)
