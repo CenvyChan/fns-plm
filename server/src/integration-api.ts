@@ -308,13 +308,13 @@ export function createIntegrationRouter(): Router {
       return res.status(status).json({ error: status === 409 ? 'daily_source_mapping_incomplete' : 'k3cloud_daily_sync_failed', message })
     }
   })
-  router.get('/k3cloud/master-data', (req, res) => {
+  router.get('/k3cloud/master-data', requireRole('admin', 'plm_manager'), (req, res) => {
     const scope = scopeForRequest(req), state = readK3CloudMasterData(scope), requestedKind = typeof req.query.kind === 'string' ? req.query.kind : ''
     if (requestedKind && !K3_MASTER_DATA_KINDS.includes(requestedKind as typeof K3_MASTER_DATA_KINDS[number])) return res.status(400).json({ error: 'invalid_master_data_kind' })
     const records = requestedKind ? { [requestedKind]: state.records[requestedKind as typeof K3_MASTER_DATA_KINDS[number]] ?? [] } : state.records
     return res.json({ source: state.lastSyncedAt ? 'k3cloud' : 'not-synced', lastSyncedAt: state.lastSyncedAt, configuredKinds: state.configuredKinds, rowCounts: state.rowCounts, records })
   })
-  router.get('/k3cloud/sync-status', (req, res) => {
+  router.get('/k3cloud/sync-status', requireRole('admin', 'plm_manager'), (req, res) => {
     const scope = scopeForRequest(req), state = readK3CloudMasterData(scope)
     return res.json({ schedule: k3DataSyncSchedule(scope), lastRun: k3SyncRun(scope), masterDataLastSyncedAt: state.lastSyncedAt, masterDataRowCounts: state.rowCounts })
   })

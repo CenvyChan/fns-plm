@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomBytes } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -266,6 +267,39 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
     assert.equal(masterSnapshot.data.records.salesperson[0].department, '销售部')
     assert.equal(Object.hasOwn(masterSnapshot.data.records.user[0], 'password'), false, 'ERP user snapshots never expose credentials')
     assert.equal((await api('/api/auth/users')).data.users.length, platformUsersBeforeSync, 'ERP users are not provisioned as PLM accounts')
+
+    const memberEmail = 'k3-member@example.test'
+    const memberInvite = await api('/api/auth/users', { method: 'POST', body: { displayName: 'K3 API member', email: memberEmail, role: 'member' } })
+    assert.equal(memberInvite.response.status, 201, JSON.stringify(memberInvite.data))
+    const memberPassword = randomBytes(32).toString('base64url')
+    const memberActivation = await api('/api/auth/activate', { method: 'POST', token: '', body: { token: memberInvite.data.activationToken, password: memberPassword } })
+    assert.equal(memberActivation.response.status, 200, JSON.stringify(memberActivation.data))
+    const memberLogin = await api('/api/auth/mobile/login', { method: 'POST', token: '', body: { email: memberEmail, password: memberPassword, accountId: accountA } })
+    assert.equal(memberLogin.response.status, 200, JSON.stringify(memberLogin.data))
+    const memberToken = memberLogin.data.accessToken
+    scopes.set(memberToken, memberLogin.data.user)
+    assert.equal((await api(`/api/daily-reports/summary?date=${reportDay}`, { token: memberToken })).response.status, 200, 'member retains the permitted reporting view')
+    const memberMasterData = await api('/api/k3cloud/master-data', { token: memberToken })
+    assert.equal(memberMasterData.response.status, 403, JSON.stringify(memberMasterData.data))
+    assert.equal(memberMasterData.data.error, 'forbidden')
+    assert.equal((await api('/api/k3cloud/sync-status', { token: memberToken })).response.status, 403)
+    assert.equal((await api('/api/integrations/settings', { token: memberToken })).response.status, 403)
+    assert.equal((await api('/api/k3cloud/sync', { method: 'POST', token: memberToken, body: {} })).response.status, 403)
+    assert.equal((await api('/api/k3cloud/query', { method: 'POST', token: memberToken, body: { formId: 'TEST_MASTER_CUSTOMER', fieldKeys: 'MID', limit: 1, startRow: 0 } })).response.status, 403)
+
+    const managerEmail = 'k3-plm-manager@example.test'
+    const managerInvite = await api('/api/auth/users', { method: 'POST', body: { displayName: 'K3 PLM manager', email: managerEmail, role: 'plm_manager' } })
+    assert.equal(managerInvite.response.status, 201, JSON.stringify(managerInvite.data))
+    const managerPassword = randomBytes(32).toString('base64url')
+    const managerActivation = await api('/api/auth/activate', { method: 'POST', token: '', body: { token: managerInvite.data.activationToken, password: managerPassword } })
+    assert.equal(managerActivation.response.status, 200, JSON.stringify(managerActivation.data))
+    const managerLogin = await api('/api/auth/mobile/login', { method: 'POST', token: '', body: { email: managerEmail, password: managerPassword, accountId: accountA } })
+    assert.equal(managerLogin.response.status, 200, JSON.stringify(managerLogin.data))
+    const managerToken = managerLogin.data.accessToken
+    scopes.set(managerToken, managerLogin.data.user)
+    assert.equal((await api('/api/k3cloud/master-data', { token: managerToken })).response.status, 200, 'PLM managers may read the approved K3 snapshot')
+    assert.equal((await api('/api/k3cloud/sync-status', { token: managerToken })).response.status, 200, 'PLM managers may read the approved K3 schedule status')
+
     const enabledSchedule = await api('/api/integrations/settings/k3cloud', { method: 'PUT', body: { k3DataSyncSchedule: { enabled: true, intervalHours: 6 } } })
     assert.equal(enabledSchedule.response.status, 200, JSON.stringify(enabledSchedule.data))
     assert.equal((await api('/api/k3cloud/sync-status')).data.schedule.schedulerState, 'scheduled')

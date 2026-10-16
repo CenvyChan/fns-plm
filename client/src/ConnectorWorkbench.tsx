@@ -142,6 +142,10 @@ export default function ConnectorWorkbench() {
       const result = await apiJson<{ settings: Summary }>(`/api/integrations/settings/${active}`, jsonRequest('PUT', config))
       setProviders(previous => ({ ...previous, [active]: result.settings })); setDraft(previous => Object.fromEntries(Object.entries(previous).filter(([key]) => !secretFields[active].includes(key))))
       setClearSecrets([]); setNotice('连接器配置已加密保存；密钥不会再次显示。')
+      if (active === 'k3cloud') {
+        try { setK3SyncStatus(await apiJson<K3SyncStatus>('/api/k3cloud/sync-status')) }
+        catch { setRefreshNotice('配置已保存，但计划状态未能刷新；请点击“刷新”重新核对。') }
+      }
     } catch (value) { setError(value instanceof Error ? value.message : '配置保存失败。') }
     finally { setSaving(false) }
   }

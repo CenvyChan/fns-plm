@@ -289,7 +289,7 @@ function App() {
     {page === 'workflow' && <WorkflowWorkbench/>}
     {page === 'reports' && <ReportsWorkbench/>}
     {page === 'users' && authUser.role === 'admin' && <UserAdmin currentUser={authUser} onToast={setToast}/>}
-    {page === 'settings' && authUser.role === 'admin' && <ConnectorWorkbench/>}
+    {page === 'settings' && authUser.role === 'admin' && <ConnectorWorkbench key={`${authUser.tenantId}:${authUser.organizationId}:${authUser.accountId}`}/>}
     {page === 'tenants' && authUser.isPlatformAdmin && <TenantAdmin currentUser={authUser} scopes={userScopes} onScopesChange={setUserScopes} onSwitchScope={id => { void switchScope(id) }} onToast={setToast}/>}
     <footer className="page-footer"><span><i className="status-dot"/>已保存到服务器数据库 · {authUser.tenantName} / {authUser.organizationName} / {authUser.accountName}</span><span>Momentum · enterprise workspace</span></footer>
   </main></div>{mobileNav && <button className="mobile-scrim" onClick={() => setMobileNav(false)} aria-label="关闭菜单"/>}
