@@ -5,6 +5,7 @@ import { Router, type Request } from 'express'
 import { requireRole } from './auth.js'
 import { getAppStateVersioned, setAppStateIfRevision, StateConflictError } from './database.js'
 import { parseDailyReportImportFile } from './daily-report-import.js'
+import { BoundedPreviewCache, MAX_PENDING_IMPORT_PREVIEW_MEMORY_BYTES, MAX_PENDING_IMPORT_PREVIEWS } from './import-preview-cache.js'
 import type { WorkspaceScope } from './scope.js'
 import { findDailyParty, getDailyReportingAccess, hasDailyPartyAssignment, readDailyReportingAdminState, type DailyParty } from './daily-reporting-admin.js'
 
@@ -424,7 +425,7 @@ function validateReportPayload(body: Record<string, unknown>, existing?: DailyRe
 
 type ImportPreviewRow = { line: number; value?: Omit<DailyReport, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'createdByName' | 'updatedBy'>; errors: string[]; duplicateReason?: 'existing' | 'same_batch' }
 type PendingImportPreview = { token: string; actorId: string; scopeKey: string; expiresAt: number; rows: ImportPreviewRow[]; fileName: string }
-const pendingImportPreviews = new Map<string, PendingImportPreview>()
+const pendingImportPreviews = new BoundedPreviewCache<PendingImportPreview>(MAX_PENDING_IMPORT_PREVIEWS, MAX_PENDING_IMPORT_PREVIEW_MEMORY_BYTES)
 const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 1, parts: 2 } }).single('file')
 const importPreviewTtlMs = 15 * 60 * 1000
 
@@ -581,14 +582,9 @@ export function createDailyReportRouter(): Router {
       classifyImportDuplicates(readDailyReportState(scope), rows)
       const actor = actorFromRequest(req)
       const now = Date.now()
-      for (const [token, saved] of pendingImportPreviews) if (saved.expiresAt <= now) pendingImportPreviews.delete(token)
-      while (pendingImportPreviews.size >= 50) {
-        const oldest = [...pendingImportPreviews.values()].sort((a, b) => a.expiresAt - b.expiresAt)[0]
-        if (!oldest) break
-        pendingImportPreviews.delete(oldest.token)
-      }
+      pendingImportPreviews.prune(now)
       const preview: PendingImportPreview = { token: randomUUID(), actorId: actor.id, scopeKey: stateKey(scope), expiresAt: now + importPreviewTtlMs, rows, fileName: req.file.originalname.slice(0, 160) }
-      pendingImportPreviews.set(preview.token, preview)
+      if (!pendingImportPreviews.set(preview, now)) return res.status(413).json({ error: 'daily_report_import_preview_too_large', message: '该预览超过服务器缓存容量，无法安全保留；请减少文件行数或备注长度后重试。' })
       return res.status(200).json(importPreviewResponse(preview, parsed.headers, parsed.mappedFields))
     } catch (error) {
       return res.status(400).json({ error: 'daily_report_import_parse_failed', message: error instanceof Error ? error.message : '文件解析失败。' })

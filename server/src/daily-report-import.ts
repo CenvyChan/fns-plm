@@ -1,3 +1,4 @@
+import { TextDecoder } from 'node:util'
 import ExcelJS from 'exceljs'
 
 export interface ParsedDailyImportRow {
@@ -27,28 +28,44 @@ const normalizeHeader = (value: string) => value.trim().toLocaleLowerCase().repl
 function csvRows(input: string): Array<{ line: number; values: string[] }> {
   const source = input.replace(/^\uFEFF/, '')
   const rows: Array<{ line: number; values: string[] }> = []
-  let row: string[] = [], value = '', quoted = false, line = 1, rowLine = 1
+  let row: string[] = [], value = '', quoted = false, afterQuote = false, line = 1, rowLine = 1
   const pushRow = () => {
     row.push(value); value = ''
     if (row.some(cell => cell.trim() !== '')) rows.push({ line: rowLine, values: row })
-    row = []; rowLine = line + 1
+    row = []; afterQuote = false; line++; rowLine = line
     if (rows.length > 5001) throw new Error('每次最多导入 5000 条日报。')
   }
   for (let i = 0; i < source.length; i++) {
     const char = source[i]!
     if (quoted) {
       if (char === '"' && source[i + 1] === '"') { value += '"'; i++ }
-      else if (char === '"') quoted = false
-      else { value += char; if (char === '\n') line++ }
-    } else if (char === '"' && value.length === 0) quoted = true
-    else if (char === ',') { row.push(value); value = '' }
+      else if (char === '"') { quoted = false; afterQuote = true }
+      else {
+        value += char
+        if (char === '\r' && source[i + 1] === '\n') { value += '\n'; i++; line++ }
+        else if (char === '\n' || char === '\r') line++
+      }
+    } else if (afterQuote) {
+      if (char === ',') { row.push(value); value = ''; afterQuote = false }
+      else if (char === '\n' || char === '\r') {
+        if (char === '\r' && source[i + 1] === '\n') i++
+        pushRow()
+      } else throw new Error('CSV 文件的闭合引号后只能出现逗号或换行。')
+    } else if (char === '"') {
+      if (value.length !== 0) throw new Error('CSV 文件中的引号必须位于字段开头。')
+      quoted = true
+    } else if (char === ',') { row.push(value); value = '' }
     else if (char === '\n' || char === '\r') {
       if (char === '\r' && source[i + 1] === '\n') i++
-      pushRow(); line++; rowLine = line
+      pushRow()
     } else value += char
   }
   if (quoted) throw new Error('CSV 文件包含未闭合的引号。')
-  if (value.length || row.length) pushRow()
+  if (value.length || row.length || afterQuote) {
+    row.push(value)
+    if (row.some(cell => cell.trim() !== '')) rows.push({ line: rowLine, values: row })
+    if (rows.length > 5001) throw new Error('每次最多导入 5000 条日报。')
+  }
   return rows
 }
 
@@ -92,6 +109,20 @@ function parseType(value: unknown): unknown {
 }
 function parseGrid(headers: string[], rows: Array<{ line: number; values: unknown[]; errors?: string[] }>, defaultType: string): ParsedDailyImport {
   const normalized = headers.map(normalizeHeader)
+  const seenHeaders = new Map<string, number>()
+  const seenFields = new Map<string, number>()
+  for (const [index, header] of normalized.entries()) {
+    if (!header) throw new Error(`第 ${index + 1} 列的表头不能为空。`)
+    const previousHeader = seenHeaders.get(header)
+    if (previousHeader !== undefined) throw new Error(`第 ${index + 1} 列与第 ${previousHeader + 1} 列表头重复。`)
+    seenHeaders.set(header, index)
+    const mappedField = Object.entries(aliases).find(([, candidates]) => candidates.map(normalizeHeader).includes(header))?.[0]
+    if (mappedField) {
+      const previousField = seenFields.get(mappedField)
+      if (previousField !== undefined) throw new Error(`第 ${index + 1} 列与第 ${previousField + 1} 列都映射到重复字段“${mappedField}”。`)
+      seenFields.set(mappedField, index)
+    }
+  }
   const indices: Record<string, number> = {}
   const mappedFields: string[] = []
   for (const [field, candidates] of Object.entries(aliases)) {
@@ -132,7 +163,10 @@ export async function parseDailyReportImportFile(fileName: string, buffer: Buffe
   const extension = fileName.toLowerCase().slice(fileName.lastIndexOf('.'))
   if (extension === '.csv') {
     if (buffer.includes(0)) throw new Error('CSV 文件包含二进制内容；请使用 UTF-8 编码的 CSV。')
-    const rows = csvRows(buffer.toString('utf8'))
+    let input: string
+    try { input = new TextDecoder('utf-8', { fatal: true }).decode(buffer) }
+    catch { throw new Error('CSV 文件不是有效的 UTF-8 编码。') }
+    const rows = csvRows(input)
     if (rows.length < 2) throw new Error('文件至少需要一行表头和一行日报数据。')
     const [header, ...data] = rows
     return parseGrid(header!.values.map(value => value.trim()), data.map(row => ({ line: row.line, values: row.values })), defaultType)
