@@ -60,6 +60,8 @@ FLOWABLE_DATA_DIR=/var/lib/momentum-flowable
 
 具体 FormId、字段名按公司 K3Cloud 版本与授权范围核实，示例不是一份通用授权清单。查询的 FormId 和 FieldKeys 都要在 allowlist 中。`filterString`、排序字段还需遵守服务端过滤与输入长度约束。这个客户端不提供 K3Cloud 写入/建单/正式物料编码生成能力，避免把演示主数据覆盖到 ERP。
 
+销售/采购日报还需在同一加密账套配置中设置 `dailyReportSources`，按企业实际 FormId 将六类来源（销售出库、采购入库、销售订单、采购订单、应收、应付）映射至规范字段；映射字段必须全部在 `formAllowlist` 内。`id` 应是单据行级唯一键，`amountCny` 应是人民币金额，应收/应付需另映射 `settledAmountCny`。保存连接器配置不会自动访问 ERP；管理员主动手动同步或报告发送/计划运行时才读取。报告发送前同步失败会 fail-closed，不发送旧快照或演示金额。余额代表最近一次同步时点，不是按历史报表日回溯的余额。字段清单、金额口径及状态语义必须由企业管理员对照当前 K3Cloud 版本核验。
+
 ## 3. 钉钉机器人与互动审批卡片
 
 在当前内部三元组配置钉钉官方 HTTPS 群机器人 Webhook 与签名密钥，按需配置 `PUBLIC_APP_URL`/应用 HTTPS 地址。后端只向 `oapi.dingtalk.com` 或 `api.dingtalk.com` 发送 Markdown；调用 `reports/send`、计划执行或连接器测试时才发消息。预览链接仅能在配置的同一 HTTPS origin 内生成。

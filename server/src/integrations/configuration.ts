@@ -62,6 +62,18 @@ function validateConfig(provider: ConnectorProvider, config: ConnectorConfig): v
       if (!/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(formId) || !Array.isArray(fields) || fields.length > 100 || fields.some(field => typeof field !== 'string' || !/^[A-Za-z0-9_.]{1,128}$/.test(field))) throw new Error('K3Cloud formAllowlist contains invalid FormId/FieldKeys.')
     }
   }
+  if (provider === 'k3cloud' && config.dailyReportSources !== undefined) {
+    const sources = config.dailyReportSources
+    const kinds = new Set(['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable'])
+    const canonicalFields = new Set(['id', 'billNo', 'date', 'partyNumber', 'partyName', 'materialName', 'quantity', 'unit', 'currency', 'originalAmount', 'amountCny', 'settledAmountCny', 'status'])
+    if (!sources || typeof sources !== 'object' || Array.isArray(sources)) throw new Error('K3Cloud dailyReportSources must be a document-kind mapping object.')
+    for (const [kind, raw] of Object.entries(sources as Record<string, unknown>)) {
+      if (!kinds.has(kind) || !raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('K3Cloud dailyReportSources contains an invalid document kind or mapping.')
+      const mapping = raw as Record<string, unknown>, fields = mapping.fields
+      if (typeof mapping.formId !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(mapping.formId) || !fields || typeof fields !== 'object' || Array.isArray(fields)) throw new Error(`K3Cloud ${kind} mapping must include a valid formId and fields object.`)
+      for (const [canonical, field] of Object.entries(fields as Record<string, unknown>)) if (!canonicalFields.has(canonical) || typeof field !== 'string' || !/^[A-Za-z0-9_.]{1,128}$/.test(field)) throw new Error(`K3Cloud ${kind} mapping contains an invalid canonical or ERP field name.`)
+    }
+  }
   if (provider === 'flowable' && config.userMap !== undefined && (!config.userMap || typeof config.userMap !== 'object' || Array.isArray(config.userMap))) throw new Error('Flowable userMap must be an email-to-engine-user JSON object.')
   if (provider === 'flowable' && config.groupMap !== undefined) {
     const groupMap = config.groupMap
@@ -98,7 +110,7 @@ export function saveConnectorConfig(scope: WorkspaceScope, provider: ConnectorPr
 export function connectorSummary(scope: WorkspaceScope, provider: ConnectorProvider) {
   const row = getConnectorRow(scope, provider), config = getConnectorConfig(scope, provider), missingFields = requiredFields(provider, config), safe: Record<string, unknown> = {}
   const safeFields = provider === 'k3cloud'
-    ? ['baseUrl', 'accountId', 'username', 'organization', 'appId', 'lcid', 'timeoutMs', 'formAllowlist']
+    ? ['baseUrl', 'accountId', 'username', 'organization', 'appId', 'lcid', 'timeoutMs', 'formAllowlist', 'dailyReportSources']
     : provider === 'flowable' ? ['baseUrl', 'username', 'timeoutMs', 'userMap', 'groupMap'] : ['webhookUrl', 'appKey', 'templateId', 'corpId', 'publicAppUrl', 'userMapping']
   for (const key of safeFields) if (config[key] !== undefined && config[key] !== '') safe[key] = config[key]
   const presentSecrets = secretFields[provider].filter(key => typeof config[key] === 'string' && String(config[key]).length > 0)

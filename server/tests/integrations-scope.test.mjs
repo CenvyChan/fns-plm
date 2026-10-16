@@ -142,9 +142,11 @@ before(async () => {
       }
       if (req.method === 'POST' && path.endsWith('/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.ExecuteBillQuery.common.kdsvc')) {
         const cookie = req.headers.cookie ?? ''
-        await requestBody(req)
+        const body = await requestBody(req)
+        const payload = JSON.parse(JSON.parse(body)[0])
         if (!cookie.includes('sid=scope-mock')) return json(res, 403, { error: 'mock session required' })
         queryCounts.query += 1
+        if (payload.FormId !== 'BD_MATERIAL') return json(res, 200, { Result: { Rows: [] } })
         return json(res, 200, [[`mock-row-${queryCounts.query}`]])
       }
 
@@ -280,6 +282,11 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
   await startScope(scopeA.accountId)
   const mockWebhook = 'https://oapi.dingtalk.com/robot/send?access_token=mock-only'
   await saveProvider('dingtalk', { webhookUrl: mockWebhook, webhookSecret: `mock-report-secret-${random}` })
+  const dailyFields = { id: 'FID', billNo: 'FBillNo', date: 'FDate', partyName: 'FParty', originalAmount: 'FAmount', amountCny: 'FCNY', settledAmountCny: 'FSettled' }
+  const dailyKinds = ['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable']
+  const dailySources = Object.fromEntries(dailyKinds.map(kind => [kind, { formId: `TEST_${kind.replaceAll('-', '_').toUpperCase()}`, fields: { ...dailyFields } }]))
+  const dailyAllowlist = Object.fromEntries(Object.values(dailySources).map(mapping => [mapping.formId, Object.values(mapping.fields)]))
+  await saveProvider('k3cloud', { baseUrl: mockOrigin, accountId: 'mock-erp-account', username: 'mock-erp-user', organization: 'mock-erp-organization', appId: 'mock-app-id', appSecret: 'mock-app-secret-daily-only', lcid: '2052', formAllowlist: dailyAllowlist, dailyReportSources: dailySources })
   const enablePlan = await api(`/api/reports/schedules/${createdPlan.data.id}`, { method: 'PATCH', body: { enabled: true } })
   assertStatus(enablePlan, 200, 'enable plan after saving an isolated fake webhook')
   assert.equal(enablePlan.data.schedulerState, 'scheduled')
@@ -368,6 +375,7 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
     }
   }
 
+  queryCounts.login = 0; queryCounts.query = 0
   const k3Config = {
     baseUrl: mockOrigin, accountId: 'mock-erp-account', username: 'mock-erp-user', organization: 'mock-erp-organization',
     appId: 'mock-app-id', appSecret: 'mock-app-secret-only', lcid: '2052', formAllowlist: { BD_MATERIAL: ['FNumber'] },

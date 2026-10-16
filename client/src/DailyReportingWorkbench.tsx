@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Download, FileClock, RefreshCw, Save, Send, ShieldCheck, Wallet } from 'lucide-react'
+import { Database, Download, FileClock, RefreshCw, Save, Send, ShieldCheck, Wallet } from 'lucide-react'
 import { apiFetch } from './api'
 import './daily-reporting.css'
 
@@ -7,9 +7,9 @@ type Kind = 'sales' | 'purchase'
 type Channel = 'email' | 'dingtalk'
 type Link = { id: string; k3RowId: string; allocatedAmount: number; allocatedQuantity: number; k3Row?: K3Row }
 type DailyReport = { id: string; type: Kind; date: string; partyName: string; documentNo: string; quantity: number; currency: string; originalAmount: number; exchangeRate: number; amountCny: number; note: string; createdAt: string; createdByName: string; allocatedAmount: number; links: Link[] }
-type K3Row = { id: string; kind: string; type: Kind; billNo: string; date: string; partyName: string; materialName: string; quantity: number; unit: string; currency: string; amountCny: number; allocatedAmount: number; remainingAmount: number; overAllocatedAmount: number; related?: Array<{ reportId: string; reportDate: string | null; allocatedAmount: number }> }
+type K3Row = { id: string; kind: string; type: Kind; billNo: string; date: string; partyName: string; materialName: string; quantity: number; unit: string; currency: string; originalAmount: number; amountCny: number; settledAmountCny: number; outstandingAmountCny?: number; status: string; allocatedAmount: number; remainingAmount: number; overAllocatedAmount: number; related?: Array<{ reportId: string; reportDate: string | null; allocatedAmount: number }> }
 type Reconciliation = { dailyCoverage: { reportCount: number; totalAmount: number; coveredAmount: number; coverageRate: number | null }; monthDifference: { systemAmount: number; k3Amount: number; difference: number; differenceRate: number | null; isComplete: boolean }; yearDifference: { systemAmount: number; k3Amount: number; difference: number; differenceRate: number | null; isComplete: boolean }; k3Allocation: { rowCount: number; originalAmount: number; allocatedAmount: number; remainingAmount: number; overAllocatedAmount: number; crossDateCount: number } }
-type Summary = { reportDate: string; source: string; isMock: boolean; liveErpConnected: boolean; notice: string; sales?: { daily: { count: number; quantity: number; amountCny: number }; reconciliation: Reconciliation }; purchase?: { daily: { count: number; quantity: number; amountCny: number }; reconciliation: Reconciliation }; orders: { sales: { count: number; amountCny: number }; purchase: { count: number; amountCny: number } }; balances: { receivables: { count: number; documentAmountCny: number; settledAmountCny: number; outstandingAmountCny: number }; payables: { count: number; documentAmountCny: number; settledAmountCny: number; outstandingAmountCny: number } }; warnings: Array<{ type: string; billNo: string; overAllocatedAmount: number; crossDate: boolean }> }
+type Summary = { reportDate: string; source: string; isMock: boolean; liveErpConnected: boolean; mockSnapshotAt?: string | null; k3Sync?: { lastSyncedAt: string; rowCounts: Record<string, number> } | null; notice: string; sales?: { daily: { count: number; quantity: number; amountCny: number }; reconciliation: Reconciliation }; purchase?: { daily: { count: number; quantity: number; amountCny: number }; reconciliation: Reconciliation }; orders: { sales: { count: number; amountCny: number; rows: K3Row[] }; purchase: { count: number; amountCny: number; rows: K3Row[] } }; balances: { receivables: { count: number; documentAmountCny: number; settledAmountCny: number; outstandingAmountCny: number; rows: K3Row[] }; payables: { count: number; documentAmountCny: number; settledAmountCny: number; outstandingAmountCny: number; rows: K3Row[] } }; warnings: Array<{ type: string; billNo: string; overAllocatedAmount: number; crossDate: boolean }> }
 type Snapshot = { id: string; reportDate: string; scope: string; version: number; createdAt: string; source: string; isComplete: boolean; warnings: string[] }
 type Delivery = { id: string; channel: Channel; status: string; message: string; createdAt: string }
 type Correction = { id: string; originalDate: string; type: string; affectedReport: Kind; referenceId: string; originalValue: number | null; newValue: number | null; diffAmount: number; reason: string; detectedAt: string; reportedInSnapshotId: string | null }
@@ -54,7 +54,7 @@ export default function DailyReportingWorkbench() {
 
   const selectedReport = useMemo(() => reports.find(report => report.id === selectedReportId), [reports, selectedReportId])
   const reconciliation = selectedReport?.type === 'purchase' ? summary?.purchase?.reconciliation : summary?.sales?.reconciliation
-  const hasK3Snapshot = Boolean((summary as (Summary & { mockSnapshotAt?: string | null }) | null)?.mockSnapshotAt)
+  const hasK3Snapshot = Boolean(summary?.mockSnapshotAt || summary?.k3Sync?.lastSyncedAt)
 
   const loadData = useCallback(async () => {
     setLoading(true); setError('')
@@ -142,6 +142,18 @@ export default function DailyReportingWorkbench() {
     } catch (caught) { setError(caught instanceof Error ? caught.message : '演示快照刷新失败') }
     finally { setBusy(false) }
   }
+  const syncK3 = async () => {
+    if (busy) return
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const response = await apiFetch('/api/daily-reports/k3-sync', { method: 'POST' })
+      if (!response.ok) throw new Error(await apiError(response, 'K3Cloud 同步失败'))
+      const result = await response.json() as { totalRows: number; refreshedAt: string }
+      setNotice(`K3Cloud 只读数据已同步：${result.totalRows} 行，${dateTime(result.refreshedAt)}。`)
+      await loadData()
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'K3Cloud 同步失败') }
+    finally { setBusy(false) }
+  }
   const createSnapshot = async () => {
     setBusy(true); setError(''); setNotice('')
     try {
@@ -180,10 +192,11 @@ export default function DailyReportingWorkbench() {
   const coverageLabel = (value: number | null | undefined) => value == null ? '待判定' : `${value.toFixed(1)}%`
   const reconciliationCard = (dimension: 1 | 2 | 3, label: string, value?: Reconciliation) => value ? <div className="dr-recon-card" key={label}><b>{label}</b>{dimension === 1 ? <><span>日报总金额 <strong>{money(value.dailyCoverage.totalAmount)}</strong></span><span>封顶后已覆盖 <strong>{money(value.dailyCoverage.coveredAmount)}</strong></span><span>关联覆盖率 <strong>{coverageLabel(value.dailyCoverage.coverageRate)}</strong></span><small>按绝对金额计算；单条日报覆盖额不超过日报金额。</small></> : dimension === 2 ? <><span>月累计差额 <strong>{value.monthDifference.isComplete ? money(value.monthDifference.difference) : '待判定'}</strong></span><span>月系统 / K3 <strong>{value.monthDifference.isComplete ? `${money(value.monthDifference.systemAmount)} / ${money(value.monthDifference.k3Amount)}` : '数据不完整'}</strong></span><span>年累计差额 <strong>{value.yearDifference.isComplete ? money(value.yearDifference.difference) : '待判定'}</strong></span><small>差额 = 手工日报系统金额 − 同期间 K3Cloud 金额；缺数据不按零判定。</small></> : <><span>K3 原金额 <strong>{money(value.k3Allocation.originalAmount)}</strong></span><span>累计分摊 / 剩余 <strong>{money(value.k3Allocation.allocatedAmount)} / {money(value.k3Allocation.remainingAmount)}</strong></span><span>超额分摊 <strong className={value.k3Allocation.overAllocatedAmount ? 'dr-warning-text' : ''}>{money(value.k3Allocation.overAllocatedAmount)}</strong></span><small>{value.k3Allocation.rowCount} 行 · 跨日 {value.k3Allocation.crossDateCount} 行；超额/跨日均显式警告。</small></>}</div> : null
   const reportType = (kind: Kind) => kind === 'sales' ? '销售' : '采购'
+  const businessDocumentTable = (title: string, items: K3Row[], balance = false) => <div className="dr-business-doc-group" key={title}><h3>{title} · {items.length} 笔</h3><div className="iw-table-wrap"><table><thead><tr><th>单号 / 日期</th><th>客户 / 供应商</th><th>数量</th><th>单据金额</th>{balance && <><th>已收 / 付</th><th>未收 / 付</th></>}<th>状态</th></tr></thead><tbody>{items.slice(0, 12).map(item => <tr key={item.id}><td><b>{item.billNo}</b><small>{item.date}</small></td><td>{item.partyName}<small>{item.materialName}</small></td><td>{item.quantity ? `${item.quantity} ${item.unit}` : '—'}</td><td>{money(item.amountCny)}</td>{balance && <><td>{money(item.settledAmountCny)}</td><td>{money(item.outstandingAmountCny)}</td></>}<td>{item.status}</td></tr>)}</tbody></table>{!items.length && <div className="iw-empty">当前报表日期/范围没有明细。</div>}{items.length > 12 && <small>仅显示前 12 笔；汇总按全部 {items.length} 笔计算。</small>}</div></div>
 
   return <section className="dr-section" aria-label="销售与采购日报">
-    <header className="dr-header"><div><div className="iw-eyebrow">日报管理 / DAILY REPORTING</div><h2>销售 / 采购日报与 K3Cloud 对账</h2><p>手工日报、历史、更正快照与本地 K3 行分摊；订单与往来余额分开呈现。</p></div><div className="dr-header-actions"><label>报表日期<input type="date" value={reportDate} onChange={event => { setReportDate(event.target.value); setForm(current => ({ ...current, date: event.target.value })) }}/></label><button className="iw-button iw-secondary iw-small" onClick={() => void loadData()} disabled={loading}><RefreshCw size={14}/>刷新</button>{mockEnabled && <button className="iw-button iw-secondary iw-small" onClick={() => void refreshMock()} disabled={busy}>刷新本地演示快照</button>}</div></header>
-    {summary && <div className={`dr-source-banner ${summary.isMock ? 'dr-mock' : ''}`}><ShieldCheck size={17}/><div><b>{summary.isMock ? '本地隔离演示数据（非真实 ERP）' : '数据来源与完整性'}</b><span>{summary.notice} 真实 K3Cloud 连接：未启用。</span></div></div>}
+    <header className="dr-header"><div><div className="iw-eyebrow">日报管理 / DAILY REPORTING</div><h2>销售 / 采购日报与 K3Cloud 对账</h2><p>手工日报、K3Cloud 订单与往来单据、历史更正和多维对账。</p></div><div className="dr-header-actions"><label>报表日期<input type="date" value={reportDate} onChange={event => { setReportDate(event.target.value); setForm(current => ({ ...current, date: event.target.value })) }}/></label><button className="iw-button iw-secondary iw-small" onClick={() => void loadData()} disabled={loading}><RefreshCw size={14}/>刷新</button><button className="iw-button iw-approve iw-small" onClick={() => void syncK3()} disabled={busy}><Database size={14}/>{busy ? '同步中…' : '同步真实 K3Cloud'}</button>{mockEnabled && <button className="iw-button iw-secondary iw-small" onClick={() => void refreshMock()} disabled={busy}>刷新本地演示快照</button>}</div></header>
+    {summary && <div className={`dr-source-banner ${summary.isMock ? 'dr-mock' : ''}`}><ShieldCheck size={17}/><div><b>{summary.isMock ? '本地隔离演示数据（非真实 ERP）' : summary.liveErpConnected ? '真实 K3Cloud 只读快照' : '数据来源与完整性'}</b><span>{summary.notice}{summary.k3Sync?.lastSyncedAt ? ` 最近同步：${dateTime(summary.k3Sync.lastSyncedAt)}。出库 ${summary.k3Sync.rowCounts.shipment ?? 0} 行 / 入库 ${summary.k3Sync.rowCounts['purchase-receipt'] ?? 0} 行 / 销售订单 ${summary.k3Sync.rowCounts['sales-order'] ?? 0} 行 / 采购订单 ${summary.k3Sync.rowCounts['purchase-order'] ?? 0} 行 / 应收 ${summary.k3Sync.rowCounts.receivable ?? 0} 行 / 应付 ${summary.k3Sync.rowCounts.payable ?? 0} 行。` : ''}</span></div></div>}
     {error && <div className="iw-alert iw-error" role="alert">{error}</div>}{notice && <div className="iw-alert iw-success" role="status">{notice}</div>}
     {summary && <div className="dr-summary-grid">
       <article><small>销售日报 · {reportDate}</small><b>{money(summary.sales?.daily.amountCny ?? 0)}</b><span>{summary.sales?.daily.count ?? 0} 笔 · 数量 {summary.sales?.daily.quantity ?? 0}</span></article>
@@ -194,6 +207,8 @@ export default function DailyReportingWorkbench() {
       <article><small>应付未付余额</small><b>{hasK3Snapshot ? money(summary.balances.payables.outstandingAmountCny) : '待快照'}</b><span>{hasK3Snapshot ? `${summary.balances.payables.count} 笔 · 原额 ${money(summary.balances.payables.documentAmountCny)}` : '缺少 K3Cloud 快照'}</span></article>
     </div>}
     {summary?.warnings?.length ? <div className="dr-warning-list"><b>对账警告</b>{summary.warnings.slice(0, 8).map((warning, index) => <span key={`${warning.billNo}-${index}`}>{warning.type === 'sales' ? '销售' : '采购'} · {warning.billNo}{warning.crossDate ? ' · 跨日关联' : ''}{warning.overAllocatedAmount ? ` · 超额 ${money(warning.overAllocatedAmount)}` : ''}</span>)}</div> : null}
+
+    {summary && <section className="iw-card dr-business-documents"><div className="iw-card-head"><div><h2>订单与往来单据明细</h2><p>订单按所选报表日统计；应收/应付余额取最近一次同步快照，并非报表日历史重算。</p></div><Database size={18}/></div><div className="dr-business-doc-grid">{businessDocumentTable('销售订单', summary.orders.sales.rows)}{businessDocumentTable('采购订单', summary.orders.purchase.rows)}{businessDocumentTable('应收单', summary.balances.receivables.rows, true)}{businessDocumentTable('应付单', summary.balances.payables.rows, true)}</div></section>}
 
     <div className="dr-workspace-grid">
       <section className="iw-card"><div className="iw-card-head"><div><h2>{editingId ? '编辑日报' : '手工录入日报'}</h2><p>来源仓库的手工录入能力已保留；原币和历史汇率独立存档。</p></div></div>
@@ -217,7 +232,7 @@ export default function DailyReportingWorkbench() {
       </section>
     </div>
 
-    <section className="iw-card dr-link-card"><div className="iw-card-head"><div><h2>关联本地 K3Cloud 快照行</h2><p>{selectedReport ? `${reportType(selectedReport.type)}日报 ${selectedReport.documentNo || selectedReport.id} · ${selectedReport.date}` : '先选择或创建一条日报'}；允许部分分摊，跨日和超额会警告但保留记录。</p></div><button className="iw-button iw-approve iw-small" onClick={() => void saveLinks()} disabled={!selectedReport || busy}><Save size={13}/>保存关联</button></div>
+    <section className="iw-card dr-link-card"><div className="iw-card-head"><div><h2>关联 K3Cloud 快照行</h2><p>{selectedReport ? `${reportType(selectedReport.type)}日报 ${selectedReport.documentNo || selectedReport.id} · ${selectedReport.date}` : '先选择或创建一条日报'}；允许部分分摊，跨日和超额会警告但保留记录。</p></div><button className="iw-button iw-approve iw-small" onClick={() => void saveLinks()} disabled={!selectedReport || busy}><Save size={13}/>保存关联</button></div>
       {reconciliation && <div className="dr-recon-grid">{reconciliationCard(1, '维度 1 · 日报关联覆盖率', reconciliation)}{reconciliationCard(2, '维度 2 · 同期间金额差异', reconciliation)}{reconciliationCard(3, '维度 3 · K3 明细分摊', reconciliation)}</div>}
       {selectedReport ? <div className="iw-table-wrap dr-k3-table"><table><thead><tr><th>关联</th><th>K3 单号 / 日期</th><th>客商 / 物料</th><th>来源金额</th><th>已分摊</th><th>本次金额</th><th>本次数量</th><th>提醒</th></tr></thead><tbody>{rows.map(row => {
         const active = Boolean(draftLinks[row.id]), draft = draftLinks[row.id]

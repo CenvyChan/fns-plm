@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -195,6 +196,84 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
   assert.match(preview.data.text, /应收未收/)
   assert.match(preview.data.text, /应付未付/)
 
+  const reportParts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).map(part => [part.type, part.value]))
+  const reportDay = new Date(Date.UTC(Number(reportParts.year), Number(reportParts.month) - 1, Number(reportParts.day)) - 86_400_000).toISOString().slice(0, 10)
+  const canonicalFields = { id: 'FID', billNo: 'FBillNo', date: 'FDate', partyNumber: 'FPartyNo', partyName: 'FParty', materialName: 'FMaterial', quantity: 'FQty', unit: 'FUnit', currency: 'FCurrency', originalAmount: 'FOriginal', amountCny: 'FCNY', settledAmountCny: 'FSettled', status: 'FStatus' }
+  const documents = {
+    shipment: { id: 'shipment-1', billNo: 'LIVE-OUT-001', date: reportDay, partyNumber: 'C-1', partyName: '测试客户甲', materialName: '成品 A', quantity: '1', unit: '件', currency: 'CNY', originalAmount: '10000', amountCny: '10000', settledAmountCny: '0', status: '已审核' },
+    'purchase-receipt': { id: 'receipt-1', billNo: 'LIVE-IN-001', date: reportDay, partyNumber: 'S-1', partyName: '测试供应商乙', materialName: '原料 B', quantity: '2', unit: '箱', currency: 'CNY', originalAmount: '6000', amountCny: '6000', settledAmountCny: '0', status: '已审核' },
+    'sales-order': { id: 'sales-order-1', billNo: 'LIVE-SO-001', date: reportDay, partyNumber: 'C-1', partyName: '测试客户甲', materialName: '成品 A', quantity: '3', unit: '件', currency: 'CNY', originalAmount: '24000', amountCny: '24000', settledAmountCny: '0', status: '部分发货' },
+    'purchase-order': { id: 'purchase-order-1', billNo: 'LIVE-PO-001', date: reportDay, partyNumber: 'S-1', partyName: '测试供应商乙', materialName: '原料 B', quantity: '5', unit: '箱', currency: 'CNY', originalAmount: '14000', amountCny: '14000', settledAmountCny: '0', status: '已审核' },
+    receivable: { id: 'receivable-1', billNo: 'LIVE-AR-001', date: reportDay, partyNumber: 'C-1', partyName: '测试客户甲', materialName: '应收账款', quantity: '0', unit: '', currency: 'CNY', originalAmount: '15000', amountCny: '15000', settledAmountCny: '9000', status: '部分收款' },
+    payable: { id: 'payable-1', billNo: 'LIVE-AP-001', date: reportDay, partyNumber: 'S-1', partyName: '测试供应商乙', materialName: '应付账款', quantity: '0', unit: '', currency: 'CNY', originalAmount: '11000', amountCny: '11000', settledAmountCny: '4000', status: '部分付款' },
+  }
+  const sourceKinds = Object.keys(documents)
+  const dailyReportSources = Object.fromEntries(sourceKinds.map(kind => [kind, { formId: `TEST_${kind.replaceAll('-', '_').toUpperCase()}`, fields: { ...canonicalFields } }]))
+  const formAllowlist = Object.fromEntries(Object.values(dailyReportSources).map(mapping => [mapping.formId, Object.values(mapping.fields)]))
+  let invalidERPData = false
+  const erp = createServer(async (request, response) => {
+    if (request.url?.includes('LoginByAppSecret')) {
+      response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'kdservice-session=fixture; Path=/; HttpOnly' })
+      response.end(JSON.stringify({ LoginResultType: 1 })); return
+    }
+    if (!request.url?.includes('ExecuteBillQuery')) { response.writeHead(404); response.end(); return }
+    let body = ''
+    for await (const chunk of request) body += chunk.toString()
+    const payload = JSON.parse(JSON.parse(body)[0])
+    const kind = sourceKinds.find(sourceKind => dailyReportSources[sourceKind].formId === payload.FormId)
+    const document = kind ? { ...documents[kind] } : null
+    if (invalidERPData && kind === 'sales-order' && document) document.amountCny = 'not-a-number'
+    const docs = document ? [document] : []
+    const rows = docs.map(document => payload.FieldKeys.split(',').map(field => document[Object.keys(canonicalFields).find(key => canonicalFields[key] === field)] ?? ''))
+    response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ Result: { Rows: rows } }))
+  })
+  const erpPort = await new Promise((resolve, reject) => erp.listen(0, '127.0.0.1', () => resolve(erp.address().port)).once('error', reject))
+  try {
+    const savedK3 = await api('/api/integrations/settings/k3cloud', { method: 'PUT', body: { baseUrl: `http://127.0.0.1:${erpPort}`, accountId: 'test-erp-account', username: 'fixture', organization: 'test-org', appId: 'test-app', appSecret: 'not-a-real-secret', lcid: 2052, formAllowlist, dailyReportSources } })
+    assert.equal(savedK3.response.status, 200, JSON.stringify(savedK3.data))
+    const synchronized = await api('/api/daily-reports/k3-sync', { method: 'POST' })
+    assert.equal(synchronized.response.status, 200, JSON.stringify(synchronized.data))
+    assert.equal(synchronized.data.totalRows, 6)
+    const liveSummary = await api(`/api/daily-reports/summary?date=${reportDay}`)
+    assert.equal(liveSummary.data.source, 'k3cloud')
+    assert.equal(liveSummary.data.liveErpConnected, true)
+    assert.equal(liveSummary.data.isMock, false)
+    assert.equal(liveSummary.data.orders.sales.amountCny, 24000)
+    assert.equal(liveSummary.data.orders.purchase.amountCny, 14000)
+    assert.equal(liveSummary.data.balances.receivables.outstandingAmountCny, 6000)
+    assert.equal(liveSummary.data.balances.payables.outstandingAmountCny, 7000)
+    assert.equal(liveSummary.data.sales.reconciliation.monthDifference.k3Amount, 10000)
+    assert.match(liveSummary.data.notice, /非按报表日重算/)
+    const earlierReportDay = new Date(Date.parse(`${reportDay}T00:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10)
+    const earlierSummary = await api(`/api/daily-reports/summary?date=${earlierReportDay}`)
+    assert.equal(earlierSummary.data.orders.sales.count, 0, 'orders are selected by report date')
+    assert.equal(earlierSummary.data.balances.receivables.outstandingAmountCny, 6000, 'current receivables do not get silently truncated by the selected report date')
+    assert.equal(earlierSummary.data.balances.payables.outstandingAmountCny, 7000)
+    const livePreview = await api('/api/reports/preview')
+    assert.match(livePreview.data.text, /LIVE\\-SO\\-001/)
+    assert.match(livePreview.data.text, /LIVE\\-PO\\-001/)
+    assert.match(livePreview.data.text, /LIVE\\-AR\\-001/)
+    assert.match(livePreview.data.text, /LIVE\\-AP\\-001/)
+
+    invalidERPData = true
+    const changedK3Secret = await api('/api/integrations/settings/k3cloud', { method: 'PUT', body: { appSecret: 'test-retry-secret', dailyReportSources } })
+    assert.equal(changedK3Secret.response.status, 200)
+    const invalidSourceSync = await api('/api/daily-reports/k3-sync', { method: 'POST' })
+    assert.equal(invalidSourceSync.response.status, 502, 'invalid ERP data fails the whole sync transaction')
+    const afterDataFailure = await api(`/api/daily-reports/summary?date=${reportDay}`)
+    assert.equal(afterDataFailure.data.orders.sales.amountCny, 24000, 'invalid ERP rows do not overwrite the previous live snapshot')
+    invalidERPData = false
+
+    const brokenSources = structuredClone(dailyReportSources)
+    brokenSources['sales-order'].fields.amountCny = 'FNOT_ALLOWLISTED'
+    const savedBrokenMapping = await api('/api/integrations/settings/k3cloud', { method: 'PUT', body: { dailyReportSources: brokenSources } })
+    assert.equal(savedBrokenMapping.response.status, 200)
+    const refusedSync = await api('/api/daily-reports/k3-sync', { method: 'POST' })
+    assert.equal(refusedSync.response.status, 409, 'the sync rejects fields outside the K3 read-only allowlist')
+    const preservedSummary = await api(`/api/daily-reports/summary?date=${reportDay}`)
+    assert.equal(preservedSummary.data.orders.sales.amountCny, 24000, 'failed sync does not replace the previous committed snapshot')
+  } finally { await new Promise(resolve => erp.close(resolve)) }
+
   const newTenant = await api('/api/auth/tenants', { method: 'POST', body: { tenantName: '日报隔离租户 B', organizationName: '隔离组织 B', accountName: '隔离账套 B' } })
   assert.equal(newTenant.response.status, 201, JSON.stringify(newTenant.data))
   const accountB = newTenant.data.scope.accountId
@@ -219,6 +298,7 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
   const reviewerToken = reviewerLogin.data.accessToken
   scopes.set(reviewerToken, reviewerLogin.data.user)
   assert.equal((await api('/api/daily-reports', { method: 'POST', token: reviewerToken, body: { type: 'sales', date: '2026-10-15', partyName: '不能写入', quantity: 1, currency: 'CNY', originalAmount: 1, exchangeRate: 1 } })).response.status, 403)
+  assert.equal((await api('/api/daily-reports/k3-sync', { method: 'POST', token: reviewerToken })).response.status, 403)
 
   await stopServer()
   await startServer()

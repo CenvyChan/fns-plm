@@ -121,8 +121,8 @@ K3Cloud API 是**只读**。过滤字段、排序字段和列必须被 allowlist
 | `POST` | `/api/reports/schedules` | `admin` | 创建计划；可设置 `daily/weekly`、时间、星期、时区和启停；缺少有效 Webhook 时只能创建为停用。 |
 | `PATCH` | `/api/reports/schedules/:id` | `admin` | 更新计划名称、频率、时间、星期、时区或启停；字段及启用条件由服务端校验。 |
 | `DELETE` | `/api/reports/schedules/:id` | `admin` | 删除当前 scope 的计划。 |
-| `POST` | `/api/reports/schedules/:id/run` | `admin` | 手动执行指定计划，可能发送钉钉消息；无凭据返回 `503`，同一计划并发执行会被锁拒绝。 |
-| `POST` | `/api/reports/send` | `admin` | 手动推送当前账套报告，可能向当前账套配置的机器人发消息。 |
+| `POST` | `/api/reports/schedules/:id/run` | `admin` | 手动执行指定计划；发送前同步 K3Cloud 六类单据。无钉钉/K3 凭据、映射不完整或同步失败时返回 `503`，同一计划并发执行会被锁拒绝。 |
+| `POST` | `/api/reports/send` | `admin` | 先刷新当前账套 K3Cloud 日报六类只读单据，再生成并推送；连接器/映射缺失或同步失败时返回 `503` 且不发送。 |
 
 ### 销售 / 采购日报与 K3Cloud 对账
 
@@ -132,6 +132,7 @@ K3Cloud API 是**只读**。过滤字段、排序字段和列必须被 allowlist
 | `POST` | `/api/daily-reports` | `admin`, `plm_manager`, `member` | 手工录入；服务端计算 CNY 金额并绑定操作者。 |
 | `PATCH` / `DELETE` | `/api/daily-reports/:id` | 同上 | 更正或软删除；已归档数据产生更正记录，不改写历史快照。 |
 | `GET` | `/api/daily-reports/k3-lines?type=...` | 已登录 | 当前账套 K3 快照行。 |
+| `POST` | `/api/daily-reports/k3-sync` | `admin`, `plm_manager` | 根据当前账套 `dailyReportSources` 映射同步销售出库、采购入库、销售/采购订单、应收/应付六类单据；字段必须在 `formAllowlist` 中，失败保留旧快照。 |
 | `PUT` | `/api/daily-reports/:id/links` | `admin`, `plm_manager`, `member` | 多对多部分分摊；类型/账套校验，超额/跨日显式警告。 |
 | `GET` | `/api/daily-reports/summary?date=...&scope=both` | 已登录 | 日报覆盖率、月/年同期间差异、K3 行分摊三维对账。 |
 | `GET` / `POST` | `/api/daily-reports/snapshots` | 已登录 / 写角色 | 查询或追加不可变归档快照；晚到更正进入后续快照。 |

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import ExcelJS from 'exceljs'
 import { Router, type Request } from 'express'
 import { requireRole } from './auth.js'
@@ -7,6 +7,11 @@ import type { WorkspaceScope } from './scope.js'
 
 export type DailyKind = 'sales' | 'purchase'
 export type K3DocumentKind = 'shipment' | 'purchase-receipt' | 'sales-order' | 'purchase-order' | 'receivable' | 'payable'
+export const DAILY_K3_SOURCE_KINDS: K3DocumentKind[] = ['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable']
+export const DAILY_K3_REQUIRED_FIELDS = ['id', 'billNo', 'date', 'partyName', 'originalAmount', 'amountCny'] as const
+export type DailyK3Field = 'id' | 'billNo' | 'date' | 'partyNumber' | 'partyName' | 'materialName' | 'quantity' | 'unit' | 'currency' | 'originalAmount' | 'amountCny' | 'settledAmountCny' | 'status'
+export type DailyK3SourceMapping = { formId: string; fields: Partial<Record<DailyK3Field, string>> }
+export type DailyK3SyncMetadata = { source: 'k3cloud'; lastSyncedAt: string; rowCounts: Partial<Record<K3DocumentKind, number>> }
 export type DailySource = 'manual' | 'history-import'
 
 export interface DailyReport {
@@ -17,7 +22,7 @@ export interface DailyReport {
 export interface K3SnapshotRow {
   id: string; kind: K3DocumentKind; type: DailyKind; billNo: string; date: string; partyNumber: string; partyName: string
   materialName: string; quantity: number; unit: string; currency: string; originalAmount: number; amountCny: number
-  settledAmountCny: number; status: string; source: 'local-mock'; snapshotAt: string; active: boolean
+  settledAmountCny: number; status: string; source: 'local-mock' | 'k3cloud'; snapshotAt: string; active: boolean
 }
 export interface DailyReportLink {
   id: string; reportId: string; k3RowId: string; allocatedAmount: number; allocatedQuantity: number; linkedAt: string
@@ -30,7 +35,7 @@ export interface DailyCorrection {
 }
 export interface DailySnapshot {
   id: string; reportDate: string; scope: 'sales' | 'purchase' | 'both'; version: number; createdAt: string
-  createdBy: string; source: 'local-mock' | 'workspace'; calculationVersion: string; isComplete: boolean
+  createdBy: string; source: 'local-mock' | 'k3cloud' | 'workspace'; calculationVersion: string; isComplete: boolean
   warnings: string[]; data: Record<string, unknown>
 }
 export interface DailyDelivery {
@@ -39,7 +44,7 @@ export interface DailyDelivery {
 }
 export interface DailyReportState {
   reports: DailyReport[]; k3Rows: K3SnapshotRow[]; links: DailyReportLink[]; snapshots: DailySnapshot[]
-  corrections: DailyCorrection[]; deliveries: DailyDelivery[]; mockSnapshotAt: string | null; mockEnabled: boolean
+  corrections: DailyCorrection[]; deliveries: DailyDelivery[]; mockSnapshotAt: string | null; mockEnabled: boolean; k3Sync: DailyK3SyncMetadata | null
 }
 
 const STATE_PREFIX = 'daily-reporting'
@@ -62,13 +67,14 @@ function stateKey(scope: Pick<WorkspaceScope, 'tenantId' | 'organizationId' | 'a
   return `${STATE_PREFIX}:${scope.tenantId}:${scope.organizationId}:${scope.accountId}`
 }
 function emptyState(): DailyReportState {
-  return { reports: [], k3Rows: [], links: [], snapshots: [], corrections: [], deliveries: [], mockSnapshotAt: null, mockEnabled: false }
+  return { reports: [], k3Rows: [], links: [], snapshots: [], corrections: [], deliveries: [], mockSnapshotAt: null, mockEnabled: false, k3Sync: null }
 }
 function normalizedState(value: unknown): DailyReportState {
   const state = { ...emptyState(), ...asRecord(value) } as DailyReportState
   for (const key of ['reports', 'k3Rows', 'links', 'snapshots', 'corrections', 'deliveries'] as const) if (!Array.isArray(state[key])) state[key] = [] as never
   state.mockEnabled = Boolean(state.mockEnabled)
   state.mockSnapshotAt = typeof state.mockSnapshotAt === 'string' ? state.mockSnapshotAt : null
+  state.k3Sync = state.k3Sync && typeof state.k3Sync.lastSyncedAt === 'string' ? state.k3Sync : null
   return state
 }
 function localMockAllowed(): boolean { return process.env.NODE_ENV !== 'production' }
@@ -140,6 +146,89 @@ function reportAllocation(state: DailyReportState, reportId: string): number {
 function startOfMonth(day: string): string { return `${day.slice(0, 7)}-01` }
 function startOfYear(day: string): string { return `${day.slice(0, 4)}-01-01` }
 
+function mappedText(row: Record<string, string | null>, mapping: DailyK3SourceMapping, key: DailyK3Field): string {
+  const field = mapping.fields[key]
+  return field ? String(row[field] ?? '').trim() : ''
+}
+function mappedNumber(row: Record<string, string | null>, mapping: DailyK3SourceMapping, key: DailyK3Field, fallback = 0): number {
+  const value = mappedText(row, mapping, key).replace(/,/g, '')
+  if (!value) return fallback
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) throw new Error(`K3Cloud 字段 ${mapping.fields[key]} 不是有效数字。`)
+  return parsed
+}
+function mappedDay(value: string): string {
+  const candidate = value.slice(0, 10).replaceAll('/', '-')
+  if (validDay(candidate)) return candidate
+  const parsed = new Date(value)
+  if (Number.isFinite(parsed.getTime())) return parsed.toISOString().slice(0, 10)
+  throw new Error('K3Cloud 单据日期不是有效日期。')
+}
+
+/** Pull and validate every configured daily-report source before atomically replacing the current ERP snapshot. */
+export async function syncK3DailyDocuments(
+  scope: WorkspaceScope,
+  mappings: Record<string, DailyK3SourceMapping>,
+  queryPage: (formId: string, fieldKeys: string, startRow: number) => Promise<Array<Record<string, string | null>>>,
+): Promise<{ source: 'k3cloud'; refreshedAt: string; rowCounts: Partial<Record<K3DocumentKind, number>>; totalRows: number }> {
+  const pageSize = 200, maximumRowsPerSource = 5_000
+  const collected: K3SnapshotRow[] = []
+  const rowCounts: Partial<Record<K3DocumentKind, number>> = {}
+  const refreshedAt = new Date().toISOString()
+  for (const kind of DAILY_K3_SOURCE_KINDS) {
+    const mapping = mappings[kind]
+    if (!mapping || typeof mapping.formId !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(mapping.formId) || !mapping.fields || typeof mapping.fields !== 'object') throw new TypeError(`K3Cloud 日报数据源映射缺失或无效：${kind}`)
+    const required = [...DAILY_K3_REQUIRED_FIELDS, ...(['receivable', 'payable'].includes(kind) ? ['settledAmountCny'] : [])]
+    if (required.some(key => typeof mapping.fields[key as DailyK3Field] !== 'string' || !/^[A-Za-z0-9_.]{1,128}$/.test(mapping.fields[key as DailyK3Field]!))) throw new TypeError(`K3Cloud ${kind} 必须映射字段：${required.join(', ')}`)
+    const selectedFields = [...new Set(Object.values(mapping.fields).filter((field): field is string => typeof field === 'string' && Boolean(field.trim()))) ]
+    const seen = new Set<string>(), sourceRows: K3SnapshotRow[] = []
+    for (let startRow = 0; ; startRow += pageSize) {
+      if (startRow >= maximumRowsPerSource) {
+        const overflow = await queryPage(mapping.formId, selectedFields.join(','), startRow)
+        if (overflow.length) throw new RangeError(`K3Cloud ${kind} 超过每类 ${maximumRowsPerSource} 行的同步安全上限；未替换现有快照。`)
+        break
+      }
+      const page = await queryPage(mapping.formId, selectedFields.join(','), startRow)
+      if (!Array.isArray(page)) throw new Error(`K3Cloud ${kind} 查询响应格式无效。`)
+      for (const raw of page) {
+        const identity = mappedText(raw, mapping, 'id')
+        const billNo = mappedText(raw, mapping, 'billNo')
+        const date = mappedDay(mappedText(raw, mapping, 'date'))
+        const partyName = mappedText(raw, mapping, 'partyName')
+        if (!identity || !billNo || !partyName) throw new Error(`K3Cloud ${kind} 存在缺少唯一 ID、单号或客商名称的记录。`)
+        if (seen.has(identity)) throw new Error(`K3Cloud ${kind} 返回重复记录 ID；请映射单据行级唯一 ID。`)
+        seen.add(identity)
+        const type: DailyKind = ['shipment', 'sales-order', 'receivable'].includes(kind) ? 'sales' : 'purchase'
+        const originalAmount = roundMoney(mappedNumber(raw, mapping, 'originalAmount'))
+        const amountCny = roundMoney(mappedNumber(raw, mapping, 'amountCny'))
+        const settledAmountCny = roundMoney(mappedNumber(raw, mapping, 'settledAmountCny'))
+        const id = `k3-${kind}-${createHash('sha256').update(identity).digest('hex').slice(0, 24)}`
+        sourceRows.push({
+          id, kind, type, billNo, date, partyNumber: mappedText(raw, mapping, 'partyNumber'), partyName,
+          materialName: mappedText(raw, mapping, 'materialName') || (kind === 'receivable' ? '应收账款' : kind === 'payable' ? '应付账款' : ''),
+          quantity: mappedNumber(raw, mapping, 'quantity'), unit: mappedText(raw, mapping, 'unit'), currency: mappedText(raw, mapping, 'currency') || 'CNY',
+          originalAmount, amountCny, settledAmountCny, status: mappedText(raw, mapping, 'status') || 'ERP 已同步', source: 'k3cloud', snapshotAt: refreshedAt, active: true,
+        })
+      }
+      if (page.length < pageSize) break
+    }
+    if (sourceRows.length > maximumRowsPerSource) throw new RangeError(`K3Cloud ${kind} 超过同步安全上限；未替换现有快照。`)
+    rowCounts[kind] = sourceRows.length
+    collected.push(...sourceRows)
+  }
+  const stateVersion = versionedState(scope)
+  const incomingIds = new Set(collected.map(row => row.id))
+  const localMockReportIds = new Set(stateVersion.value.reports.filter(report => report.createdBy === 'local-mock').map(report => report.id))
+  stateVersion.value.k3Rows = collected
+  stateVersion.value.reports = stateVersion.value.reports.filter(report => !localMockReportIds.has(report.id))
+  stateVersion.value.links = stateVersion.value.links.filter(link => incomingIds.has(link.k3RowId) && !localMockReportIds.has(link.reportId))
+  stateVersion.value.mockEnabled = false
+  stateVersion.value.mockSnapshotAt = null
+  stateVersion.value.k3Sync = { source: 'k3cloud', lastSyncedAt: refreshedAt, rowCounts }
+  saveState(scope, stateVersion)
+  return { source: 'k3cloud', refreshedAt, rowCounts, totalRows: collected.length }
+}
+
 function reconciliationFor(state: DailyReportState, kind: DailyKind, reportDate: string) {
   const reports = liveReports(state).filter(report => report.type === kind)
   const dailyReports = reports.filter(report => report.date === reportDate)
@@ -154,7 +243,7 @@ function reconciliationFor(state: DailyReportState, kind: DailyKind, reportDate:
   const yearRows = state.k3Rows.filter(row => row.active && row.type === kind && transactionKinds.includes(row.kind) && row.date >= startOfYear(reportDate) && row.date <= reportDate)
   const monthK3 = roundMoney(monthRows.reduce((sum, row) => sum + row.amountCny, 0))
   const yearK3 = roundMoney(yearRows.reduce((sum, row) => sum + row.amountCny, 0))
-  const complete = Boolean(state.mockSnapshotAt)
+  const complete = Boolean(state.mockSnapshotAt || state.k3Sync?.lastSyncedAt)
   const monthDiff = roundMoney(monthSystem - monthK3)
   const yearDiff = roundMoney(yearSystem - yearK3)
   const allocationRows = monthRows.map(row => {
@@ -181,11 +270,10 @@ export function buildDailyReportSummary(state: DailyReportState, reportDate: str
     const selected = reports.filter(report => report.type === kind)
     return { count: selected.length, quantity: roundMoney(selected.reduce((sum, report) => sum + report.quantity, 0)), amountCny: roundMoney(selected.reduce((sum, report) => sum + report.amountCny, 0)), reportAmountOriginal: roundMoney(selected.reduce((sum, report) => sum + report.originalAmount, 0)), currencyBreakdown: Object.fromEntries([...new Set(selected.map(report => report.currency))].map(currency => [currency, roundMoney(selected.filter(report => report.currency === currency).reduce((sum, report) => sum + report.originalAmount, 0))])) }
   }
-  const atOrBefore = (row: K3SnapshotRow) => row.active && row.date <= reportDate
-  const salesOrders = state.k3Rows.filter(row => row.kind === 'sales-order' && row.date === reportDate && (scope === 'both' || scope === 'sales'))
-  const purchaseOrders = state.k3Rows.filter(row => row.kind === 'purchase-order' && row.date === reportDate && (scope === 'both' || scope === 'purchase'))
-  const receivables = state.k3Rows.filter(row => row.kind === 'receivable' && atOrBefore(row) && (scope === 'both' || scope === 'sales'))
-  const payables = state.k3Rows.filter(row => row.kind === 'payable' && atOrBefore(row) && (scope === 'both' || scope === 'purchase'))
+  const salesOrders = state.k3Rows.filter(row => row.active && row.kind === 'sales-order' && row.date === reportDate && (scope === 'both' || scope === 'sales'))
+  const purchaseOrders = state.k3Rows.filter(row => row.active && row.kind === 'purchase-order' && row.date === reportDate && (scope === 'both' || scope === 'purchase'))
+  const receivables = state.k3Rows.filter(row => row.active && row.kind === 'receivable' && (scope === 'both' || scope === 'sales'))
+  const payables = state.k3Rows.filter(row => row.active && row.kind === 'payable' && (scope === 'both' || scope === 'purchase'))
   const orderSummary = (rows: K3SnapshotRow[]) => ({ count: rows.length, amountCny: roundMoney(rows.reduce((sum, row) => sum + row.amountCny, 0)), rows: rows.map(row => ({ ...row })) })
   const balanceSummary = (rows: K3SnapshotRow[]) => ({ count: rows.length, documentAmountCny: roundMoney(rows.reduce((sum, row) => sum + row.amountCny, 0)), settledAmountCny: roundMoney(rows.reduce((sum, row) => sum + row.settledAmountCny, 0)), outstandingAmountCny: roundMoney(rows.reduce((sum, row) => sum + Math.max(0, row.amountCny - row.settledAmountCny), 0)), rows: rows.map(row => ({ ...row, outstandingAmountCny: roundMoney(Math.max(0, row.amountCny - row.settledAmountCny)) })) })
   const warningRows = ['sales', 'purchase'].flatMap(kind => {
@@ -193,14 +281,14 @@ export function buildDailyReportSummary(state: DailyReportState, reportDate: str
     return reconciliationFor(state, kind as DailyKind, reportDate).k3Allocation.rows.filter(row => row.overAllocatedAmount > 0 || row.crossDate).map(row => ({ type: kind, billNo: row.billNo, overAllocatedAmount: row.overAllocatedAmount, crossDate: row.crossDate }))
   })
   return {
-    reportDate, generatedAt: new Date().toISOString(), source: state.mockSnapshotAt ? 'local-mock' : 'workspace', isMock: state.mockEnabled,
-    mockSnapshotAt: state.mockSnapshotAt, liveErpConnected: false,
+    reportDate, generatedAt: new Date().toISOString(), source: state.mockEnabled ? 'local-mock' : state.k3Sync ? 'k3cloud' : 'workspace', isMock: state.mockEnabled,
+    mockSnapshotAt: state.mockSnapshotAt, k3Sync: state.k3Sync ? deepClone(state.k3Sync) : null, liveErpConnected: Boolean(state.k3Sync),
     sales: scope === 'purchase' ? undefined : { daily: sumDaily('sales'), reconciliation: reconciliationFor(state, 'sales', reportDate) },
     purchase: scope === 'sales' ? undefined : { daily: sumDaily('purchase'), reconciliation: reconciliationFor(state, 'purchase', reportDate) },
     orders: { sales: orderSummary(salesOrders), purchase: orderSummary(purchaseOrders) },
     balances: { receivables: balanceSummary(receivables), payables: balanceSummary(payables) },
     warnings: warningRows,
-    notice: state.mockEnabled ? '本地隔离演示快照；非真实 K3Cloud 数据，金额仅用于功能验证。' : state.mockSnapshotAt ? '数据来自工作区快照；未连接真实 ERP。' : '尚无 K3Cloud 快照；金额对账暂不可判定，缺失数据未按零处理。',
+    notice: state.mockEnabled ? '本地隔离演示快照；非真实 K3Cloud 数据，金额仅用于功能验证。' : state.k3Sync ? `真实 K3Cloud 只读快照已同步于 ${state.k3Sync.lastSyncedAt}；应收/应付余额为该同步时点余额，并非按报表日重算。` : '尚无 K3Cloud 快照；金额对账暂不可判定，缺失数据未按零处理。',
   }
 }
 
@@ -258,13 +346,13 @@ function snapshotFromState(state: DailyReportState, reportDate: string, scope: '
   const reports = liveReports(state).filter(report => report.date === reportDate && (scope === 'both' || report.type === scope))
   const reportIds = new Set(reports.map(report => report.id))
   const links = state.links.filter(link => reportIds.has(link.reportId))
-  const k3Rows = state.k3Rows.filter(row => row.active && row.date <= reportDate && (scope === 'both' || row.type === scope))
+  const k3Rows = state.k3Rows.filter(row => row.active && (row.date <= reportDate || (row.kind === 'receivable' && scope !== 'purchase') || (row.kind === 'payable' && scope !== 'sales')) && (scope === 'both' || row.type === scope))
   const warnings = [
     ...(state.mockEnabled ? ['当前为本地隔离演示数据，不能用于财务判断或正式对账。'] : []),
-    ...(!state.mockSnapshotAt ? ['未找到 K3Cloud 快照；对账指标显示为暂不可判定。'] : []),
+    ...(!state.mockSnapshotAt && !state.k3Sync ? ['未找到 K3Cloud 快照；对账指标显示为暂不可判定。'] : []),
     ...summary.warnings.map(item => `${item.type} ${item.billNo}${item.crossDate ? ' 存在跨日关联' : ''}${item.overAllocatedAmount ? ` 超额分摊 ${item.overAllocatedAmount.toFixed(2)} 元` : ''}`),
   ]
-  const snapshot: DailySnapshot = { id, reportDate, scope, version, createdAt: new Date().toISOString(), createdBy: actor.id, source: state.mockEnabled ? 'local-mock' : 'workspace', calculationVersion: 'v1.0.0', isComplete: Boolean(state.mockSnapshotAt), warnings, data: { ...deepClone(summary), reports: deepClone(reports), links: deepClone(links), k3Rows: deepClone(k3Rows), corrections: deepClone(corrections) } }
+  const snapshot: DailySnapshot = { id, reportDate, scope, version, createdAt: new Date().toISOString(), createdBy: actor.id, source: state.mockEnabled ? 'local-mock' : state.k3Sync ? 'k3cloud' : 'workspace', calculationVersion: 'v1.0.0', isComplete: Boolean(state.mockSnapshotAt || state.k3Sync), warnings: [...warnings, ...(state.k3Sync ? [`K3Cloud 数据于 ${state.k3Sync.lastSyncedAt} 同步；应收/应付余额为同步时点余额。`] : [])], data: { ...deepClone(summary), reports: deepClone(reports), links: deepClone(links), k3Rows: deepClone(k3Rows), corrections: deepClone(corrections) } }
   state.snapshots.unshift(snapshot)
   for (const correction of corrections) correction.reportedInSnapshotId = id
   return snapshot
@@ -272,7 +360,7 @@ function snapshotFromState(state: DailyReportState, reportDate: string, scope: '
 
 export function dailyReportPushDigest(scope: WorkspaceScope, reportDate: string): ReturnType<typeof buildDailyReportSummary> | undefined {
   const state = readDailyReportState(scope)
-  if (!state.mockSnapshotAt && !state.reports.length && !state.k3Rows.length) return undefined
+  if (!state.mockSnapshotAt && !state.k3Sync && !state.reports.length && !state.k3Rows.length) return undefined
   return buildDailyReportSummary(state, reportDate, 'both')
 }
 
@@ -295,7 +383,8 @@ function renderSnapshotHtml(snapshot: DailySnapshot): string {
   const rows = dailyRows.map(row => `<tr><td>${escapeHtml(row.type === 'sales' ? '销售' : '采购')}</td><td>${escapeHtml(row.date)}</td><td>${escapeHtml(row.documentNo)}</td><td>${escapeHtml(row.partyName)}</td><td>${escapeHtml(row.quantity)}</td><td>${escapeHtml(row.currency)}</td><td>${escapeHtml(row.amountCny.toFixed(2))}</td></tr>`).join('')
   const k3 = k3Rows.map(row => `<tr><td>${escapeHtml(row.kind)}</td><td>${escapeHtml(row.billNo)}</td><td>${escapeHtml(row.date)}</td><td>${escapeHtml(row.partyName)}</td><td>${escapeHtml(row.materialName)}</td><td>${escapeHtml(row.amountCny.toFixed(2))}</td></tr>`).join('')
   const amount = (object: unknown, key: string) => Number(asRecord(object)[key] ?? 0).toFixed(2)
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>经营日报 ${escapeHtml(snapshot.reportDate)}</title><style>body{font:14px system-ui,sans-serif;color:#243047;max-width:1100px;margin:32px auto;padding:0 20px}h1,h2{color:#1d3353}.warn{background:#fff8e8;border:1px solid #ead7a7;padding:12px;border-radius:8px}table{width:100%;border-collapse:collapse;margin:10px 0 24px}th,td{border:1px solid #dce2eb;padding:7px;text-align:left}th{background:#f2f5f9}.meta{color:#718096}</style></head><body><h1>销售 / 采购经营日报</h1><p class="meta">报表日期 ${escapeHtml(snapshot.reportDate)} · 归档版本 ${snapshot.version} · ${escapeHtml(snapshot.createdAt)} · ${snapshot.source === 'local-mock' ? '本地隔离演示快照（非真实 ERP）' : '工作区快照'}</p><section class="warn"><b>数据说明</b><ul>${warnings || '<li>无额外警告</li>'}</ul></section><h2>经营摘要</h2><p>销售日报：${amount(sales.daily, 'count')} 笔，金额 ¥${amount(sales.daily, 'amountCny')}；采购日报：${amount(purchase.daily, 'count')} 笔，金额 ¥${amount(purchase.daily, 'amountCny')}。</p><p>销售订单：${amount(asRecord(orders).sales, 'count')} 笔，¥${amount(asRecord(orders).sales, 'amountCny')}；采购订单：${amount(asRecord(orders).purchase, 'count')} 笔，¥${amount(asRecord(orders).purchase, 'amountCny')}。</p><p>应收未收 ¥${amount(asRecord(balances).receivables, 'outstandingAmountCny')}；应付未付 ¥${amount(asRecord(balances).payables, 'outstandingAmountCny')}。</p><h2>日报明细</h2><table><thead><tr><th>类型</th><th>日期</th><th>编号</th><th>客户 / 供应商</th><th>数量</th><th>币种</th><th>人民币</th></tr></thead><tbody>${rows || '<tr><td colspan="7">暂无日报记录</td></tr>'}</tbody></table><h2>本地 ERP 快照行</h2><table><thead><tr><th>单据类型</th><th>单号</th><th>日期</th><th>客商</th><th>物料 / 科目</th><th>金额(人民币)</th></tr></thead><tbody>${k3 || '<tr><td colspan="6">暂无快照行</td></tr>'}</tbody></table></body></html>`
+  const sourceLabel = snapshot.source === 'local-mock' ? '本地隔离演示快照（非真实 ERP）' : snapshot.source === 'k3cloud' ? 'K3Cloud 只读快照' : '工作区快照'
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>经营日报 ${escapeHtml(snapshot.reportDate)}</title><style>body{font:14px system-ui,sans-serif;color:#243047;max-width:1100px;margin:32px auto;padding:0 20px}h1,h2{color:#1d3353}.warn{background:#fff8e8;border:1px solid #ead7a7;padding:12px;border-radius:8px}table{width:100%;border-collapse:collapse;margin:10px 0 24px}th,td{border:1px solid #dce2eb;padding:7px;text-align:left}th{background:#f2f5f9}.meta{color:#718096}</style></head><body><h1>销售 / 采购经营日报</h1><p class="meta">报表日期 ${escapeHtml(snapshot.reportDate)} · 归档版本 ${snapshot.version} · ${escapeHtml(snapshot.createdAt)} · ${escapeHtml(sourceLabel)}</p><section class="warn"><b>数据说明</b><ul>${warnings || '<li>无额外警告</li>'}</ul></section><h2>经营摘要</h2><p>销售日报：${amount(sales.daily, 'count')} 笔，金额 ¥${amount(sales.daily, 'amountCny')}；采购日报：${amount(purchase.daily, 'count')} 笔，金额 ¥${amount(purchase.daily, 'amountCny')}。</p><p>销售订单：${amount(asRecord(orders).sales, 'count')} 笔，¥${amount(asRecord(orders).sales, 'amountCny')}；采购订单：${amount(asRecord(orders).purchase, 'count')} 笔，¥${amount(asRecord(orders).purchase, 'amountCny')}。</p><p>应收未收 ¥${amount(asRecord(balances).receivables, 'outstandingAmountCny')}；应付未付 ¥${amount(asRecord(balances).payables, 'outstandingAmountCny')}。</p><h2>日报明细</h2><table><thead><tr><th>类型</th><th>日期</th><th>编号</th><th>客户 / 供应商</th><th>数量</th><th>币种</th><th>人民币</th></tr></thead><tbody>${rows || '<tr><td colspan="7">暂无日报记录</td></tr>'}</tbody></table><h2>K3Cloud / 演示快照行</h2><table><thead><tr><th>单据类型</th><th>单号</th><th>日期</th><th>客商</th><th>物料 / 科目</th><th>金额(人民币)</th></tr></thead><tbody>${k3 || '<tr><td colspan="6">暂无快照行</td></tr>'}</tbody></table></body></html>`
 }
 
 export function createDailyReportRouter(): Router {
@@ -330,6 +419,7 @@ export function createDailyReportRouter(): Router {
     const scope = scopeFromRequest(req), actor = actorFromRequest(req)
     try {
       const result = mutateState(scope, state => {
+        if (state.k3Sync) return { blocked: true as const }
         const replacement = makeLocalMockState()
         // Upsert deterministic demo identities while preserving user-entered records and archives.
         const demoIds = new Set(replacement.k3Rows.map(row => row.id))
@@ -337,6 +427,7 @@ export function createDailyReportRouter(): Router {
         state.mockEnabled = true; state.mockSnapshotAt = replacement.mockSnapshotAt
         return { rows: replacement.k3Rows.length, refreshedAt: replacement.mockSnapshotAt, actor: actor.name }
       })
+      if ('blocked' in result) return res.status(409).json({ error: 'live_k3cloud_snapshot_exists', message: '当前账套已有真实 K3Cloud 快照；为防止真实与演示数据混用，不能刷新本地演示数据。' })
       return res.json({ ...result, source: 'local-mock', liveErpConnected: false, message: '本地演示快照已刷新；未访问真实 K3Cloud。' })
     } catch (error) { return res.status(error instanceof StateConflictError ? 409 : 500).json({ error: error instanceof StateConflictError ? 'workspace_conflict' : 'mock_refresh_failed', message: error instanceof Error ? error.message : '本地快照刷新失败。' }) }
   })

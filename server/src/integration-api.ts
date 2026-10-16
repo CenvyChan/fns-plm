@@ -12,7 +12,7 @@ import { completeTask, flowableHealth, getTaskForActor, listTasksForActor, start
 import { buildApprovalPreviewUrl, dingtalkStatus, parseCardApprovalAction, sendMarkdown, verifyCardCallbackSignature, type DingTalkConfig } from './integrations/dingtalk.js'
 import { connectorCredentialConfig, connectorSummary, listConnectorConfigs, saveConnectorConfig, type ConnectorConfig, type ConnectorProvider } from './integrations/configuration.js'
 import { buildWorkspaceReport } from './reporting.js'
-import { dailyReportPushDigest } from './daily-reporting.js'
+import { dailyReportPushDigest, DAILY_K3_REQUIRED_FIELDS, DAILY_K3_SOURCE_KINDS, syncK3DailyDocuments, type DailyK3Field, type DailyK3SourceMapping } from './daily-reporting.js'
 import { reportScheduleBucket, runWithReportLocks } from './report-scheduling.js'
 import { currentWorkspaceScope, type WorkspaceScope } from './scope.js'
 import { readScopedWorkspace } from './workspace-store.js'
@@ -33,7 +33,7 @@ const activeCron = new Map<string, ReturnType<typeof cron.schedule>>()
 const allowedProcessKeys = new Set(['materialApproval', 'bomReleaseApproval', 'documentReleaseApproval', 'performanceReviewApproval'])
 const providerFields: Record<ConnectorProvider, Set<string>> = {
   flowable: new Set(['baseUrl', 'username', 'password', 'timeoutMs', 'userMap', 'groupMap', 'clearSecrets']),
-  k3cloud: new Set(['baseUrl', 'accountId', 'username', 'organization', 'appId', 'appSecret', 'password', 'lcid', 'timeoutMs', 'formAllowlist', 'clearSecrets']),
+  k3cloud: new Set(['baseUrl', 'accountId', 'username', 'organization', 'appId', 'appSecret', 'password', 'lcid', 'timeoutMs', 'formAllowlist', 'dailyReportSources', 'clearSecrets']),
   dingtalk: new Set(['webhookUrl', 'webhookSecret', 'cardCallbackSecret', 'appKey', 'appSecret', 'templateId', 'corpId', 'publicAppUrl', 'userMapping', 'clearSecrets']),
 }
 
@@ -59,6 +59,25 @@ function k3Config(scope: WorkspaceScope): Partial<K3CloudConfig> { return connec
 function flowableConfig(scope: WorkspaceScope): FlowableConfig { return connectorCredentialConfig(scope, 'flowable') as unknown as FlowableConfig }
 function dingTalkConfig(scope: WorkspaceScope): DingTalkConfig { return connectorCredentialConfig(scope, 'dingtalk') as unknown as DingTalkConfig }
 function internalScopeKey(scope: WorkspaceScope): string { return `${scope.tenantId}:${scope.organizationId}:${scope.accountId}` }
+function dailyK3Mappings(config: Record<string, unknown>): Record<string, DailyK3SourceMapping> {
+  const configured = record(config.dailyReportSources), allowlist = record(config.formAllowlist), mappings: Record<string, DailyK3SourceMapping> = {}
+  for (const kind of DAILY_K3_SOURCE_KINDS) {
+    const raw = record(configured[kind]), fields = record(raw.fields), formId = String(raw.formId ?? '')
+    const required = [...DAILY_K3_REQUIRED_FIELDS, ...(['receivable', 'payable'].includes(kind) ? ['settledAmountCny'] : [])]
+    if (!formId || required.some(key => typeof fields[key] !== 'string' || !String(fields[key]).trim())) throw new TypeError(`日报数据源尚未完整配置：${kind} 必须映射 ${required.join(', ')}。`)
+    const allowedFields = allowlist[formId]
+    if (!Array.isArray(allowedFields) || Object.values(fields).some(field => !allowedFields.includes(field))) throw new TypeError(`K3Cloud ${kind} 的字段未全部加入对应 FormId 的服务端只读 allowlist。`)
+    mappings[kind] = { formId, fields: fields as Partial<Record<DailyK3Field, string>> }
+  }
+  return mappings
+}
+async function syncDailyK3(scope: WorkspaceScope) {
+  const config = connectorCredentialConfig(scope, 'k3cloud'), mappings = dailyK3Mappings(config)
+  return syncK3DailyDocuments(scope, mappings, async (formId, fieldKeys, startRow) => {
+    const result = await queryK3Cloud({ formId, fieldKeys, limit: 200, startRow }, config as Partial<K3CloudConfig>, internalScopeKey(scope))
+    return result.rows
+  })
+}
 function flowableTenantId(scope: WorkspaceScope): string { return `tenant:${scope.tenantId}:organization:${scope.organizationId}:account:${scope.accountId}` }
 function trustedActor(req: Request, config: ConnectorConfig): string | undefined {
   const user = req.authUser
@@ -108,6 +127,12 @@ async function runScheduleDelivery(scope: WorkspaceScope, schedule: ReportSchedu
     run: async () => {
       let generatedAt: string | undefined
       try {
+        try { await syncDailyK3(scope) }
+        catch (error) {
+          const message = error instanceof Error ? error.message : 'K3Cloud 日报数据同步失败。'
+          recordScheduleRun(scope, schedule.id, `blocked: K3Cloud daily sync failed (${message})`)
+          return { ok: false, status: 'blocked-k3cloud' as const, message: `K3Cloud 日报数据同步失败；为避免发送过期或演示金额，本次报告未发送。${message}` }
+        }
         const report = reportForScope(scope)
         generatedAt = report.summary.generatedAt
         const preview = buildApprovalPreviewUrl('/?page=reports', {}, connector.publicAppUrl)
@@ -189,6 +214,16 @@ export function createIntegrationRouter(): Router {
     return res.json({ cache: cacheHealth(), k3cloud, flowable, dingtalk, reporting: { configured: dingtalk.configured, schedules: schedules.length } })
   })
   router.get('/k3cloud/status', (req, res) => { const scope = scopeForRequest(req); return res.json(k3cloudStatus(k3Config(scope), internalScopeKey(scope))) })
+  router.post('/daily-reports/k3-sync', requireRole('admin', 'plm_manager'), async (req, res) => {
+    const scope = scopeForRequest(req), config = connectorCredentialConfig(scope, 'k3cloud')
+    if (!k3cloudStatus(config as Partial<K3CloudConfig>, internalScopeKey(scope)).configured) return res.status(503).json({ error: 'k3cloud_not_configured', message: '当前账套尚未配置完整的 K3Cloud 只读连接。' })
+    try { return res.json(await syncDailyK3(scope)) }
+    catch (error) {
+      const message = error instanceof Error ? error.message : 'K3Cloud 日报数据同步失败。'
+      const status = error instanceof TypeError ? 409 : 502
+      return res.status(status).json({ error: status === 409 ? 'daily_source_mapping_incomplete' : 'k3cloud_daily_sync_failed', message })
+    }
+  })
   router.post('/k3cloud/query', requireRole('admin', 'plm_manager'), async (req, res) => {
     const scope = scopeForRequest(req), config = connectorCredentialConfig(scope, 'k3cloud')
     const body = record(req.body), input: K3CloudQueryInput = { formId: String(body.formId ?? ''), fieldKeys: String(body.fieldKeys ?? ''), filterString: typeof body.filterString === 'string' ? body.filterString : '', limit: Number(body.limit ?? 100), startRow: Number(body.startRow ?? 0), orderString: typeof body.orderString === 'string' ? body.orderString : undefined }
@@ -339,6 +374,8 @@ export function createIntegrationRouter(): Router {
   router.post('/reports/send', requireRole('admin'), async (req, res) => {
     const scope = scopeForRequest(req), connector = dingTalkConfig(scope)
     if (!dingtalkStatus(connector).configured) return res.status(503).json({ error: '钉钉机器人未配置；报告只生成预览，没有发送。' })
+    try { await syncDailyK3(scope) }
+    catch (error) { return res.status(503).json({ error: 'k3cloud_daily_sync_failed', message: `K3Cloud 日报数据同步失败；本次报告未发送。${error instanceof Error ? error.message : ''}` }) }
     const report = reportForScope(scope), preview = buildApprovalPreviewUrl('/?page=reports', {}, connector.publicAppUrl), content = `${report.markdown}${preview ? `\n\n[打开报告预览](${preview})` : ''}`
     const result = await sendMarkdown('PLM 工作区报告', content, connector)
     return res.status(result.ok ? 200 : 502).json({ ...result, generatedAt: report.summary.generatedAt })
@@ -373,6 +410,7 @@ export function createIntegrationRouter(): Router {
     if (!schedule) return res.status(404).json({ error: 'schedule not found' })
     const result = await runScheduleDelivery(scope, schedule, false)
     if (result.status === 'blocked-missing-webhook') return res.status(503).json(result)
+    if (result.status === 'blocked-k3cloud') return res.status(503).json(result)
     if (result.status === 'already-running' || result.status === 'duplicate') return res.status(409).json(result)
     return res.status(result.ok ? 200 : 502).json(result)
   })

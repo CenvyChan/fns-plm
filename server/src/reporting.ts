@@ -76,6 +76,16 @@ export function buildWorkspaceReport(workspace: ReportWorkspace, now = new Date(
   const payables = (dailyReport?.balances as Record<string, unknown> | undefined)?.payables as Record<string, unknown> | undefined
   const salesOrders = orders?.sales as Record<string, unknown> | undefined
   const purchaseOrders = orders?.purchase as Record<string, unknown> | undefined
+  const documentLines = (value: unknown, balance = false) => {
+    const rows = Array.isArray(value) ? value as Array<Record<string, unknown>> : []
+    const lines = rows.slice(0, 8).map(row => {
+      const amount = Number(row.amountCny ?? 0).toFixed(2), outstanding = Number(row.outstandingAmountCny ?? 0).toFixed(2)
+      const quantity = Number(row.quantity ?? 0), unit = text(row.unit, 16)
+      return `- ${escapeMarkdown(row.date, 20)} · ${escapeMarkdown(row.billNo, 60)} · ${escapeMarkdown(row.partyName, 60)} · ${balance ? `单据 ¥${amount} / 未收付 ¥${outstanding}` : `¥${amount}${quantity ? ` · ${quantity}${escapeMarkdown(unit, 16)}` : ''}`} · ${escapeMarkdown(row.status, 40) || '状态未映射'}`
+    })
+    if (rows.length > 8) lines.push(`- 另有 ${rows.length - 8} 笔，完整明细可在平台日报中查看。`)
+    return lines.length ? lines : ['- 当日无单据明细。']
+  }
   const markdown = [
     `### PLM 工作区报告 · ${today}`,
     `生成时间：${generatedAt.replace('T', ' ').slice(0, 16)} UTC`,
@@ -88,7 +98,13 @@ export function buildWorkspaceReport(workspace: ReportWorkspace, now = new Date(
       `### 销售 / 采购经营日报 · ${text(dailyReport.reportDate, 20)}`,
       `**销售日报**：${Number(dailySales?.count ?? 0)} 笔，¥${Number(dailySales?.amountCny ?? 0).toFixed(2)}；**采购日报**：${Number(dailyPurchase?.count ?? 0)} 笔，¥${Number(dailyPurchase?.amountCny ?? 0).toFixed(2)}。`,
       `**订单摘要**：销售订单 ${Number(salesOrders?.count ?? 0)} 笔 / ¥${Number(salesOrders?.amountCny ?? 0).toFixed(2)}；采购订单 ${Number(purchaseOrders?.count ?? 0)} 笔 / ¥${Number(purchaseOrders?.amountCny ?? 0).toFixed(2)}。`,
+      '**销售订单明细**', ...documentLines(salesOrders?.rows),
+      '**采购订单明细**', ...documentLines(purchaseOrders?.rows),
       `**往来余额**：应收未收 ¥${Number(receivables?.outstandingAmountCny ?? 0).toFixed(2)}；应付未付 ¥${Number(payables?.outstandingAmountCny ?? 0).toFixed(2)}。`,
+      `**往来单据摘要**：应收 ${Number(receivables?.count ?? 0)} 笔，单据 ¥${Number(receivables?.documentAmountCny ?? 0).toFixed(2)}，已收 ¥${Number(receivables?.settledAmountCny ?? 0).toFixed(2)}，未收 ¥${Number(receivables?.outstandingAmountCny ?? 0).toFixed(2)}；应付 ${Number(payables?.count ?? 0)} 笔，单据 ¥${Number(payables?.documentAmountCny ?? 0).toFixed(2)}，已付 ¥${Number(payables?.settledAmountCny ?? 0).toFixed(2)}，未付 ¥${Number(payables?.outstandingAmountCny ?? 0).toFixed(2)}。`,
+      '**应收单明细**', ...documentLines(receivables?.rows, true),
+      '**应付单明细**', ...documentLines(payables?.rows, true),
+      `**ERP 数据口径**：${escapeMarkdown((dailyReport?.k3Sync as Record<string, unknown> | undefined)?.lastSyncedAt ?? '未同步', 40)}；应收/应付为最近同步时点余额，不代表按报表日回溯的历史余额。`,
       `**数据提示**：${text(dailyReport.notice, 180)}`,
     ] : []),
     ...(projectLines.length ? ['', '**项目进度**', ...projectLines] : []),
