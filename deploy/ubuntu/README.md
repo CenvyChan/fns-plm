@@ -32,7 +32,7 @@ SSH 非默认端口可作第二个参数，例如 `.../deploy.sh deployer@host 2
 
 `bootstrap-remote.sh` 只传输 `deploy/ubuntu/` 运维模板并运行 `bootstrap.sh`。Bootstrap 创建 `momentum` 与 `momentum-flowable` 受限系统用户，持久目录 `/var/lib/momentum/`、`/var/lib/momentum-flowable/`，以及各自 systemd 服务。初始生成 `/etc/momentum/momentum.env` 与 `/etc/momentum-flowable/momentum-flowable.env`，均为 root 管理的 0600；以后运行 bootstrap 会保留现有文件。
 
-Node release 是在本机构建的选择性 tar 包，包含 `client/dist`、`server/dist`、由 Flowable 引擎 BPMN 源同步生成的 `server/workflow/processes/`、package manifests 与受控种子文件；不包含 `.env`、真实 SQLite、运行附件、node_modules、密钥或现场流程/审批/计划数据。目标机执行 `npm ci --omit=dev` 后，以 symlink 原子切换 `/opt/momentum/current` 并重启 `momentum.service`；本地 health check 失败会自动恢复前一版本。release 默认保留活动/前一版及近期版本。
+Node release 是在本机构建的选择性 tar 包，包含 `client/dist`、`server/dist`、由 Flowable 引擎 BPMN 源同步生成的 `server/workflow/processes/`、package manifests 与受控种子文件；不包含 `.env`、真实 SQLite、运行附件、node_modules、密钥或现场流程/审批/计划数据。发布端计算 tar 包 SHA-256 并经 SSH 传给目标机；目标机校验哈希、拒绝归档中的路径越界及链接/特殊文件，再执行 `npm ci --omit=dev`，以 symlink 原子切换 `/opt/momentum/current` 并重启 `momentum.service`；本地 health check 失败会自动恢复前一版本。release 默认保留活动/前一版及近期版本。
 
 ### 检查服务
 
@@ -106,7 +106,15 @@ curl -fsS http://127.0.0.1:8090/flowable-rest/actuator/health
 
 ## 5. 热修、热更新与回滚
 
-`deploy.sh` 是**短暂重启式发布**：构建于本地、上传可执行产物、原子切换当前 symlink、重启 systemd 并检查 API。不是零停机蓝绿更新；Node 进程在收到 SIGTERM 后执行优雅关闭。health 失败自动切回旧代码，但**不会自动回滚已执行的 SQLite schema migration，也不替代数据库备份**。变更数据库表结构时需先审查迁移、备份和恢复兼容性；Flowable 需要用单独 `deploy-flowable.sh` 发布，并独立检查健康状态。
+`deploy.sh` 是**短暂重启式发布**：构建于本地、上传可执行产物、原子切换当前 symlink、重启 systemd 并检查 API。不是零停机蓝绿更新；Node 进程在收到 SIGTERM 后执行优雅关闭。systemd 重启或 API health 检查失败都会自动切回旧代码，但**不会自动回滚已执行的 SQLite schema migration，也不替代数据库备份**。变更数据库表结构时需先审查迁移、备份和恢复兼容性；Flowable 需要用单独 `deploy-flowable.sh` 发布，并独立检查健康状态。
+
+### 隔离回归
+
+```bash
+npm test --prefix server
+```
+
+服务端自动回归包含 `server/tests/ubuntu-deployment.test.mjs`：它在权限为 0700 的 `/tmp/momentum-deploy-drill.*` 临时根目录演练首次发布、热更新、健康检查失败自动回滚、手动回滚及其失败恢复、SHA-256 不符拒绝、非法 JavaScript 拒绝、符号链接/路径逃逸拒绝、重复发布/备份拒绝，以及 SQLite 在线备份的校验、恢复一致性和 0600/0700 权限。演练会强制 `systemctl`、`curl`、`npm`、`runuser` 使用临时替身；不使用真实 `/etc`、systemd、Nginx、生产数据库、SSH 主机或凭据。`deploy.sh --dry-run` 另行构建并审查实际发布包内容，不连接 SSH。
 
 ## 常用入口
 
