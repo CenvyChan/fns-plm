@@ -147,6 +147,27 @@ export async function cacheSetIfAbsent(key: string, value: string, ttlSeconds = 
   return true;
 }
 
+export async function cacheDeleteIfValue(key: string, expectedValue: string): Promise<boolean> {
+  let deleted = false;
+  try {
+    const redis = await connectRedis();
+    if (redis) {
+      const result = await redis.eval(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+        { keys: [key], arguments: [expectedValue] },
+      );
+      deleted = Number(result) === 1;
+    }
+  } catch (error) {
+    safeError(error);
+  }
+  if (memoryGet(key) === expectedValue) {
+    memory.delete(key);
+    deleted = true;
+  }
+  return deleted;
+}
+
 export async function cacheDeleteByPrefix(prefix: string): Promise<number> {
   let deleted = 0;
   for (const key of memory.keys()) {

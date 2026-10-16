@@ -136,7 +136,7 @@ node dev-tools/openviking.mjs import-url \
 
 ## 6. Redis、环境变量与诊断
 
-Redis 可选，用于跨副本报告锁和 K3Cloud 查询缓存；未配置或不可用时切换到本进程缓存，单副本仍可用，但多副本跨进程去重不保证。通过 `REDIS_URL` 在服务端配置，并启用 Redis ACL、密码和网络访问控制。
+Redis 可选，用于跨副本报告锁和 K3Cloud 查询缓存；未配置或不可用时切换到本进程缓存，单副本仍可用，但多副本跨进程去重不保证。报告锁按完整 tenant/organization/account、计划和本地调度分钟隔离；成功发送的调度分钟短期去重，发送失败会释放该分钟锁以允许立即重试，在途发送锁按值比较后释放。通过 `REDIS_URL` 在服务端配置，并启用 Redis ACL、密码和网络访问控制。
 
 环境变量模板见 `server/.env.example` 与 `deploy/ubuntu/momentum.env.example`。典型问题排查：
 

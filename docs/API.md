@@ -117,14 +117,14 @@ K3Cloud API 是**只读**。过滤字段、排序字段和列必须被 allowlist
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | `GET` | `/api/reports/preview` | 已登录 | 当前账套统计 summary 与 Markdown。 |
-| `GET` | `/api/reports/schedules` | 已登录 | 当前账套日报/周报计划。 |
-| `POST` | `/api/reports/schedules` | `admin` | 创建计划；可设置 `daily/weekly`、时间、星期、时区和启停；无渠道配置时不可启用。 |
-| `PATCH` | `/api/reports/schedules/:id` | `admin` | 更新计划属性。 |
-| `DELETE` | `/api/reports/schedules/:id` | `admin` | 删除计划。 |
-| `POST` | `/api/reports/schedules/:id/run` | `admin` | 手动执行指定计划，可能发送钉钉消息。 |
+| `GET` | `/api/reports/schedules` | 已登录 | 当前完整 tenant/organization/account scope 的日报/周报计划及渠道、调度状态。 |
+| `POST` | `/api/reports/schedules` | `admin` | 创建计划；可设置 `daily/weekly`、时间、星期、时区和启停；缺少有效 Webhook 时只能创建为停用。 |
+| `PATCH` | `/api/reports/schedules/:id` | `admin` | 更新计划名称、频率、时间、星期、时区或启停；字段及启用条件由服务端校验。 |
+| `DELETE` | `/api/reports/schedules/:id` | `admin` | 删除当前 scope 的计划。 |
+| `POST` | `/api/reports/schedules/:id/run` | `admin` | 手动执行指定计划，可能发送钉钉消息；无凭据返回 `503`，同一计划并发执行会被锁拒绝。 |
 | `POST` | `/api/reports/send` | `admin` | 手动推送当前账套报告，可能向当前账套配置的机器人发消息。 |
 
-Redis `SET NX` 锁在连接成功时用于多副本的同分钟去重；没有 Redis 时程序使用进程内备用锁/缓存，不具备跨副本全局去重保证。
+计划与报告数据始终从当前完整三层 scope 读取和保存。Redis `SET NX` 锁用于跨副本的同计划/同本地分钟去重及在途发送互斥；成功后保留短期去重锁，失败会释放该分钟锁以允许重试。没有 Redis 时使用进程内备用锁/缓存，不具备跨副本全局去重保证。
 
 ## 7. 共同响应与错误
 

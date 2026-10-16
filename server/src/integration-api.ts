@@ -6,12 +6,13 @@ import { nanoid } from 'nanoid'
 import cron from 'node-cron'
 import { requireRole } from './auth.js'
 import { db, getAppState, recordSecurityEvent, setAppState } from './database.js'
-import { cacheHealth, cacheSetIfAbsent, initializeCache } from './integrations/cache.js'
+import { cacheDeleteIfValue, cacheHealth, cacheSetIfAbsent, initializeCache } from './integrations/cache.js'
 import { k3cloudStatus, queryK3Cloud, testK3CloudConnection, type K3CloudConfig, type K3CloudQueryInput } from './integrations/k3cloud.js'
 import { completeTask, flowableHealth, getTaskForActor, listTasksForActor, startProcess, type FlowableConfig } from './integrations/flowable.js'
 import { buildApprovalPreviewUrl, dingtalkStatus, parseCardApprovalAction, sendMarkdown, verifyCardCallbackSignature, type DingTalkConfig } from './integrations/dingtalk.js'
 import { connectorCredentialConfig, connectorSummary, listConnectorConfigs, saveConnectorConfig, type ConnectorConfig, type ConnectorProvider } from './integrations/configuration.js'
 import { buildWorkspaceReport } from './reporting.js'
+import { reportScheduleBucket, runWithReportLocks } from './report-scheduling.js'
 import { currentWorkspaceScope, type WorkspaceScope } from './scope.js'
 import { readScopedWorkspace } from './workspace-store.js'
 
@@ -28,7 +29,6 @@ const seedPath = resolve(moduleDir, '../data/seed-workflow-demo.json')
 function loadJson<T>(path: string, fallback: T): T { try { return JSON.parse(readFileSync(path, 'utf8')) as T } catch { return fallback } }
 const workflowSeed = loadJson<WorkflowState>(seedPath, { tasks: [], audit: [] })
 const activeCron = new Map<string, ReturnType<typeof cron.schedule>>()
-const runningSchedules = new Set<string>()
 const allowedProcessKeys = new Set(['materialApproval', 'bomReleaseApproval', 'documentReleaseApproval', 'performanceReviewApproval'])
 const providerFields: Record<ConnectorProvider, Set<string>> = {
   flowable: new Set(['baseUrl', 'username', 'password', 'timeoutMs', 'userMap', 'groupMap', 'clearSecrets']),
@@ -84,6 +84,42 @@ function reportForScope(scope: WorkspaceScope, workflowTasks?: object[]) {
   const workspace = readScopedWorkspace(scope), state = workflowFor(scope)
   return buildWorkspaceReport({ ...workspace, workflowTasks: workflowTasks ?? state.tasks })
 }
+function recordScheduleRun(scope: WorkspaceScope, id: string, result: string): void {
+  const schedules = schedulesFor(scope), current = schedules.find(item => item.id === id)
+  if (!current) return
+  current.lastRunAt = new Date().toISOString(); current.lastResult = result; current.updatedAt = current.lastRunAt
+  persistSchedules(scope, schedules)
+}
+async function runScheduleDelivery(scope: WorkspaceScope, schedule: ReportSchedule, scheduled: boolean) {
+  const connector = dingTalkConfig(scope)
+  if (!dingtalkStatus(connector).configured) return { ok: false, status: 'blocked-missing-webhook' as const, message: '钉钉机器人未配置；报告只生成预览，没有发送。' }
+  if (scheduled && !schedulesFor(scope).some(item => item.id === schedule.id && item.enabled)) return { ok: false, status: 'disabled' as const, message: '报告计划已停用；本次调度未执行。' }
+  const locked = await runWithReportLocks({
+    scope,
+    scheduleId: schedule.id,
+    ...(scheduled ? { scheduledBucket: reportScheduleBucket(schedule.timezone) } : {}),
+    lockStore: { setIfAbsent: cacheSetIfAbsent, deleteIfValue: cacheDeleteIfValue },
+    isSuccessful: result => result.ok,
+    run: async () => {
+      let generatedAt: string | undefined
+      try {
+        const report = reportForScope(scope)
+        generatedAt = report.summary.generatedAt
+        const preview = buildApprovalPreviewUrl('/?page=reports', {}, connector.publicAppUrl)
+        const result = await sendMarkdown(schedule.name, `${report.markdown}${preview ? `\n\n[打开报告预览](${preview})` : ''}`, connector)
+        recordScheduleRun(scope, schedule.id, result.ok ? 'sent' : `failed: ${result.message}`)
+        return { ...result, status: result.ok ? 'sent' as const : 'failed' as const, ...(generatedAt ? { generatedAt } : {}) }
+      } catch {
+        recordScheduleRun(scope, schedule.id, 'failed: report generation or delivery failed')
+        return { ok: false, status: 'failed' as const, message: '报告生成或发送失败。', ...(generatedAt ? { generatedAt } : {}) }
+      }
+    },
+  })
+  if (locked.status === 'busy') return { ok: false, status: 'already-running' as const, message: '此计划已有一次发送正在进行，请稍后重试。' }
+  if (locked.status === 'duplicate') return { ok: false, status: 'duplicate' as const, message: '此计划当前调度分钟已执行，已跳过重复触发。' }
+  if ('value' in locked) return locked.value
+  return { ok: false, status: 'already-running' as const, message: '此计划已有一次发送正在进行，请稍后重试。' }
+}
 function installCron(scope: WorkspaceScope, schedule: ReportSchedule): void {
   clearCron(scope, schedule.id)
   const connector = dingTalkConfig(scope)
@@ -91,22 +127,7 @@ function installCron(scope: WorkspaceScope, schedule: ReportSchedule): void {
   const expression = cronExpression(schedule)
   if (!cron.validate(expression) || !validateTimezone(schedule.timezone)) return
   const key = schedulerKey(scope, schedule.id)
-  const task = cron.schedule(expression, async () => {
-    if (runningSchedules.has(key)) return
-    runningSchedules.add(key)
-    try {
-      const bucket = new Intl.DateTimeFormat('en-CA', { timeZone: schedule.timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()).replace(/\D/g, '')
-      if (!await cacheSetIfAbsent(`reports:run:${key}:${bucket}`, '1', 600)) return
-      const report = reportForScope(scope)
-      const preview = buildApprovalPreviewUrl('/?page=reports', {}, connector.publicAppUrl)
-      const result = await sendMarkdown('PLM 工作区定时报表', `${report.markdown}${preview ? `\n\n[打开报告预览](${preview})` : ''}`, connector)
-      const schedules = schedulesFor(scope), current = schedules.find(item => item.id === schedule.id)
-      if (current) { current.lastRunAt = new Date().toISOString(); current.lastResult = result.ok ? 'sent' : `failed: ${result.message}`; current.updatedAt = current.lastRunAt; persistSchedules(scope, schedules) }
-    } catch {
-      const schedules = schedulesFor(scope), current = schedules.find(item => item.id === schedule.id)
-      if (current) { current.lastRunAt = new Date().toISOString(); current.lastResult = 'failed'; current.updatedAt = current.lastRunAt; persistSchedules(scope, schedules) }
-    } finally { runningSchedules.delete(key) }
-  }, { timezone: schedule.timezone, name: `report-${key}` })
+  const task = cron.schedule(expression, async () => { await runScheduleDelivery(scope, schedule, true) }, { timezone: schedule.timezone, name: `report-${key}` })
   activeCron.set(key, task)
 }
 function installAllCron(scope: WorkspaceScope): void { for (const schedule of schedulesFor(scope)) installCron(scope, schedule) }
@@ -318,8 +339,8 @@ export function createIntegrationRouter(): Router {
     return res.status(result.ok ? 200 : 502).json({ ...result, generatedAt: report.summary.generatedAt })
   })
   router.post('/reports/schedules', requireRole('admin'), (req, res) => {
-    const scope = scopeForRequest(req), body = record(req.body), name = typeof body.name === 'string' ? body.name.trim().slice(0, 80) : '', cadence = body.cadence, time = typeof body.time === 'string' ? body.time : '', timezone = typeof body.timezone === 'string' ? body.timezone : 'Asia/Shanghai', dayOfWeek = Number(body.dayOfWeek ?? 1), enabled = body.enabled === true
-    if (!name || !['daily', 'weekly'].includes(String(cadence)) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time) || !validateTimezone(timezone) || !Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) return res.status(400).json({ error: '计划名称、频率、时间、时区或星期参数无效。' })
+    const scope = scopeForRequest(req), body = record(req.body), name = typeof body.name === 'string' ? body.name.trim() : '', cadence = body.cadence, time = typeof body.time === 'string' ? body.time : '', timezone = Object.hasOwn(body, 'timezone') ? body.timezone : 'Asia/Shanghai', rawDay = Object.hasOwn(body, 'dayOfWeek') ? body.dayOfWeek : 1, dayOfWeek = typeof rawDay === 'number' ? rawDay : typeof rawDay === 'string' && /^[0-6]$/.test(rawDay) ? Number(rawDay) : Number.NaN, enabled = Object.hasOwn(body, 'enabled') ? body.enabled : false
+    if (!name || name.length > 80 || !['daily', 'weekly'].includes(String(cadence)) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time) || typeof timezone !== 'string' || timezone.length > 64 || !validateTimezone(timezone) || !Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6 || typeof enabled !== 'boolean') return res.status(400).json({ error: '计划名称、频率、时间、时区、启停或星期参数无效。' })
     if (enabled && !dingtalkStatus(dingTalkConfig(scope)).configured) return res.status(409).json({ error: '钉钉机器人未配置。可先保存为停用计划，配置 Webhook 后再启用。' })
     const now = new Date().toISOString(), schedule: ReportSchedule = { id: nanoid(), name, cadence: cadence as Cadence, time, ...(cadence === 'weekly' ? { dayOfWeek } : {}), timezone, enabled, createdAt: now, updatedAt: now }, schedules = schedulesFor(scope)
     schedules.unshift(schedule); persistSchedules(scope, schedules); installCron(scope, schedule)
@@ -328,9 +349,11 @@ export function createIntegrationRouter(): Router {
   router.patch('/reports/schedules/:id', requireRole('admin'), (req, res) => {
     const scope = scopeForRequest(req), schedules = schedulesFor(scope), schedule = schedules.find(item => item.id === String(req.params.id))
     if (!schedule) return res.status(404).json({ error: 'schedule not found' })
-    const body = record(req.body), next = { ...schedule, ...Object.fromEntries(['name', 'cadence', 'time', 'dayOfWeek', 'timezone', 'enabled'].filter(key => key in body).map(key => [key, body[key]])) } as ReportSchedule
-    if (typeof next.name !== 'string' || !next.name.trim() || !['daily', 'weekly'].includes(next.cadence) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(next.time) || !validateTimezone(next.timezone) || !Number.isInteger(Number(next.dayOfWeek ?? 1)) || Number(next.dayOfWeek ?? 1) < 0 || Number(next.dayOfWeek ?? 1) > 6) return res.status(400).json({ error: '计划参数无效。' })
-    if (next.enabled && !dingtalkStatus(dingTalkConfig(scope)).configured) return res.status(409).json({ error: '钉钉机器人未配置；计划没有启用。' })
+    const body = record(req.body), rawName = Object.hasOwn(body, 'name') ? body.name : schedule.name, cadence = Object.hasOwn(body, 'cadence') ? body.cadence : schedule.cadence, time = Object.hasOwn(body, 'time') ? body.time : schedule.time, timezone = Object.hasOwn(body, 'timezone') ? body.timezone : schedule.timezone, rawDay = Object.hasOwn(body, 'dayOfWeek') ? body.dayOfWeek : schedule.dayOfWeek ?? 1, dayOfWeek = typeof rawDay === 'number' ? rawDay : typeof rawDay === 'string' && /^[0-6]$/.test(rawDay) ? Number(rawDay) : Number.NaN, enabled = Object.hasOwn(body, 'enabled') ? body.enabled : schedule.enabled
+    if (typeof rawName !== 'string' || !rawName.trim() || rawName.trim().length > 80 || !['daily', 'weekly'].includes(String(cadence)) || typeof time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time) || typeof timezone !== 'string' || timezone.length > 64 || !validateTimezone(timezone) || !Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6 || typeof enabled !== 'boolean') return res.status(400).json({ error: '计划参数无效。' })
+    const next: ReportSchedule = { ...schedule, name: rawName.trim(), cadence: cadence as Cadence, time, timezone, enabled, ...(cadence === 'weekly' ? { dayOfWeek } : {}) }
+    if (cadence === 'daily') delete next.dayOfWeek
+    if (next.enabled && !schedule.enabled && !dingtalkStatus(dingTalkConfig(scope)).configured) return res.status(409).json({ error: '钉钉机器人未配置；计划没有启用。' })
     Object.assign(schedule, next, { updatedAt: new Date().toISOString() }); persistSchedules(scope, schedules); installCron(scope, schedule)
     return res.json(scheduleStatus(scope, schedule))
   })
@@ -341,13 +364,12 @@ export function createIntegrationRouter(): Router {
     return res.status(204).end()
   })
   router.post('/reports/schedules/:id/run', requireRole('admin'), async (req, res) => {
-    const scope = scopeForRequest(req), schedule = schedulesFor(scope).find(item => item.id === String(req.params.id)), connector = dingTalkConfig(scope)
+    const scope = scopeForRequest(req), schedule = schedulesFor(scope).find(item => item.id === String(req.params.id))
     if (!schedule) return res.status(404).json({ error: 'schedule not found' })
-    if (!dingtalkStatus(connector).configured) return res.status(503).json({ error: '钉钉机器人未配置；报告只生成预览，没有发送。' })
-    const report = reportForScope(scope), preview = buildApprovalPreviewUrl('/?page=reports', {}, connector.publicAppUrl), result = await sendMarkdown(schedule.name, `${report.markdown}${preview ? `\n\n[打开报告预览](${preview})` : ''}`, connector)
-    const schedules = schedulesFor(scope), current = schedules.find(item => item.id === schedule.id)
-    if (current) { current.lastRunAt = new Date().toISOString(); current.lastResult = result.ok ? 'sent' : `failed: ${result.message}`; current.updatedAt = current.lastRunAt; persistSchedules(scope, schedules) }
-    return res.status(result.ok ? 200 : 502).json({ ...result, generatedAt: report.summary.generatedAt })
+    const result = await runScheduleDelivery(scope, schedule, false)
+    if (result.status === 'blocked-missing-webhook') return res.status(503).json(result)
+    if (result.status === 'already-running' || result.status === 'duplicate') return res.status(409).json(result)
+    return res.status(result.ok ? 200 : 502).json(result)
   })
 
   // Re-arm only enabled schedules belonging to active account scopes after process restart.
@@ -355,4 +377,4 @@ export function createIntegrationRouter(): Router {
   return router
 }
 
-export function stopIntegrationServices(): void { for (const task of activeCron.values()) task.stop(); activeCron.clear(); runningSchedules.clear() }
+export function stopIntegrationServices(): void { for (const task of activeCron.values()) task.stop(); activeCron.clear() }

@@ -18,6 +18,9 @@ let mockOrigin = ''
 let accessToken = ''
 const tokenScopes = new Map()
 const queryCounts = { login: 0, query: 0, flowable: 0, comments: 0, completed: [] }
+const dingtalkMockCalls = []
+const dingtalkMockResponses = []
+let dingtalkMockDelayMs = 0
 let scopeTasks = new Map()
 const groupOwners = new Map()
 const candidateGroupsByTask = new Map()
@@ -125,6 +128,13 @@ before(async () => {
     void (async () => {
       const url = new URL(req.url ?? '/', mockOrigin || 'http://127.0.0.1')
       const path = url.pathname
+      if (req.method === 'POST' && path === '/dingtalk-mock') {
+        const body = await requestBody(req)
+        dingtalkMockCalls.push(JSON.parse(body || '{}'))
+        if (dingtalkMockDelayMs) await new Promise(resolveDelay => setTimeout(resolveDelay, dingtalkMockDelayMs))
+        const result = dingtalkMockResponses.shift()
+        return json(res, 200, result === 'fail' ? { errcode: 310000, errmsg: 'isolated mock rejected message' } : { errcode: 0, errmsg: 'ok' })
+      }
       if (req.method === 'POST' && path.endsWith('/Kingdee.BOS.WebApi.ServicesStub.AuthService.LoginByAppSecret.common.kdsvc')) {
         queryCounts.login += 1
         await requestBody(req)
@@ -181,6 +191,8 @@ before(async () => {
   const env = {
     ...process.env,
     NODE_ENV: 'test', HOST: '127.0.0.1', PORT: String(apiPort),
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${resolve(serverDir, 'tests/dingtalk-fetch-mock.mjs')}`.trim(),
+    DINGTALK_TEST_MOCK_URL: `${mockOrigin}/dingtalk-mock`,
     DATABASE_FILE: databaseFile,
     APP_ENCRYPTION_KEY: randomBytes(32).toString('hex'), APP_ENCRYPTION_KEY_FILE: join(tempDir, 'encryption.key'),
     DATA_FILE: join(tempDir, 'missing-workspace.json'), LEGACY_DATA_FILE: join(tempDir, 'missing-workspace.json'),
@@ -221,6 +233,92 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
   const scopeAKey = flowableTenant(scopeA), scopeBKey = flowableTenant(scopeBRecord)
   for (const layer of ['tenantId', 'organizationId', 'accountId']) assert.notEqual(scopeA[layer], scopeBRecord[layer], `${layer} must differ between test scopes`)
   assert.notEqual(scopeAKey, scopeBKey)
+
+  await startScope(scopeA.accountId)
+  const reportTaskA = await api('/api/tasks', { method: 'POST', body: { title: 'Scope A report-only task', priority: 'medium', status: 'todo', dueDate: '2099-01-01' } })
+  assertStatus(reportTaskA, 201, 'create isolated scope A report data')
+  const previewA = await api('/api/reports/preview')
+  assertStatus(previewA, 200, 'scope A report preview')
+  assert.equal(previewA.data.summary.taskTotal, 1)
+  assert.equal(previewA.data.channelStatus.configured, false)
+  assert.equal(previewA.data.previewOnly, true)
+
+  const enableBeforeConfig = await api('/api/reports/schedules', { method: 'POST', body: { name: 'Mock weekly report', cadence: 'weekly', time: '23:59', dayOfWeek: 5, timezone: 'Asia/Tokyo', enabled: true } })
+  assertStatus(enableBeforeConfig, 409, 'plans cannot be enabled before a webhook is configured')
+  const invalidEnabledType = await api('/api/reports/schedules', { method: 'POST', body: { name: 'Bad enabled value', cadence: 'daily', time: '09:00', timezone: 'UTC', enabled: 'true' } })
+  assertStatus(invalidEnabledType, 400, 'plan enabled flag must be a boolean')
+  const createdPlan = await api('/api/reports/schedules', { method: 'POST', body: { name: 'Mock weekly report', cadence: 'daily', time: '23:59', timezone: 'Asia/Tokyo', enabled: false } })
+  assertStatus(createdPlan, 201, 'create a disabled report plan without real credentials')
+  assert.equal(createdPlan.data.enabled, false)
+  assert.equal(createdPlan.data.deliveryConfigured, false)
+  assert.equal(createdPlan.data.schedulerState, 'disabled')
+  const blockedManual = await api(`/api/reports/schedules/${createdPlan.data.id}/run`, { method: 'POST' })
+  assertStatus(blockedManual, 503, 'manual plan run without credentials is blocked')
+  assert.equal(dingtalkMockCalls.length, 0, 'no-credential paths must not call the mock or a real DingTalk endpoint')
+  const invalidPatch = await api(`/api/reports/schedules/${createdPlan.data.id}`, { method: 'PATCH', body: { enabled: 'false' } })
+  assertStatus(invalidPatch, 400, 'plan patch must reject string booleans')
+  const editedPlan = await api(`/api/reports/schedules/${createdPlan.data.id}`, { method: 'PATCH', body: { name: 'Edited weekly report', cadence: 'weekly', time: '10:30', dayOfWeek: 4, timezone: 'Asia/Tokyo' } })
+  assertStatus(editedPlan, 200, 'edit plan name, cadence, weekday, time and timezone')
+  assert.equal(editedPlan.data.name, 'Edited weekly report')
+  assert.equal(editedPlan.data.cadence, 'weekly')
+  assert.equal(editedPlan.data.dayOfWeek, 4)
+  assert.equal(editedPlan.data.time, '10:30')
+  assert.equal(editedPlan.data.enabled, false)
+
+  await startScope(scopeBRecord.accountId)
+  const previewB = await api('/api/reports/preview')
+  assertStatus(previewB, 200, 'scope B report preview')
+  assert.equal(previewB.data.summary.taskTotal, 0, 'report content must not include scope A tasks')
+  assert.equal(previewB.data.channelStatus.configured, false, 'DingTalk config must be scope-local')
+  const schedulesB = await api('/api/reports/schedules')
+  assertStatus(schedulesB, 200, 'scope B report schedules')
+  assert.equal(schedulesB.data.schedules.length, 0, 'scope B must not see scope A plans')
+  const planB = await api('/api/reports/schedules', { method: 'POST', body: { name: 'Mock weekly report', cadence: 'daily', time: '23:59', timezone: 'Asia/Tokyo', enabled: false } })
+  assertStatus(planB, 201, 'create independent scope B plan with same display name')
+  assert.notEqual(planB.data.id, createdPlan.data.id)
+
+  await startScope(scopeA.accountId)
+  const mockWebhook = 'https://oapi.dingtalk.com/robot/send?access_token=mock-only'
+  await saveProvider('dingtalk', { webhookUrl: mockWebhook, webhookSecret: `mock-report-secret-${random}` })
+  const enablePlan = await api(`/api/reports/schedules/${createdPlan.data.id}`, { method: 'PATCH', body: { enabled: true } })
+  assertStatus(enablePlan, 200, 'enable plan after saving an isolated fake webhook')
+  assert.equal(enablePlan.data.schedulerState, 'scheduled')
+  assert.equal(enablePlan.data.deliveryConfigured, true)
+  const reportAfterSetup = await api('/api/reports/preview')
+  assert.equal(reportAfterSetup.data.channelStatus.configured, true)
+
+  dingtalkMockResponses.push('fail')
+  const failedRun = await api(`/api/reports/schedules/${createdPlan.data.id}/run`, { method: 'POST' })
+  assertStatus(failedRun, 502, 'failed mocked delivery is visible to the caller')
+  assert.equal(failedRun.data.ok, false)
+  assert.equal(dingtalkMockCalls.length, 1)
+  const failedPlanState = await api('/api/reports/schedules')
+  assert.match(failedPlanState.data.schedules[0].lastResult, /^failed:/)
+  const retryRun = await api(`/api/reports/schedules/${createdPlan.data.id}/run`, { method: 'POST' })
+  assertStatus(retryRun, 200, 'manual retry succeeds after a failed delivery')
+  assert.equal(retryRun.data.ok, true)
+  assert.equal(dingtalkMockCalls.length, 2)
+
+  dingtalkMockDelayMs = 250
+  const overlappingRuns = await Promise.all([
+    api(`/api/reports/schedules/${createdPlan.data.id}/run`, { method: 'POST' }),
+    api(`/api/reports/schedules/${createdPlan.data.id}/run`, { method: 'POST' }),
+  ])
+  dingtalkMockDelayMs = 0
+  assert.deepEqual(overlappingRuns.map(item => item.response.status).sort(), [200, 409], 'a scoped plan only permits one in-flight manual send')
+  assert.equal(dingtalkMockCalls.length, 3, 'the overlapping request must not reach even the local DingTalk mock')
+
+  const disablePlan = await api(`/api/reports/schedules/${createdPlan.data.id}`, { method: 'PATCH', body: { enabled: false } })
+  assertStatus(disablePlan, 200, 'disable a report plan')
+  assert.equal(disablePlan.data.schedulerState, 'disabled')
+  const aPlansAfterB = await api('/api/reports/schedules')
+  assert.equal(aPlansAfterB.data.schedules.length, 1, 'scope A must retain only its own plan')
+  const deletedB = await api(`/api/reports/schedules/${planB.data.id}`, { method: 'DELETE' })
+  assertStatus(deletedB, 404, 'scope A cannot delete scope B plan by guessed ID')
+  const deletedA = await api(`/api/reports/schedules/${createdPlan.data.id}`, { method: 'DELETE' })
+  assertStatus(deletedA, 204, 'delete a report plan')
+  const emptyAPlans = await api('/api/reports/schedules')
+  assert.equal(emptyAPlans.data.schedules.length, 0)
 
   // Environment-based connector defaults must be present only for the exact full triple.
   const defaultsDb = join(tempDir, 'defaults.sqlite')
