@@ -39,12 +39,14 @@ export async function runWithReportLocks<T>(input: {
   run: () => Promise<T>
   isSuccessful: (value: T) => boolean
   token?: string
+  inFlightTtlSeconds?: number
 }): Promise<ReportRunLockResult<T>> {
   const scopeKey = [input.scope.tenantId, input.scope.organizationId, input.scope.accountId].map(encoded).join(':')
   const planKey = `${scopeKey}:${encoded(input.scheduleId)}`
   const token = input.token ?? randomUUID()
   const inFlightKey = `reports:${planKey}:inflight`
-  if (!await input.lockStore.setIfAbsent(inFlightKey, token, IN_FLIGHT_TTL_SECONDS)) return { status: 'busy' }
+  const inFlightTtl = Number.isInteger(input.inFlightTtlSeconds) ? Math.min(21_600, Math.max(IN_FLIGHT_TTL_SECONDS, input.inFlightTtlSeconds!)) : IN_FLIGHT_TTL_SECONDS
+  if (!await input.lockStore.setIfAbsent(inFlightKey, token, inFlightTtl)) return { status: 'busy' }
 
   let scheduledRunKey: string | undefined
   let scheduledRunClaimed = false

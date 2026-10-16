@@ -209,8 +209,19 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
   }
   const sourceKinds = Object.keys(documents)
   const dailyReportSources = Object.fromEntries(sourceKinds.map(kind => [kind, { formId: `TEST_${kind.replaceAll('-', '_').toUpperCase()}`, fields: { ...canonicalFields } }]))
-  const formAllowlist = Object.fromEntries(Object.values(dailyReportSources).map(mapping => [mapping.formId, Object.values(mapping.fields)]))
+  const masterCanonicalFields = { id: 'MID', number: 'MNumber', name: 'MName', status: 'MStatus', department: 'MDepartment', password: 'MPassword' }
+  const masterRecords = {
+    customer: { id: 'master-customer-1', number: 'C-1', name: '测试客户甲', status: '启用' },
+    supplier: { id: 'master-supplier-1', number: 'S-1', name: '测试供应商乙', status: '启用' },
+    salesperson: { id: 'master-sales-1', number: 'E-1', name: '销售员丙', department: '销售部' },
+    user: { id: 'master-user-1', number: 'U-1', name: 'ERP 用户丁', status: '启用', password: 'must-not-be-read' },
+  }
+  const masterKinds = Object.keys(masterRecords)
+  const masterDataSources = Object.fromEntries(masterKinds.map(kind => [kind, { formId: `TEST_MASTER_${kind.toUpperCase()}`, fields: { id: masterCanonicalFields.id, number: masterCanonicalFields.number, name: masterCanonicalFields.name, ...(kind === 'salesperson' ? { department: masterCanonicalFields.department } : { status: masterCanonicalFields.status }) } }]))
+  const allSources = { ...dailyReportSources, ...masterDataSources }
+  const formAllowlist = Object.fromEntries(Object.values(allSources).map(mapping => [mapping.formId, Object.values(mapping.fields)]))
   let invalidERPData = false
+  let invalidMasterData = false
   const erp = createServer(async (request, response) => {
     if (request.url?.includes('LoginByAppSecret')) {
       response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'kdservice-session=fixture; Path=/; HttpOnly' })
@@ -221,19 +232,45 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
     for await (const chunk of request) body += chunk.toString()
     const payload = JSON.parse(JSON.parse(body)[0])
     const kind = sourceKinds.find(sourceKind => dailyReportSources[sourceKind].formId === payload.FormId)
+    const masterKind = masterKinds.find(sourceKind => masterDataSources[sourceKind].formId === payload.FormId)
     const document = kind ? { ...documents[kind] } : null
+    const masterRecord = masterKind ? { ...masterRecords[masterKind] } : null
     if (invalidERPData && kind === 'sales-order' && document) document.amountCny = 'not-a-number'
+    if (invalidMasterData && masterKind === 'customer' && masterRecord) masterRecord.id = ''
     const docs = document ? [document] : []
-    const rows = docs.map(document => payload.FieldKeys.split(',').map(field => document[Object.keys(canonicalFields).find(key => canonicalFields[key] === field)] ?? ''))
+    const sourceRecord = document ?? masterRecord
+    const fieldMap = document ? canonicalFields : masterCanonicalFields
+    const rows = sourceRecord ? [sourceRecord].map(row => payload.FieldKeys.split(',').map(field => row[Object.keys(fieldMap).find(key => fieldMap[key] === field)] ?? '')) : []
     response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ Result: { Rows: rows } }))
   })
   const erpPort = await new Promise((resolve, reject) => erp.listen(0, '127.0.0.1', () => resolve(erp.address().port)).once('error', reject))
   try {
-    const savedK3 = await api('/api/integrations/settings/k3cloud', { method: 'PUT', body: { baseUrl: `http://127.0.0.1:${erpPort}`, accountId: 'test-erp-account', username: 'fixture', organization: 'test-org', appId: 'test-app', appSecret: 'not-a-real-secret', lcid: 2052, formAllowlist, dailyReportSources } })
+    const savedK3 = await api('/api/integrations/settings/k3cloud', { method: 'PUT', body: { baseUrl: `http://127.0.0.1:${erpPort}`, accountId: 'test-erp-account', username: 'fixture', organization: 'test-org', appId: 'test-app', appSecret: 'not-a-real-secret', lcid: 2052, formAllowlist, dailyReportSources, masterDataSources, k3DataSyncSchedule: { enabled: false, intervalHours: 1 } } })
     assert.equal(savedK3.response.status, 200, JSON.stringify(savedK3.data))
+    const unsupportedMasterMapping = structuredClone(masterDataSources)
+    unsupportedMasterMapping.customer.fields.email = 'FEmail'
+    const unsafeMappingSave = await api('/api/integrations/settings/k3cloud', { method: 'PUT', body: { masterDataSources: unsupportedMasterMapping, formAllowlist: { ...formAllowlist, [masterDataSources.customer.formId]: [...formAllowlist[masterDataSources.customer.formId], 'FEmail'] } } })
+    assert.equal(unsafeMappingSave.response.status, 400, 'unsupported fields are rejected even if the K3 Form allowlist contains them')
     const synchronized = await api('/api/daily-reports/k3-sync', { method: 'POST' })
     assert.equal(synchronized.response.status, 200, JSON.stringify(synchronized.data))
     assert.equal(synchronized.data.totalRows, 6)
+    const platformUsersBeforeSync = (await api('/api/auth/users')).data.users.length
+    const fullSync = await api('/api/k3cloud/sync', { method: 'POST' })
+    assert.equal(fullSync.response.status, 200, JSON.stringify(fullSync.data))
+    assert.equal(fullSync.data.business.totalRows, 6)
+    assert.equal(fullSync.data.masterData.totalRows, 4)
+    const masterSnapshot = await api('/api/k3cloud/master-data')
+    assert.equal(masterSnapshot.response.status, 200)
+    assert.deepEqual(masterSnapshot.data.rowCounts, { customer: 1, supplier: 1, salesperson: 1, user: 1 })
+    assert.equal(masterSnapshot.data.records.customer[0].name, '测试客户甲')
+    assert.equal(masterSnapshot.data.records.salesperson[0].department, '销售部')
+    assert.equal(Object.hasOwn(masterSnapshot.data.records.user[0], 'password'), false, 'ERP user snapshots never expose credentials')
+    assert.equal((await api('/api/auth/users')).data.users.length, platformUsersBeforeSync, 'ERP users are not provisioned as PLM accounts')
+    const enabledSchedule = await api('/api/integrations/settings/k3cloud', { method: 'PUT', body: { k3DataSyncSchedule: { enabled: true, intervalHours: 6 } } })
+    assert.equal(enabledSchedule.response.status, 200, JSON.stringify(enabledSchedule.data))
+    assert.equal((await api('/api/k3cloud/sync-status')).data.schedule.schedulerState, 'scheduled')
+    const disabledSchedule = await api('/api/integrations/settings/k3cloud', { method: 'PUT', body: { k3DataSyncSchedule: { enabled: false, intervalHours: 6 } } })
+    assert.equal(disabledSchedule.response.status, 200)
     const liveSummary = await api(`/api/daily-reports/summary?date=${reportDay}`)
     assert.equal(liveSummary.data.source, 'k3cloud')
     assert.equal(liveSummary.data.liveErpConnected, true)
@@ -264,6 +301,13 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
     assert.equal(afterDataFailure.data.orders.sales.amountCny, 24000, 'invalid ERP rows do not overwrite the previous live snapshot')
     invalidERPData = false
 
+    invalidMasterData = true
+    const failedFullSync = await api('/api/k3cloud/sync', { method: 'POST' })
+    assert.equal(failedFullSync.response.status, 502, 'invalid master data must fail without publishing a partial master snapshot')
+    const masterAfterFailure = await api('/api/k3cloud/master-data')
+    assert.deepEqual(masterAfterFailure.data.records, masterSnapshot.data.records, 'a failed master-data sync preserves the last successful snapshot')
+    invalidMasterData = false
+
     const brokenSources = structuredClone(dailyReportSources)
     brokenSources['sales-order'].fields.amountCny = 'FNOT_ALLOWLISTED'
     const savedBrokenMapping = await api('/api/integrations/settings/k3cloud', { method: 'PUT', body: { dailyReportSources: brokenSources } })
@@ -283,6 +327,7 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
   const reportsB = await api('/api/daily-reports?from=2026-10-15&to=2026-10-15')
   assert.equal(reportsB.response.status, 200)
   assert.equal(reportsB.data.reports.some(report => report.id === reportId), false)
+  assert.equal((await api('/api/k3cloud/master-data')).data.lastSyncedAt, null, 'master-data snapshots are isolated by tenant, organization and account')
   assert.equal((await api(`/api/daily-reports/snapshots/${snapshotId}`)).response.status, 404)
   assert.equal((await api('/api/daily-reports', { headers: { 'X-Tenant-ID': setup.data.user.tenantId } })).response.status, 403)
   const switchA = await api('/api/auth/switch-scope', { method: 'POST', body: { accountId: accountA } })
@@ -299,6 +344,7 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
   scopes.set(reviewerToken, reviewerLogin.data.user)
   assert.equal((await api('/api/daily-reports', { method: 'POST', token: reviewerToken, body: { type: 'sales', date: '2026-10-15', partyName: '不能写入', quantity: 1, currency: 'CNY', originalAmount: 1, exchangeRate: 1 } })).response.status, 403)
   assert.equal((await api('/api/daily-reports/k3-sync', { method: 'POST', token: reviewerToken })).response.status, 403)
+  assert.equal((await api('/api/k3cloud/sync', { method: 'POST', token: reviewerToken })).response.status, 403)
 
   await stopServer()
   await startServer()

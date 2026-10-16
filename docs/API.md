@@ -133,6 +133,9 @@ K3Cloud API 是**只读**。过滤字段、排序字段和列必须被 allowlist
 | `PATCH` / `DELETE` | `/api/daily-reports/:id` | 同上 | 更正或软删除；已归档数据产生更正记录，不改写历史快照。 |
 | `GET` | `/api/daily-reports/k3-lines?type=...` | 已登录 | 当前账套 K3 快照行。 |
 | `POST` | `/api/daily-reports/k3-sync` | `admin`, `plm_manager` | 根据当前账套 `dailyReportSources` 映射同步销售出库、采购入库、销售/采购订单、应收/应付六类单据；字段必须在 `formAllowlist` 中，失败保留旧快照。 |
+| `POST` | `/api/k3cloud/sync` | `admin`, `plm_manager` | 按当前账套配置同步六类日报业务单据及客户、供应商、业务员、ERP 用户四类基础资料；所有映射/allowlist 必须完整。 |
+| `GET` | `/api/k3cloud/master-data?kind=...` | 已登录 | 读取当前账套主数据镜像、行数和最近成功同步时间；支持筛选 `customer`、`supplier`、`salesperson`、`user`。ERP 用户快照不会变成 PLM 用户账号。 |
+| `GET` | `/api/k3cloud/sync-status` | 已登录 | 查看当前账套同步计划、映射就绪情况、最近运行结果及基础资料快照时间。 |
 | `PUT` | `/api/daily-reports/:id/links` | `admin`, `plm_manager`, `member` | 多对多部分分摊；类型/账套校验，超额/跨日显式警告。 |
 | `GET` | `/api/daily-reports/summary?date=...&scope=both` | 已登录 | 日报覆盖率、月/年同期间差异、K3 行分摊三维对账。 |
 | `GET` / `POST` | `/api/daily-reports/snapshots` | 已登录 / 写角色 | 查询或追加不可变归档快照；晚到更正进入后续快照。 |

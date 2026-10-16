@@ -13,6 +13,7 @@ import { buildApprovalPreviewUrl, dingtalkStatus, parseCardApprovalAction, sendM
 import { connectorCredentialConfig, connectorSummary, listConnectorConfigs, saveConnectorConfig, type ConnectorConfig, type ConnectorProvider } from './integrations/configuration.js'
 import { buildWorkspaceReport } from './reporting.js'
 import { dailyReportPushDigest, DAILY_K3_REQUIRED_FIELDS, DAILY_K3_SOURCE_KINDS, syncK3DailyDocuments, type DailyK3Field, type DailyK3SourceMapping } from './daily-reporting.js'
+import { K3_MASTER_DATA_FIELDS, K3_MASTER_DATA_KINDS, K3_MASTER_DATA_REQUIRED_FIELDS, readK3CloudMasterData, syncK3CloudMasterData, type K3MasterDataField, type K3MasterDataMapping } from './k3cloud-master-data.js'
 import { reportScheduleBucket, runWithReportLocks } from './report-scheduling.js'
 import { currentWorkspaceScope, type WorkspaceScope } from './scope.js'
 import { readScopedWorkspace } from './workspace-store.js'
@@ -30,10 +31,11 @@ const seedPath = resolve(moduleDir, '../data/seed-workflow-demo.json')
 function loadJson<T>(path: string, fallback: T): T { try { return JSON.parse(readFileSync(path, 'utf8')) as T } catch { return fallback } }
 const workflowSeed = loadJson<WorkflowState>(seedPath, { tasks: [], audit: [] })
 const activeCron = new Map<string, ReturnType<typeof cron.schedule>>()
+const activeK3DataCron = new Map<string, ReturnType<typeof cron.schedule>>()
 const allowedProcessKeys = new Set(['materialApproval', 'bomReleaseApproval', 'documentReleaseApproval', 'performanceReviewApproval'])
 const providerFields: Record<ConnectorProvider, Set<string>> = {
   flowable: new Set(['baseUrl', 'username', 'password', 'timeoutMs', 'userMap', 'groupMap', 'clearSecrets']),
-  k3cloud: new Set(['baseUrl', 'accountId', 'username', 'organization', 'appId', 'appSecret', 'password', 'lcid', 'timeoutMs', 'formAllowlist', 'dailyReportSources', 'clearSecrets']),
+  k3cloud: new Set(['baseUrl', 'accountId', 'username', 'organization', 'appId', 'appSecret', 'password', 'lcid', 'timeoutMs', 'formAllowlist', 'dailyReportSources', 'masterDataSources', 'k3DataSyncSchedule', 'clearSecrets']),
   dingtalk: new Set(['webhookUrl', 'webhookSecret', 'cardCallbackSecret', 'appKey', 'appSecret', 'templateId', 'corpId', 'publicAppUrl', 'userMapping', 'clearSecrets']),
 }
 
@@ -78,6 +80,73 @@ async function syncDailyK3(scope: WorkspaceScope) {
     return result.rows
   })
 }
+function k3MasterDataMappings(config: Record<string, unknown>): Partial<Record<typeof K3_MASTER_DATA_KINDS[number], K3MasterDataMapping>> {
+  const configured = record(config.masterDataSources), allowlist = record(config.formAllowlist), mappings: Partial<Record<typeof K3_MASTER_DATA_KINDS[number], K3MasterDataMapping>> = {}
+  for (const kind of K3_MASTER_DATA_KINDS) {
+    const source = configured[kind]
+    if (source === undefined) continue
+    const raw = record(source), fields = record(raw.fields), formId = String(raw.formId ?? '')
+    if (!/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(formId)) throw new TypeError(`K3Cloud ${kind} 主数据 FormId 无效。`)
+    if (Object.keys(fields).some(field => !K3_MASTER_DATA_FIELDS.includes(field as K3MasterDataField))) throw new TypeError(`K3Cloud ${kind} 主数据映射包含不支持的规范字段。`)
+    if (K3_MASTER_DATA_REQUIRED_FIELDS.some(key => typeof fields[key] !== 'string' || !/^[A-Za-z0-9_.]{1,128}$/.test(String(fields[key])))) throw new TypeError(`K3Cloud ${kind} 主数据映射不完整：必须映射 ${K3_MASTER_DATA_REQUIRED_FIELDS.join(', ')}。`)
+    const allowedFields = allowlist[formId]
+    if (!Array.isArray(allowedFields) || Object.values(fields).some(field => typeof field !== 'string' || !allowedFields.includes(field))) throw new TypeError(`K3Cloud ${kind} 主数据字段未全部加入对应 FormId 的服务端只读 allowlist。`)
+    mappings[kind] = { formId, fields: fields as Partial<Record<K3MasterDataField, string>> }
+  }
+  return mappings
+}
+async function syncK3Masters(scope: WorkspaceScope) {
+  const config = connectorCredentialConfig(scope, 'k3cloud'), mappings = k3MasterDataMappings(config)
+  return syncK3CloudMasterData(scope, mappings, async (formId, fieldKeys, startRow) => {
+    const result = await queryK3Cloud({ formId, fieldKeys, limit: 200, startRow }, config as Partial<K3CloudConfig>, internalScopeKey(scope))
+    return result.rows
+  })
+}
+type K3SyncRun = { startedAt?: string; finishedAt?: string; status?: 'running' | 'success' | 'failed'; source?: 'manual' | 'scheduled'; error?: string; businessRowCounts?: Record<string, number>; masterDataRowCounts?: Record<string, number> }
+function k3SyncStateKey(scope: WorkspaceScope): string { return scopeKey(scope, 'k3-data-sync-status') }
+function k3SyncRun(scope: WorkspaceScope): K3SyncRun { return getAppState<K3SyncRun>(k3SyncStateKey(scope), {}) }
+function saveK3SyncRun(scope: WorkspaceScope, state: K3SyncRun): void { setAppState(k3SyncStateKey(scope), state) }
+function k3DataSyncSchedule(scope: WorkspaceScope) {
+  const config = k3Config(scope), value = record((config as Record<string, unknown>).k3DataSyncSchedule), enabled = value.enabled === true
+  const intervalHours = [1, 6, 12, 24].includes(Number(value.intervalHours)) ? Number(value.intervalHours) : 1
+  let ready = false, readinessMessage = 'K3Cloud 六类业务单据与四类主数据映射尚未完整配置。'
+  try {
+    dailyK3Mappings(config as Record<string, unknown>)
+    const masters = k3MasterDataMappings(config as Record<string, unknown>)
+    ready = K3_MASTER_DATA_KINDS.every(kind => Boolean(masters[kind]))
+    if (ready && k3cloudStatus(config, internalScopeKey(scope)).configured) readinessMessage = 'ready'
+  } catch (error) { readinessMessage = error instanceof Error ? error.message : readinessMessage }
+  if (!k3cloudStatus(config, internalScopeKey(scope)).configured) { ready = false; readinessMessage = 'K3Cloud 连接凭据尚未配置完整。' }
+  return { enabled, intervalHours, timezone: 'Asia/Shanghai', ready, readinessMessage, schedulerState: !enabled ? 'disabled' : !ready ? 'blocked-incomplete-config' : activeK3DataCron.has(internalScopeKey(scope)) ? 'scheduled' : 'inactive' }
+}
+async function performK3DataSync(scope: WorkspaceScope, source: 'manual' | 'scheduled') {
+  const schedule = k3DataSyncSchedule(scope)
+  if (!k3cloudStatus(k3Config(scope), internalScopeKey(scope)).configured) throw new Error('当前账套尚未配置完整的 K3Cloud 只读连接。')
+  if (source === 'scheduled' && (!schedule.enabled || !schedule.ready)) throw new Error('K3Cloud 定时同步已停用或映射尚未就绪。')
+  const bucket = source === 'scheduled' ? reportScheduleBucket('Asia/Shanghai') : undefined
+  const locked = await runWithReportLocks({
+    scope, scheduleId: 'k3cloud-complete-data-sync', ...(bucket ? { scheduledBucket: bucket } : {}),
+    inFlightTtlSeconds: 21_600,
+    lockStore: { setIfAbsent: cacheSetIfAbsent, deleteIfValue: cacheDeleteIfValue }, isSuccessful: result => result.ok,
+    run: async () => {
+      const startedAt = new Date().toISOString()
+      saveK3SyncRun(scope, { startedAt, status: 'running', source })
+      try {
+        const business = await syncDailyK3(scope)
+        const masterData = await syncK3Masters(scope)
+        const finishedAt = new Date().toISOString()
+        saveK3SyncRun(scope, { startedAt, finishedAt, status: 'success', source, businessRowCounts: business.rowCounts as Record<string, number>, masterDataRowCounts: masterData.rowCounts as Record<string, number> })
+        return { ok: true, status: 'success' as const, startedAt, finishedAt, business, masterData }
+      } catch (error) {
+        const finishedAt = new Date().toISOString(), message = error instanceof Error ? error.message : 'K3Cloud 数据同步失败。'
+        saveK3SyncRun(scope, { startedAt, finishedAt, status: 'failed', source, error: message.slice(0, 500) })
+        return { ok: false, status: 'failed' as const, startedAt, finishedAt, message }
+      }
+    },
+  })
+  if (!('value' in locked)) return { ok: false, status: locked.status, message: '当前账套已有 K3Cloud 同步任务运行或本周期已经执行。' }
+  return locked.value
+}
 function flowableTenantId(scope: WorkspaceScope): string { return `tenant:${scope.tenantId}:organization:${scope.organizationId}:account:${scope.accountId}` }
 function trustedActor(req: Request, config: ConnectorConfig): string | undefined {
   const user = req.authUser
@@ -96,6 +165,7 @@ function validateTimezone(value: string): boolean { try { new Intl.DateTimeForma
 function cronExpression(schedule: ReportSchedule): string { const [hour, minute] = schedule.time.split(':').map(Number); return schedule.cadence === 'weekly' ? `${minute} ${hour} * * ${schedule.dayOfWeek ?? 1}` : `${minute} ${hour} * * *` }
 function schedulerKey(scope: WorkspaceScope, id: string): string { return `${internalScopeKey(scope)}:${id}` }
 function clearCron(scope: WorkspaceScope, id: string): void { const key = schedulerKey(scope, id); activeCron.get(key)?.stop(); activeCron.delete(key) }
+function clearK3DataCron(scope: WorkspaceScope): void { const key = internalScopeKey(scope); activeK3DataCron.get(key)?.stop(); activeK3DataCron.delete(key) }
 function scheduleStatus(scope: WorkspaceScope, schedule: ReportSchedule) {
   const ready = dingtalkStatus(dingTalkConfig(scope)).configured
   return { ...schedule, deliveryConfigured: ready, schedulerState: !schedule.enabled ? 'disabled' : !ready ? 'blocked-missing-webhook' : activeCron.has(schedulerKey(scope, schedule.id)) ? 'scheduled' : 'inactive' }
@@ -161,6 +231,19 @@ function installCron(scope: WorkspaceScope, schedule: ReportSchedule): void {
   activeCron.set(key, task)
 }
 function installAllCron(scope: WorkspaceScope): void { for (const schedule of schedulesFor(scope)) installCron(scope, schedule) }
+function installK3DataCron(scope: WorkspaceScope): void {
+  clearK3DataCron(scope)
+  const schedule = k3DataSyncSchedule(scope)
+  if (!schedule.enabled || !schedule.ready) return
+  const expression = schedule.intervalHours === 1 ? '0 * * * *' : schedule.intervalHours === 24 ? '5 2 * * *' : `0 */${schedule.intervalHours} * * *`
+  if (!cron.validate(expression)) return
+  const key = internalScopeKey(scope)
+  const task = cron.schedule(expression, async () => {
+    try { await performK3DataSync(scope, 'scheduled') }
+    catch (error) { saveK3SyncRun(scope, { startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), status: 'failed', source: 'scheduled', error: error instanceof Error ? error.message.slice(0, 500) : 'K3Cloud 定时同步失败。' }) }
+  }, { timezone: 'Asia/Shanghai', name: `k3-data-sync-${key}` })
+  activeK3DataCron.set(key, task)
+}
 function activeScopes(): WorkspaceScope[] {
   return db.prepare(`SELECT t.id AS tenantId,t.name AS tenantName,o.id AS organizationId,o.name AS organizationName,a.id AS accountId,a.name AS accountName
     FROM accounts a JOIN organizations o ON o.id=a.organization_id AND o.tenant_id=a.tenant_id JOIN tenants t ON t.id=a.tenant_id WHERE a.status='active' AND o.status='active' AND t.status='active'`).all() as WorkspaceScope[]
@@ -187,6 +270,7 @@ export function createIntegrationRouter(): Router {
       const result = saveConnectorConfig(scope, provider, config, req.authUser!.id)
       recordSecurityEvent({ userId: req.authUser!.id, tenantId: scope.tenantId, organizationId: scope.organizationId, accountId: scope.accountId, event: 'connector_config_updated', subject: provider, ip: req.ip, userAgent: req.get('user-agent') })
       if (provider === 'dingtalk') installAllCron(scope)
+      if (provider === 'k3cloud') installK3DataCron(scope)
       return res.json({ ...result, settings: connectorSummary(scope, provider) })
     } catch (error) { return res.status(400).json({ error: 'invalid_connector_config', message: error instanceof Error ? error.message : '连接器配置无效。' }) }
   })
@@ -223,6 +307,30 @@ export function createIntegrationRouter(): Router {
       const status = error instanceof TypeError ? 409 : 502
       return res.status(status).json({ error: status === 409 ? 'daily_source_mapping_incomplete' : 'k3cloud_daily_sync_failed', message })
     }
+  })
+  router.get('/k3cloud/master-data', (req, res) => {
+    const scope = scopeForRequest(req), state = readK3CloudMasterData(scope), requestedKind = typeof req.query.kind === 'string' ? req.query.kind : ''
+    if (requestedKind && !K3_MASTER_DATA_KINDS.includes(requestedKind as typeof K3_MASTER_DATA_KINDS[number])) return res.status(400).json({ error: 'invalid_master_data_kind' })
+    const records = requestedKind ? { [requestedKind]: state.records[requestedKind as typeof K3_MASTER_DATA_KINDS[number]] ?? [] } : state.records
+    return res.json({ source: state.lastSyncedAt ? 'k3cloud' : 'not-synced', lastSyncedAt: state.lastSyncedAt, configuredKinds: state.configuredKinds, rowCounts: state.rowCounts, records })
+  })
+  router.get('/k3cloud/sync-status', (req, res) => {
+    const scope = scopeForRequest(req), state = readK3CloudMasterData(scope)
+    return res.json({ schedule: k3DataSyncSchedule(scope), lastRun: k3SyncRun(scope), masterDataLastSyncedAt: state.lastSyncedAt, masterDataRowCounts: state.rowCounts })
+  })
+  router.post('/k3cloud/sync', requireRole('admin', 'plm_manager'), async (req, res) => {
+    const scope = scopeForRequest(req), config = connectorCredentialConfig(scope, 'k3cloud')
+    if (!k3cloudStatus(config as Partial<K3CloudConfig>, internalScopeKey(scope)).configured) return res.status(503).json({ error: 'k3cloud_not_configured', message: '当前账套尚未配置完整的 K3Cloud 只读连接。' })
+    try {
+      dailyK3Mappings(config as Record<string, unknown>)
+      const masters = k3MasterDataMappings(config as Record<string, unknown>)
+      if (!K3_MASTER_DATA_KINDS.every(kind => Boolean(masters[kind]))) throw new TypeError('同步全部 K3Cloud 数据前，必须配置客户、供应商、业务员、ERP 用户四类主数据映射。')
+    } catch (error) { return res.status(409).json({ error: 'k3cloud_source_mapping_incomplete', message: error instanceof Error ? error.message : 'K3Cloud 数据源映射不完整。' }) }
+    recordSecurityEvent({ userId: req.authUser!.id, tenantId: scope.tenantId, organizationId: scope.organizationId, accountId: scope.accountId, event: 'k3cloud_full_sync_requested', ip: req.ip, userAgent: req.get('user-agent') })
+    const result = await performK3DataSync(scope, 'manual')
+    if (result.status === 'busy' || result.status === 'duplicate') return res.status(409).json(result)
+    if (!result.ok) return res.status(502).json({ error: 'k3cloud_sync_failed', message: result.message })
+    return res.json(result)
   })
   router.post('/k3cloud/query', requireRole('admin', 'plm_manager'), async (req, res) => {
     const scope = scopeForRequest(req), config = connectorCredentialConfig(scope, 'k3cloud')
@@ -416,8 +524,8 @@ export function createIntegrationRouter(): Router {
   })
 
   // Re-arm only enabled schedules belonging to active account scopes after process restart.
-  for (const scope of activeScopes()) installAllCron(scope)
+  for (const scope of activeScopes()) { installAllCron(scope); installK3DataCron(scope) }
   return router
 }
 
-export function stopIntegrationServices(): void { for (const task of activeCron.values()) task.stop(); activeCron.clear() }
+export function stopIntegrationServices(): void { for (const task of activeCron.values()) task.stop(); activeCron.clear(); for (const task of activeK3DataCron.values()) task.stop(); activeK3DataCron.clear() }

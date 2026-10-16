@@ -70,6 +70,17 @@ test('in-flight lock rejects overlapping execution and is released after complet
   assert.equal(locks.entries.size, 1, 'the success dedupe lock remains; the in-flight lock is removed')
 })
 
+test('long-running scoped jobs can request a bounded longer in-flight lock', async () => {
+  const locks = mockLocks(), requestedTtls = []
+  const lockStore = {
+    setIfAbsent: async (key, value, ttlSeconds) => { requestedTtls.push(ttlSeconds); return locks.setIfAbsent(key, value) },
+    deleteIfValue: locks.deleteIfValue,
+  }
+  const result = await runWithReportLocks({ scope: scopeA, scheduleId: 'k3cloud-sync', lockStore, inFlightTtlSeconds: 21_600, run: async () => ({ ok: true }), isSuccessful: value => value.ok })
+  assert.equal(result.status, 'executed')
+  assert.deepEqual(requestedTtls, [21_600])
+})
+
 test('schedule bucket uses the schedule timezone and preserves minute precision', () => {
   const instant = new Date('2026-10-16T00:15:47.000Z')
   assert.equal(reportScheduleBucket('UTC', instant), '202610160015')

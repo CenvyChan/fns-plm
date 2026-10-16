@@ -62,6 +62,10 @@ FLOWABLE_DATA_DIR=/var/lib/momentum-flowable
 
 销售/采购日报还需在同一加密账套配置中设置 `dailyReportSources`，按企业实际 FormId 将六类来源（销售出库、采购入库、销售订单、采购订单、应收、应付）映射至规范字段；映射字段必须全部在 `formAllowlist` 内。`id` 应是单据行级唯一键，`amountCny` 应是人民币金额，应收/应付需另映射 `settledAmountCny`。保存连接器配置不会自动访问 ERP；管理员主动手动同步或报告发送/计划运行时才读取。报告发送前同步失败会 fail-closed，不发送旧快照或演示金额。余额代表最近一次同步时点，不是按历史报表日回溯的余额。字段清单、金额口径及状态语义必须由企业管理员对照当前 K3Cloud 版本核验。
 
+同一配置还可以设置 `masterDataSources`，分别配置 `customer`、`supplier`、`salesperson`、`user` 的 `formId` 和 `fields`。支持的规范字段仅有 `id`、`number`、`name`、`status`、`category`、`department`、`ownerNumber`、`ownerName`、`modifiedAt`；每类须映射稳定唯一 `id` 和 `name`，其余按需映射且必须在 `formAllowlist` 中。ERP `user` 仅作为账套级只读目录快照，不会创建 PLM 用户、分配角色/权限，也不会读取密码或联系方式。
+
+管理员或 `plm_manager` 可调用 `POST /api/k3cloud/sync` 同步六类日报业务单据和四类基础资料；全部数据源均需配置。`GET /api/k3cloud/master-data` 可读取镜像。定时同步通过 `k3DataSyncSchedule: { "enabled": false, "intervalHours": 1 }` 配置，频率仅支持 1、6、12、24 小时；24 小时任务每天在 Asia/Shanghai 的 02:05 执行。启用前服务端要求全部十类映射及只读 allowlist 齐全；默认关闭。多实例使用按 tenant/organization/account 区分的任务锁，同一账套运行失败时保留主数据上一次完整快照。应用配置使用现有加密连接器存储；本仓库不附带企业凭据或通用 FormId 映射。
+
 ## 3. 钉钉机器人与互动审批卡片
 
 在当前内部三元组配置钉钉官方 HTTPS 群机器人 Webhook 与签名密钥，按需配置 `PUBLIC_APP_URL`/应用 HTTPS 地址。后端只向 `oapi.dingtalk.com` 或 `api.dingtalk.com` 发送 Markdown；调用 `reports/send`、计划执行或连接器测试时才发消息。预览链接仅能在配置的同一 HTTPS origin 内生成。
