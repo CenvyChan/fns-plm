@@ -2,12 +2,12 @@
 
 ## 通用安全模型
 
-连接器配置按当前内部 `(tenantId, organizationId, accountId)` 三元组保存。管理员在「系统集成与连接器」页面提交 URL、服务账号、 allowlist 和映射；后端配置层使用 Node.js `crypto` 的 **AES-256-GCM** 加密敏感字段（认证标签、随机 nonce 与密文一并保存），SQLite 只保存密文与配置 revision。查询设置只返回 Secret 是否已设置，不读回明文；输入框留空表示保持原密钥，勾选“清除现有值”才会移除。
+连接器配置按当前内部 `(tenantId, organizationId, accountId)` 三元组保存。管理员在「系统集成与连接器」页面提交 URL、服务账号、allowlist 和映射；后端使用 Node.js `crypto` 的 **AES-256-GCM** 加密整份配置（认证标签、随机 nonce 与密文一并保存），SQLite 只保存密文与配置 revision。AppId 与 AppSecret 均按只写凭证处理：设置摘要只返回是否已设置，不返回原值；输入框留空表示保留现有值，勾选“清除现有值”才会移除。
 
-- 密钥必须为 32 字节：环境变量 `APP_ENCRYPTION_KEY` 需要恰好 64 个十六进制字符；否则使用 `APP_ENCRYPTION_KEY_FILE` 指定的本地密钥文件。生产 systemd 默认 `/var/lib/momentum/.app-encryption-key`，由 `momentum` 用户持有，权限应为 `0600`。
+- 密钥必须为 32 字节：环境变量 `APP_ENCRYPTION_KEY` 需要恰好 64 个十六进制字符；否则使用 `APP_ENCRYPTION_KEY_FILE` 指定的本地密钥文件。生产 systemd 默认 `/var/lib/momentum/.app-encryption-key`，由 `momentum` 用户持有，权限应为 `0600`。Docker 部署时仅向后端容器注入稳定的解密主密钥或其密钥文件；应用在服务端进程内读取密钥，浏览器/API 摘要不会暴露密钥。
 - **数据库与密钥必须一起备份。** 只恢复 SQLite 文件而丢失密钥，会使已保存的凭证无法解密；只备份密钥而丢失数据库也不能恢复集成设置。
 - 更换密钥不等于轮换：当前没有自动重加密/轮换命令。换密钥前先保存各连接器凭据、停服务、按维护流程导出/重加密，或保留原密钥安全备份。不要在工单、日志、前端、版本库或聊天中记录凭证。
-- 当前三元组的加密设置优先于 server environment defaults。环境变量只有在 `CONNECTOR_DEFAULT_TENANT_ID`、`CONNECTOR_DEFAULT_ORGANIZATION_ID`、`CONNECTOR_DEFAULT_ACCOUNT_ID` 三项全部精确匹配时才会应用；缺少任一绑定时不会作为全局回退。环境变量本身也须由运维作为密钥管理，不应提交 Git。
+- K3Cloud 配置**只通过 PLM 页面**保存到加密账套记录；服务端不会从 Docker 环境变量读取 K3Cloud AppId/AppSecret，也不会用环境默认值回退。Docker 环境只需提供应用解密主密钥。Flowable/钉钉仍可使用环境默认值，但必须完整匹配 `CONNECTOR_DEFAULT_TENANT_ID`、`CONNECTOR_DEFAULT_ORGANIZATION_ID`、`CONNECTOR_DEFAULT_ACCOUNT_ID`；不能跨范围共享。环境变量本身也须由运维安全管理，不应提交 Git。
 - 连接器测试会真实连到配置的第三方；**钉钉测试会发一条消息**。仅在受控群中主动触发测试。
 
 ## 1. Flowable BPMN
@@ -47,7 +47,7 @@ FLOWABLE_DATA_DIR=/var/lib/momentum-flowable
 
 ## 2. 金蝶云星空 K3Cloud
 
-在每个内部三元组单独配置企业批准的 HTTPS WebAPI Base URL、外部 ERP 账套 ID、服务用户名、外部组织标识、第三方应用 AppId/AppSecret、LCID。外部 K3Cloud 的组织/账套参数不会取代内部范围校验；登录会话与查询缓存同样按内部三元组隔离。后端通过官方 LoginByAppSecret 获取短期 cookie，然后调用 ExecuteBillQuery；查询结果最多缓存 60 秒。生产地址应为 HTTPS；默认拒绝远端明文 HTTP。
+在 **系统集成与连接器 → K3Cloud → 连接设置** 按内部三元组配置企业批准的 HTTPS WebAPI Base URL、外部 ERP 账套 ID、服务用户名、外部组织标识、第三方应用 AppId/AppSecret、LCID。AppId 与 AppSecret 输入后只在 PLM 服务端内存中用于加密入库；查询设置不读回。不要把它们放入 Docker 的 K3Cloud 环境变量，Docker 只负责提供 AES 解密主密钥。外部 K3Cloud 的组织/账套参数不会取代内部范围校验；登录会话与查询缓存同样按内部三元组隔离。后端通过官方 LoginByAppSecret 获取短期 cookie，然后调用 ExecuteBillQuery；查询结果最多缓存 60 秒。生产地址应为 HTTPS；默认拒绝远端明文 HTTP。
 
 **查询 allowlist 必须从企业已确认的 FormId 与字段中显式填写**，例如：
 
@@ -59,6 +59,10 @@ FLOWABLE_DATA_DIR=/var/lib/momentum-flowable
 ```
 
 具体 FormId、字段名按公司 K3Cloud 版本与授权范围核实，示例不是一份通用授权清单。查询的 FormId 和 FieldKeys 都要在 allowlist 中。`filterString`、排序字段还需遵守服务端过滤与输入长度约束。这个客户端不提供 K3Cloud 写入/建单/正式物料编码生成能力，避免把演示主数据覆盖到 ERP。
+
+新增的 **K3Cloud → 表单与字段** 工作区提供上传只读包中的 FormId/业务链缓存，并区分“源目录标记已核实”“示例引用”和“候选”。这些标签都不是当前 PLM 账套的验证结论：原包的 verified 标记仅属于其来源账套；目录不是完整 FormId 权威清单。字段发现调用 PLM 自有只读适配器的 `QueryBusinessInfo`（即参考包的 `query_metadata(FormId)`），读取当前内部账套已加密保存的凭据；必须先成功测试连接。发现不会读取业务行，也不会自动扩大 allowlist。
+
+管理员从动态元数据中选择可见字段；自定义字段只按元数据明确返回的 Key 标记，不能靠 `F_` 前缀推造。带 `__` 的元数据标识不会作为字段返回；隐藏字段与弹性域父键不可勾选。规范字段映射也只能从本次发现的字段中逐项选取。点击“加入 allowlist / 应用映射草稿”只改页面未保存草稿，之后仍需点击“加密保存配置”才会按当前账套范围持久化。静态目录仅提供有限候选提示：可提示 `SAL_OUTSTOCK`（销售出库）、`STK_InStock`（采购/其他入库）、`SAL_SaleOrder`、`PUR_PurchaseOrder` 以及客户/供应商/员工候选；不会预设字段映射。上传目录没有足够证据确定销项发票、采购收票、应收、应付和 ERP 用户表单，相关 FormId 留给当前账套发现。尤其 `AR_receiveBill` 是收款单、`AP_PAYBILL` 是付款单，不能仅凭名称当作应收/应付余额表单。
 
 销售/采购日报还需在同一加密账套配置中设置 `dailyReportSources`，按企业实际 FormId 将六类来源（销售出库、采购入库、销售订单、采购订单、应收、应付）映射至规范字段；映射字段必须全部在 `formAllowlist` 内。`id` 应是单据行级唯一键，`amountCny` 应是人民币金额，应收/应付需另映射 `settledAmountCny`。保存连接器配置不会自动访问 ERP；管理员主动手动同步或报告发送/计划运行时才读取。报告发送前同步失败会 fail-closed，不发送旧快照或演示金额。余额代表最近一次同步时点，不是按历史报表日回溯的余额。字段清单、金额口径及状态语义必须由企业管理员对照当前 K3Cloud 版本核验。
 
@@ -144,7 +148,7 @@ node dev-tools/openviking.mjs import-url \
 
 Redis 可选，用于跨副本报告锁和 K3Cloud 查询缓存；未配置或不可用时切换到本进程缓存，单副本仍可用，但多副本跨进程去重不保证。报告锁按完整 tenant/organization/account、计划和本地调度分钟隔离；成功发送的调度分钟短期去重，发送失败会释放该分钟锁以允许立即重试，在途发送锁按值比较后释放。通过 `REDIS_URL` 在服务端配置，并启用 Redis ACL、密码和网络访问控制。
 
-环境变量模板见 `server/.env.example` 与 `deploy/ubuntu/momentum.env.example`。典型问题排查：
+环境变量模板见 `server/.env.example` 与 `deploy/ubuntu/momentum.env.example`。K3Cloud 配置仅保存在 PLM 加密账套设置；Docker 环境提供稳定的 `APP_ENCRYPTION_KEY`（64 位十六进制）或持久化密钥文件，不要配置 `K3CLOUD_APP_ID` / `K3CLOUD_APP_SECRET`。典型问题排查：
 
 - API 中「未配置」：检查当前用户是否切换到了另一个 scope（配置按 tenant/organization/account 三元组隔离），以及环境默认值是否完整绑定。
 - Flowable 已配置但连接失败：检查 API 主机到 Flowable 的 DNS、网络 ACL、Basic Auth、REST base path 与 Java 服务状态。

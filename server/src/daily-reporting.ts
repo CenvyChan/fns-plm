@@ -6,12 +6,12 @@ import { getAppStateVersioned, setAppStateIfRevision, StateConflictError } from 
 import type { WorkspaceScope } from './scope.js'
 
 export type DailyKind = 'sales' | 'purchase'
-export type K3DocumentKind = 'shipment' | 'purchase-receipt' | 'sales-order' | 'purchase-order' | 'receivable' | 'payable'
-export const DAILY_K3_SOURCE_KINDS: K3DocumentKind[] = ['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable']
+export type K3DocumentKind = 'shipment' | 'purchase-receipt' | 'sales-order' | 'purchase-order' | 'receivable' | 'payable' | 'sales-invoice' | 'purchase-invoice'
+export const DAILY_K3_SOURCE_KINDS: K3DocumentKind[] = ['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable', 'sales-invoice', 'purchase-invoice']
 export const DAILY_K3_REQUIRED_FIELDS = ['id', 'billNo', 'date', 'partyName', 'originalAmount', 'amountCny'] as const
-export type DailyK3Field = 'id' | 'billNo' | 'date' | 'partyNumber' | 'partyName' | 'materialName' | 'quantity' | 'unit' | 'currency' | 'originalAmount' | 'amountCny' | 'settledAmountCny' | 'status'
+export type DailyK3Field = 'id' | 'billNo' | 'date' | 'modifiedAt' | 'partyNumber' | 'partyName' | 'materialName' | 'quantity' | 'unit' | 'unitPrice' | 'currency' | 'originalAmount' | 'amountCny' | 'settledAmountCny' | 'status' | 'upstreamId' | 'upstreamBillNo' | 'upstreamLineId' | 'taxAmount' | 'taxAmountCny'
 export type DailyK3SourceMapping = { formId: string; fields: Partial<Record<DailyK3Field, string>> }
-export type DailyK3SyncMetadata = { source: 'k3cloud'; lastSyncedAt: string; rowCounts: Partial<Record<K3DocumentKind, number>> }
+export type DailyK3SyncMetadata = { source: 'k3cloud'; lastSyncedAt: string; rowCounts: Partial<Record<K3DocumentKind, number>>; changedRowCounts?: Partial<Record<K3DocumentKind, number>>; mode?: 'full' | 'incremental' | 'mixed'; incrementalFrom?: string | null; fullScanKinds?: K3DocumentKind[] }
 export type DailySource = 'manual' | 'history-import'
 
 export interface DailyReport {
@@ -23,6 +23,8 @@ export interface K3SnapshotRow {
   id: string; kind: K3DocumentKind; type: DailyKind; billNo: string; date: string; partyNumber: string; partyName: string
   materialName: string; quantity: number; unit: string; currency: string; originalAmount: number; amountCny: number
   settledAmountCny: number; status: string; source: 'local-mock' | 'k3cloud'; snapshotAt: string; active: boolean
+  erpId?: string; modifiedAt?: string; unitPrice?: number; upstreamId?: string; upstreamBillNo?: string; upstreamLineId?: string; taxAmount?: number; taxAmountCny?: number
+  linkedDocuments?: Array<Pick<K3SnapshotRow, 'id' | 'kind' | 'billNo' | 'date' | 'partyName' | 'materialName' | 'quantity' | 'unit' | 'unitPrice' | 'currency' | 'amountCny' | 'status'>>
 }
 export interface DailyReportLink {
   id: string; reportId: string; k3RowId: string; allocatedAmount: number; allocatedQuantity: number; linkedAt: string
@@ -85,14 +87,16 @@ function makeLocalMockState(): DailyReportState {
   state.mockEnabled = true
   state.mockSnapshotAt = now
   state.k3Rows = [
-    { id: 'mock-k3-sales-001', kind: 'shipment', type: 'sales', billNo: 'MOCK-SO-OUT-001', date: '2026-10-15', partyNumber: 'MOCK-C-001', partyName: '示例客户·星河制造', materialName: '智能控制模块', quantity: 50, unit: '件', currency: 'CNY', originalAmount: 10000, amountCny: 10000, settledAmountCny: 0, status: '已审核', source: 'local-mock', snapshotAt: now, active: true },
+    { id: 'mock-k3-sales-001', kind: 'shipment', type: 'sales', billNo: 'MOCK-SO-OUT-001', date: '2026-10-15', partyNumber: 'MOCK-C-001', partyName: '示例客户·星河制造', materialName: '智能控制模块', quantity: 50, unit: '件', unitPrice: 200, currency: 'CNY', originalAmount: 10000, amountCny: 10000, settledAmountCny: 0, status: '已审核', upstreamBillNo: 'MOCK-SO-001', source: 'local-mock', snapshotAt: now, active: true },
     { id: 'mock-k3-sales-002', kind: 'shipment', type: 'sales', billNo: 'MOCK-SO-OUT-002', date: '2026-10-14', partyNumber: 'MOCK-C-002', partyName: '示例客户·远帆科技', materialName: '传感器组件', quantity: 24, unit: '件', currency: 'USD', originalAmount: 360, amountCny: 2592, settledAmountCny: 0, status: '已审核', source: 'local-mock', snapshotAt: now, active: true },
-    { id: 'mock-k3-purchase-001', kind: 'purchase-receipt', type: 'purchase', billNo: 'MOCK-PO-IN-001', date: '2026-10-15', partyNumber: 'MOCK-S-001', partyName: '示例供应商·宏达电子', materialName: '控制芯片', quantity: 200, unit: '片', currency: 'CNY', originalAmount: 6000, amountCny: 6000, settledAmountCny: 0, status: '已审核', source: 'local-mock', snapshotAt: now, active: true },
-    { id: 'mock-k3-sales-order-001', kind: 'sales-order', type: 'sales', billNo: 'MOCK-SO-001', date: '2026-10-15', partyNumber: 'MOCK-C-001', partyName: '示例客户·星河制造', materialName: '智能控制模块', quantity: 120, unit: '件', currency: 'CNY', originalAmount: 24000, amountCny: 24000, settledAmountCny: 0, status: '部分发货', source: 'local-mock', snapshotAt: now, active: true },
-    { id: 'mock-k3-purchase-order-001', kind: 'purchase-order', type: 'purchase', billNo: 'MOCK-PO-001', date: '2026-10-15', partyNumber: 'MOCK-S-001', partyName: '示例供应商·宏达电子', materialName: '控制芯片', quantity: 500, unit: '片', currency: 'CNY', originalAmount: 14000, amountCny: 14000, settledAmountCny: 0, status: '已审核', source: 'local-mock', snapshotAt: now, active: true },
-    { id: 'mock-k3-receivable-001', kind: 'receivable', type: 'sales', billNo: 'MOCK-AR-001', date: '2026-10-15', partyNumber: 'MOCK-C-001', partyName: '示例客户·星河制造', materialName: '应收账款', quantity: 0, unit: '', currency: 'CNY', originalAmount: 15000, amountCny: 15000, settledAmountCny: 9000, status: '部分收款', source: 'local-mock', snapshotAt: now, active: true },
+    { id: 'mock-k3-purchase-001', kind: 'purchase-receipt', type: 'purchase', billNo: 'MOCK-PO-IN-001', date: '2026-10-15', partyNumber: 'MOCK-S-001', partyName: '示例供应商·宏达电子', materialName: '控制芯片', quantity: 200, unit: '片', unitPrice: 30, currency: 'CNY', originalAmount: 6000, amountCny: 6000, settledAmountCny: 0, status: '已审核', upstreamBillNo: 'MOCK-PO-001', source: 'local-mock', snapshotAt: now, active: true },
+    { id: 'mock-k3-sales-order-001', kind: 'sales-order', type: 'sales', billNo: 'MOCK-SO-001', date: '2026-10-15', partyNumber: 'MOCK-C-001', partyName: '示例客户·星河制造', materialName: '智能控制模块', quantity: 120, unit: '件', unitPrice: 200, currency: 'CNY', originalAmount: 24000, amountCny: 24000, settledAmountCny: 0, status: '部分发货', source: 'local-mock', snapshotAt: now, active: true },
+    { id: 'mock-k3-purchase-order-001', kind: 'purchase-order', type: 'purchase', billNo: 'MOCK-PO-001', date: '2026-10-15', partyNumber: 'MOCK-S-001', partyName: '示例供应商·宏达电子', materialName: '控制芯片', quantity: 500, unit: '片', unitPrice: 28, currency: 'CNY', originalAmount: 14000, amountCny: 14000, settledAmountCny: 0, status: '已审核', source: 'local-mock', snapshotAt: now, active: true },
+    { id: 'mock-k3-receivable-001', kind: 'receivable', type: 'sales', billNo: 'MOCK-AR-001', date: '2026-10-15', partyNumber: 'MOCK-C-001', partyName: '示例客户·星河制造', materialName: '应收账款', quantity: 0, unit: '', currency: 'CNY', originalAmount: 15000, amountCny: 15000, settledAmountCny: 9000, status: '部分收款', upstreamBillNo: 'MOCK-SI-001', source: 'local-mock', snapshotAt: now, active: true },
     { id: 'mock-k3-receivable-002', kind: 'receivable', type: 'sales', billNo: 'MOCK-AR-002', date: '2026-10-13', partyNumber: 'MOCK-C-002', partyName: '示例客户·远帆科技', materialName: '应收账款', quantity: 0, unit: '', currency: 'CNY', originalAmount: 4800, amountCny: 4800, settledAmountCny: 0, status: '未收款', source: 'local-mock', snapshotAt: now, active: true },
-    { id: 'mock-k3-payable-001', kind: 'payable', type: 'purchase', billNo: 'MOCK-AP-001', date: '2026-10-15', partyNumber: 'MOCK-S-001', partyName: '示例供应商·宏达电子', materialName: '应付账款', quantity: 0, unit: '', currency: 'CNY', originalAmount: 11000, amountCny: 11000, settledAmountCny: 4000, status: '部分付款', source: 'local-mock', snapshotAt: now, active: true },
+    { id: 'mock-k3-payable-001', kind: 'payable', type: 'purchase', billNo: 'MOCK-AP-001', date: '2026-10-15', partyNumber: 'MOCK-S-001', partyName: '示例供应商·宏达电子', materialName: '应付账款', quantity: 0, unit: '', currency: 'CNY', originalAmount: 11000, amountCny: 11000, settledAmountCny: 4000, status: '部分付款', upstreamBillNo: 'MOCK-PI-001', source: 'local-mock', snapshotAt: now, active: true },
+    { id: 'mock-k3-sales-invoice-001', kind: 'sales-invoice', type: 'sales', billNo: 'MOCK-SI-001', date: '2026-10-15', partyNumber: 'MOCK-C-001', partyName: '示例客户·星河制造', materialName: '智能控制模块', quantity: 50, unit: '件', unitPrice: 200, currency: 'CNY', originalAmount: 10000, amountCny: 10000, settledAmountCny: 0, status: '已开票', upstreamBillNo: 'MOCK-SO-OUT-001', source: 'local-mock', snapshotAt: now, active: true },
+    { id: 'mock-k3-purchase-invoice-001', kind: 'purchase-invoice', type: 'purchase', billNo: 'MOCK-PI-001', date: '2026-10-15', partyNumber: 'MOCK-S-001', partyName: '示例供应商·宏达电子', materialName: '控制芯片', quantity: 200, unit: '片', unitPrice: 30, currency: 'CNY', originalAmount: 6000, amountCny: 6000, settledAmountCny: 0, status: '已收票', upstreamBillNo: 'MOCK-PO-IN-001', source: 'local-mock', snapshotAt: now, active: true },
   ]
   state.reports = [
     { id: 'mock-daily-sales-001', type: 'sales', date: '2026-10-15', partyName: '示例客户·星河制造', documentNo: 'DR-S-20261015-01', quantity: 62, currency: 'CNY', originalAmount: 12000, exchangeRate: 1, amountCny: 12000, note: '隔离演示日报；非真实业务数据。', source: 'manual', createdAt: now, updatedAt: now, createdBy: 'local-mock', createdByName: '本地演示', updatedBy: 'local-mock' },
@@ -164,31 +168,60 @@ function mappedDay(value: string): string {
   if (Number.isFinite(parsed.getTime())) return parsed.toISOString().slice(0, 10)
   throw new Error('K3Cloud 单据日期不是有效日期。')
 }
+function k3FilterTimestamp(value: string): string {
+  const parsed = new Date(value)
+  if (!Number.isFinite(parsed.getTime())) throw new Error('K3Cloud 上次同步水位不是有效时间。')
+  return parsed.toISOString().slice(0, 19).replace('T', ' ')
+}
+function documentLinks(state: DailyReportState, row: K3SnapshotRow) {
+  const ownKeys = new Set([row.erpId, row.billNo].filter((value): value is string => Boolean(value)))
+  const references = new Set([row.upstreamId, row.upstreamBillNo, row.upstreamLineId].filter((value): value is string => Boolean(value)))
+  return state.k3Rows.filter(other => other.active && other.id !== row.id && other.type === row.type && (
+    [other.erpId, other.billNo].some(value => Boolean(value && references.has(value))) ||
+    [other.upstreamId, other.upstreamBillNo, other.upstreamLineId].some(value => Boolean(value && ownKeys.has(value)))
+  )).map(other => ({ id: other.id, kind: other.kind, billNo: other.billNo, date: other.date, partyName: other.partyName, materialName: other.materialName, quantity: other.quantity, unit: other.unit, unitPrice: other.unitPrice, currency: other.currency, amountCny: other.amountCny, status: other.status }))
+}
 
 /** Pull and validate every configured daily-report source before atomically replacing the current ERP snapshot. */
 export async function syncK3DailyDocuments(
   scope: WorkspaceScope,
   mappings: Record<string, DailyK3SourceMapping>,
-  queryPage: (formId: string, fieldKeys: string, startRow: number) => Promise<Array<Record<string, string | null>>>,
-): Promise<{ source: 'k3cloud'; refreshedAt: string; rowCounts: Partial<Record<K3DocumentKind, number>>; totalRows: number }> {
+  queryPage: (formId: string, fieldKeys: string, startRow: number, filterString?: string, orderString?: string) => Promise<Array<Record<string, string | null>>>,
+): Promise<{ source: 'k3cloud'; refreshedAt: string; rowCounts: Partial<Record<K3DocumentKind, number>>; changedRowCounts: Partial<Record<K3DocumentKind, number>>; totalRows: number; mode: 'full' | 'incremental' | 'mixed'; incrementalFrom: string | null; fullScanKinds: K3DocumentKind[] }> {
   const pageSize = 200, maximumRowsPerSource = 5_000
+  const overlapMs = 5 * 60_000
+  const stateVersion = versionedState(scope)
+  const previousCheckpoint = stateVersion.value.k3Sync?.lastSyncedAt ?? null
+  const snapshotStartedAt = new Date().toISOString()
   const collected: K3SnapshotRow[] = []
-  const rowCounts: Partial<Record<K3DocumentKind, number>> = {}
-  const refreshedAt = new Date().toISOString()
+  const changedRowCounts: Partial<Record<K3DocumentKind, number>> = {}
+  const incrementalKinds: K3DocumentKind[] = []
+  const fullScanKinds: K3DocumentKind[] = []
+  const allowedFields = new Set<DailyK3Field>(['id', 'billNo', 'date', 'modifiedAt', 'partyNumber', 'partyName', 'materialName', 'quantity', 'unit', 'unitPrice', 'currency', 'originalAmount', 'amountCny', 'settledAmountCny', 'status', 'upstreamId', 'upstreamBillNo', 'upstreamLineId', 'taxAmount', 'taxAmountCny'])
+  let incrementalFrom: string | null = null
   for (const kind of DAILY_K3_SOURCE_KINDS) {
     const mapping = mappings[kind]
     if (!mapping || typeof mapping.formId !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(mapping.formId) || !mapping.fields || typeof mapping.fields !== 'object') throw new TypeError(`K3Cloud 日报数据源映射缺失或无效：${kind}`)
+    if (Object.keys(mapping.fields).some(key => !allowedFields.has(key as DailyK3Field))) throw new TypeError(`K3Cloud ${kind} 映射包含不支持的规范字段。`)
+    if (Object.values(mapping.fields).some(field => typeof field !== 'string' || !/^[A-Za-z0-9_.]{1,128}$/.test(field))) throw new TypeError(`K3Cloud ${kind} 映射包含无效 ERP 字段名。`)
     const required = [...DAILY_K3_REQUIRED_FIELDS, ...(['receivable', 'payable'].includes(kind) ? ['settledAmountCny'] : [])]
     if (required.some(key => typeof mapping.fields[key as DailyK3Field] !== 'string' || !/^[A-Za-z0-9_.]{1,128}$/.test(mapping.fields[key as DailyK3Field]!))) throw new TypeError(`K3Cloud ${kind} 必须映射字段：${required.join(', ')}`)
     const selectedFields = [...new Set(Object.values(mapping.fields).filter((field): field is string => typeof field === 'string' && Boolean(field.trim()))) ]
+    const hasPriorKindSnapshot = Object.hasOwn(stateVersion.value.k3Sync?.rowCounts ?? {}, kind)
+    const isIncremental = Boolean(previousCheckpoint && hasPriorKindSnapshot && mapping.fields.modifiedAt)
+    const sourceCheckpoint = isIncremental ? new Date(Date.parse(previousCheckpoint!) - overlapMs).toISOString() : null
+    const filterString = isIncremental ? `${mapping.fields.modifiedAt} >= '${k3FilterTimestamp(sourceCheckpoint!)}'` : ''
+    const orderString = isIncremental ? `${mapping.fields.modifiedAt} ASC` : undefined
+    if (isIncremental) { incrementalKinds.push(kind); incrementalFrom ??= sourceCheckpoint }
+    else fullScanKinds.push(kind)
     const seen = new Set<string>(), sourceRows: K3SnapshotRow[] = []
     for (let startRow = 0; ; startRow += pageSize) {
       if (startRow >= maximumRowsPerSource) {
-        const overflow = await queryPage(mapping.formId, selectedFields.join(','), startRow)
+        const overflow = await queryPage(mapping.formId, selectedFields.join(','), startRow, filterString, orderString)
         if (overflow.length) throw new RangeError(`K3Cloud ${kind} 超过每类 ${maximumRowsPerSource} 行的同步安全上限；未替换现有快照。`)
         break
       }
-      const page = await queryPage(mapping.formId, selectedFields.join(','), startRow)
+      const page = await queryPage(mapping.formId, selectedFields.join(','), startRow, filterString, orderString)
       if (!Array.isArray(page)) throw new Error(`K3Cloud ${kind} 查询响应格式无效。`)
       for (const raw of page) {
         const identity = mappedText(raw, mapping, 'id')
@@ -198,35 +231,44 @@ export async function syncK3DailyDocuments(
         if (!identity || !billNo || !partyName) throw new Error(`K3Cloud ${kind} 存在缺少唯一 ID、单号或客商名称的记录。`)
         if (seen.has(identity)) throw new Error(`K3Cloud ${kind} 返回重复记录 ID；请映射单据行级唯一 ID。`)
         seen.add(identity)
-        const type: DailyKind = ['shipment', 'sales-order', 'receivable'].includes(kind) ? 'sales' : 'purchase'
+        const type: DailyKind = ['shipment', 'sales-order', 'receivable', 'sales-invoice'].includes(kind) ? 'sales' : 'purchase'
         const originalAmount = roundMoney(mappedNumber(raw, mapping, 'originalAmount'))
         const amountCny = roundMoney(mappedNumber(raw, mapping, 'amountCny'))
         const settledAmountCny = roundMoney(mappedNumber(raw, mapping, 'settledAmountCny'))
+        const modifiedAt = mappedText(raw, mapping, 'modifiedAt')
+        if (mapping.fields.modifiedAt && modifiedAt && !Number.isFinite(new Date(modifiedAt).getTime())) throw new Error(`K3Cloud ${kind} 修改时间不是有效时间。`)
         const id = `k3-${kind}-${createHash('sha256').update(identity).digest('hex').slice(0, 24)}`
         sourceRows.push({
-          id, kind, type, billNo, date, partyNumber: mappedText(raw, mapping, 'partyNumber'), partyName,
-          materialName: mappedText(raw, mapping, 'materialName') || (kind === 'receivable' ? '应收账款' : kind === 'payable' ? '应付账款' : ''),
-          quantity: mappedNumber(raw, mapping, 'quantity'), unit: mappedText(raw, mapping, 'unit'), currency: mappedText(raw, mapping, 'currency') || 'CNY',
-          originalAmount, amountCny, settledAmountCny, status: mappedText(raw, mapping, 'status') || 'ERP 已同步', source: 'k3cloud', snapshotAt: refreshedAt, active: true,
+          id, erpId: identity, kind, type, billNo, date, modifiedAt, partyNumber: mappedText(raw, mapping, 'partyNumber'), partyName,
+          materialName: mappedText(raw, mapping, 'materialName') || (kind === 'receivable' ? '应收账款' : kind === 'payable' ? '应付账款' : kind === 'sales-invoice' ? '销售发票' : kind === 'purchase-invoice' ? '采购发票' : ''),
+          quantity: mappedNumber(raw, mapping, 'quantity'), unit: mappedText(raw, mapping, 'unit'), unitPrice: mappedNumber(raw, mapping, 'unitPrice'), currency: mappedText(raw, mapping, 'currency') || 'CNY',
+          originalAmount, amountCny, settledAmountCny, status: mappedText(raw, mapping, 'status') || 'ERP 已同步', source: 'k3cloud', snapshotAt: snapshotStartedAt, active: true,
+          upstreamId: mappedText(raw, mapping, 'upstreamId'), upstreamBillNo: mappedText(raw, mapping, 'upstreamBillNo'), upstreamLineId: mappedText(raw, mapping, 'upstreamLineId'),
+          taxAmount: mappedNumber(raw, mapping, 'taxAmount'), taxAmountCny: mappedNumber(raw, mapping, 'taxAmountCny'),
         })
       }
       if (page.length < pageSize) break
     }
     if (sourceRows.length > maximumRowsPerSource) throw new RangeError(`K3Cloud ${kind} 超过同步安全上限；未替换现有快照。`)
-    rowCounts[kind] = sourceRows.length
+    changedRowCounts[kind] = sourceRows.length
     collected.push(...sourceRows)
   }
-  const stateVersion = versionedState(scope)
+  const refreshedAt = new Date().toISOString()
   const incomingIds = new Set(collected.map(row => row.id))
+  const previousRows = stateVersion.value.k3Rows.filter(row => row.source === 'k3cloud' && !incomingIds.has(row.id) && !fullScanKinds.includes(row.kind))
+  const nextRows = [...previousRows, ...collected]
+  const nextRowIds = new Set(nextRows.map(row => row.id))
+  const rowCounts = Object.fromEntries(DAILY_K3_SOURCE_KINDS.map(kind => [kind, nextRows.filter(row => row.kind === kind).length])) as Partial<Record<K3DocumentKind, number>>
   const localMockReportIds = new Set(stateVersion.value.reports.filter(report => report.createdBy === 'local-mock').map(report => report.id))
-  stateVersion.value.k3Rows = collected
+  stateVersion.value.k3Rows = nextRows
   stateVersion.value.reports = stateVersion.value.reports.filter(report => !localMockReportIds.has(report.id))
-  stateVersion.value.links = stateVersion.value.links.filter(link => incomingIds.has(link.k3RowId) && !localMockReportIds.has(link.reportId))
+  stateVersion.value.links = stateVersion.value.links.filter(link => nextRowIds.has(link.k3RowId) && !localMockReportIds.has(link.reportId))
   stateVersion.value.mockEnabled = false
   stateVersion.value.mockSnapshotAt = null
-  stateVersion.value.k3Sync = { source: 'k3cloud', lastSyncedAt: refreshedAt, rowCounts }
+  const mode = incrementalKinds.length === 0 ? 'full' : fullScanKinds.length === 0 ? 'incremental' : 'mixed'
+  stateVersion.value.k3Sync = { source: 'k3cloud', lastSyncedAt: refreshedAt, rowCounts, changedRowCounts, mode, incrementalFrom, fullScanKinds }
   saveState(scope, stateVersion)
-  return { source: 'k3cloud', refreshedAt, rowCounts, totalRows: collected.length }
+  return { source: 'k3cloud', refreshedAt, rowCounts, changedRowCounts, totalRows: collected.length, mode, incrementalFrom, fullScanKinds }
 }
 
 function reconciliationFor(state: DailyReportState, kind: DailyKind, reportDate: string) {
@@ -272,10 +314,15 @@ export function buildDailyReportSummary(state: DailyReportState, reportDate: str
   }
   const salesOrders = state.k3Rows.filter(row => row.active && row.kind === 'sales-order' && row.date === reportDate && (scope === 'both' || scope === 'sales'))
   const purchaseOrders = state.k3Rows.filter(row => row.active && row.kind === 'purchase-order' && row.date === reportDate && (scope === 'both' || scope === 'purchase'))
+  const shipments = state.k3Rows.filter(row => row.active && row.kind === 'shipment' && row.date === reportDate && (scope === 'both' || scope === 'sales'))
+  const receipts = state.k3Rows.filter(row => row.active && row.kind === 'purchase-receipt' && row.date === reportDate && (scope === 'both' || scope === 'purchase'))
+  const salesInvoices = state.k3Rows.filter(row => row.active && row.kind === 'sales-invoice' && row.date === reportDate && (scope === 'both' || scope === 'sales'))
+  const purchaseInvoices = state.k3Rows.filter(row => row.active && row.kind === 'purchase-invoice' && row.date === reportDate && (scope === 'both' || scope === 'purchase'))
   const receivables = state.k3Rows.filter(row => row.active && row.kind === 'receivable' && (scope === 'both' || scope === 'sales'))
   const payables = state.k3Rows.filter(row => row.active && row.kind === 'payable' && (scope === 'both' || scope === 'purchase'))
-  const orderSummary = (rows: K3SnapshotRow[]) => ({ count: rows.length, amountCny: roundMoney(rows.reduce((sum, row) => sum + row.amountCny, 0)), rows: rows.map(row => ({ ...row })) })
-  const balanceSummary = (rows: K3SnapshotRow[]) => ({ count: rows.length, documentAmountCny: roundMoney(rows.reduce((sum, row) => sum + row.amountCny, 0)), settledAmountCny: roundMoney(rows.reduce((sum, row) => sum + row.settledAmountCny, 0)), outstandingAmountCny: roundMoney(rows.reduce((sum, row) => sum + Math.max(0, row.amountCny - row.settledAmountCny), 0)), rows: rows.map(row => ({ ...row, outstandingAmountCny: roundMoney(Math.max(0, row.amountCny - row.settledAmountCny)) })) })
+  const linkedRow = (row: K3SnapshotRow) => ({ ...row, linkedDocuments: documentLinks(state, row) })
+  const orderSummary = (rows: K3SnapshotRow[]) => ({ count: rows.length, amountCny: roundMoney(rows.reduce((sum, row) => sum + row.amountCny, 0)), rows: rows.map(linkedRow) })
+  const balanceSummary = (rows: K3SnapshotRow[]) => ({ count: rows.length, documentAmountCny: roundMoney(rows.reduce((sum, row) => sum + row.amountCny, 0)), settledAmountCny: roundMoney(rows.reduce((sum, row) => sum + row.settledAmountCny, 0)), outstandingAmountCny: roundMoney(rows.reduce((sum, row) => sum + Math.max(0, row.amountCny - row.settledAmountCny), 0)), rows: rows.map(row => ({ ...linkedRow(row), outstandingAmountCny: roundMoney(Math.max(0, row.amountCny - row.settledAmountCny)) })) })
   const warningRows = ['sales', 'purchase'].flatMap(kind => {
     if (scope !== 'both' && scope !== kind) return []
     return reconciliationFor(state, kind as DailyKind, reportDate).k3Allocation.rows.filter(row => row.overAllocatedAmount > 0 || row.crossDate).map(row => ({ type: kind, billNo: row.billNo, overAllocatedAmount: row.overAllocatedAmount, crossDate: row.crossDate }))
@@ -286,6 +333,8 @@ export function buildDailyReportSummary(state: DailyReportState, reportDate: str
     sales: scope === 'purchase' ? undefined : { daily: sumDaily('sales'), reconciliation: reconciliationFor(state, 'sales', reportDate) },
     purchase: scope === 'sales' ? undefined : { daily: sumDaily('purchase'), reconciliation: reconciliationFor(state, 'purchase', reportDate) },
     orders: { sales: orderSummary(salesOrders), purchase: orderSummary(purchaseOrders) },
+    fulfillment: { sales: orderSummary(shipments), purchase: orderSummary(receipts) },
+    invoices: { sales: orderSummary(salesInvoices), purchase: orderSummary(purchaseInvoices) },
     balances: { receivables: balanceSummary(receivables), payables: balanceSummary(payables) },
     warnings: warningRows,
     notice: state.mockEnabled ? '本地隔离演示快照；非真实 K3Cloud 数据，金额仅用于功能验证。' : state.k3Sync ? `真实 K3Cloud 只读快照已同步于 ${state.k3Sync.lastSyncedAt}；应收/应付余额为该同步时点余额，并非按报表日重算。` : '尚无 K3Cloud 快照；金额对账暂不可判定，缺失数据未按零处理。',
@@ -346,7 +395,7 @@ function snapshotFromState(state: DailyReportState, reportDate: string, scope: '
   const reports = liveReports(state).filter(report => report.date === reportDate && (scope === 'both' || report.type === scope))
   const reportIds = new Set(reports.map(report => report.id))
   const links = state.links.filter(link => reportIds.has(link.reportId))
-  const k3Rows = state.k3Rows.filter(row => row.active && (row.date <= reportDate || (row.kind === 'receivable' && scope !== 'purchase') || (row.kind === 'payable' && scope !== 'sales')) && (scope === 'both' || row.type === scope))
+  const k3Rows = state.k3Rows.filter(row => row.active && (row.date <= reportDate || (row.kind === 'receivable' && scope !== 'purchase') || (row.kind === 'payable' && scope !== 'sales')) && (scope === 'both' || row.type === scope)).map(row => ({ ...row, linkedDocuments: documentLinks(state, row) }))
   const warnings = [
     ...(state.mockEnabled ? ['当前为本地隔离演示数据，不能用于财务判断或正式对账。'] : []),
     ...(!state.mockSnapshotAt && !state.k3Sync ? ['未找到 K3Cloud 快照；对账指标显示为暂不可判定。'] : []),
@@ -370,7 +419,7 @@ function searchRows(state: DailyReportState, type: DailyKind, query: string) {
   return state.k3Rows.filter(row => row.active && row.type === type && allowed.includes(row.kind) && (!lower || [row.billNo, row.partyName, row.partyNumber, row.materialName].some(value => value.toLocaleLowerCase().includes(lower)))).sort((a, b) => b.date.localeCompare(a.date) || a.billNo.localeCompare(b.billNo)).map(row => {
     const allocatedAmount = rowAllocation(state, row.id)
     const related = state.links.filter(link => link.k3RowId === row.id).map(link => ({ reportId: link.reportId, reportDate: state.reports.find(report => report.id === link.reportId)?.date ?? null, allocatedAmount: link.allocatedAmount }))
-    return { ...row, allocatedAmount, remainingAmount: roundMoney(Math.max(0, Math.abs(row.amountCny) - allocatedAmount)), overAllocatedAmount: roundMoney(Math.max(0, allocatedAmount - Math.abs(row.amountCny))), related }
+    return { ...row, linkedDocuments: documentLinks(state, row), allocatedAmount, remainingAmount: roundMoney(Math.max(0, Math.abs(row.amountCny) - allocatedAmount)), overAllocatedAmount: roundMoney(Math.max(0, allocatedAmount - Math.abs(row.amountCny))), related }
   })
 }
 function deliveryByChannel(state: DailyReportState, snapshotId: string) { return state.deliveries.filter(item => item.snapshotId === snapshotId) }
@@ -558,8 +607,8 @@ export function createDailyReportRouter(): Router {
     reportSheet.addRow(['类型', '日期', '编号', '客商', '数量', '币种', '原币金额', '汇率', '人民币金额', '备注'])
     for (const row of (data.reports as DailyReport[] | undefined) ?? []) reportSheet.addRow([row.type === 'sales' ? '销售' : '采购', row.date, row.documentNo, row.partyName, row.quantity, row.currency, row.originalAmount, row.exchangeRate, row.amountCny, row.note])
     const k3Sheet = workbook.addWorksheet('K3快照')
-    k3Sheet.addRow(['类型', '单号', '日期', '客商', '物料/科目', '数量', '币种', '原币金额', '人民币金额', '已收/付', '状态', '数据来源'])
-    for (const row of (data.k3Rows as K3SnapshotRow[] | undefined) ?? []) k3Sheet.addRow([row.kind, row.billNo, row.date, row.partyName, row.materialName, row.quantity, row.currency, row.originalAmount, row.amountCny, row.settledAmountCny, row.status, row.source])
+    k3Sheet.addRow(['类型', '单号', '日期', '客商', '物料/科目', '数量', '单位', '单价', '币种', '原币金额', '人民币金额', '已收/付', '状态', '上游单号', '关联单据', '数据来源'])
+    for (const row of (data.k3Rows as K3SnapshotRow[] | undefined) ?? []) k3Sheet.addRow([row.kind, row.billNo, row.date, row.partyName, row.materialName, row.quantity, row.unit, row.unitPrice ?? '', row.currency, row.originalAmount, row.amountCny, row.settledAmountCny, row.status, row.upstreamBillNo ?? '', row.linkedDocuments?.map(link => `${link.kind}:${link.billNo}`).join('；') ?? '', row.source])
     const linkSheet = workbook.addWorksheet('关联与分摊')
     linkSheet.addRow(['日报ID', '快照行ID', 'K3单号', '快照日期', '日报日期', '分摊金额', '剩余金额', '超额金额', '跨日'])
     const archivedLinks = (data.links as DailyReportLink[] | undefined) ?? []

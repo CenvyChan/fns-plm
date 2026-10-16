@@ -199,15 +199,20 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
 
   const reportParts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).map(part => [part.type, part.value]))
   const reportDay = new Date(Date.UTC(Number(reportParts.year), Number(reportParts.month) - 1, Number(reportParts.day)) - 86_400_000).toISOString().slice(0, 10)
-  const canonicalFields = { id: 'FID', billNo: 'FBillNo', date: 'FDate', partyNumber: 'FPartyNo', partyName: 'FParty', materialName: 'FMaterial', quantity: 'FQty', unit: 'FUnit', currency: 'FCurrency', originalAmount: 'FOriginal', amountCny: 'FCNY', settledAmountCny: 'FSettled', status: 'FStatus' }
+  const canonicalFields = { id: 'FID', billNo: 'FBillNo', date: 'FDate', modifiedAt: 'FModified', partyNumber: 'FPartyNo', partyName: 'FParty', materialName: 'FMaterial', quantity: 'FQty', unit: 'FUnit', unitPrice: 'FUnitPrice', currency: 'FCurrency', originalAmount: 'FOriginal', amountCny: 'FCNY', settledAmountCny: 'FSettled', status: 'FStatus', upstreamId: 'FSourceID', upstreamBillNo: 'FSourceBillNo', upstreamLineId: 'FSourceLineID', taxAmount: 'FTax', taxAmountCny: 'FTaxCNY' }
+  const fixtureModifiedAt = new Date(Date.now() - 10 * 60_000).toISOString()
   const documents = {
-    shipment: { id: 'shipment-1', billNo: 'LIVE-OUT-001', date: reportDay, partyNumber: 'C-1', partyName: '测试客户甲', materialName: '成品 A', quantity: '1', unit: '件', currency: 'CNY', originalAmount: '10000', amountCny: '10000', settledAmountCny: '0', status: '已审核' },
-    'purchase-receipt': { id: 'receipt-1', billNo: 'LIVE-IN-001', date: reportDay, partyNumber: 'S-1', partyName: '测试供应商乙', materialName: '原料 B', quantity: '2', unit: '箱', currency: 'CNY', originalAmount: '6000', amountCny: '6000', settledAmountCny: '0', status: '已审核' },
-    'sales-order': { id: 'sales-order-1', billNo: 'LIVE-SO-001', date: reportDay, partyNumber: 'C-1', partyName: '测试客户甲', materialName: '成品 A', quantity: '3', unit: '件', currency: 'CNY', originalAmount: '24000', amountCny: '24000', settledAmountCny: '0', status: '部分发货' },
-    'purchase-order': { id: 'purchase-order-1', billNo: 'LIVE-PO-001', date: reportDay, partyNumber: 'S-1', partyName: '测试供应商乙', materialName: '原料 B', quantity: '5', unit: '箱', currency: 'CNY', originalAmount: '14000', amountCny: '14000', settledAmountCny: '0', status: '已审核' },
-    receivable: { id: 'receivable-1', billNo: 'LIVE-AR-001', date: reportDay, partyNumber: 'C-1', partyName: '测试客户甲', materialName: '应收账款', quantity: '0', unit: '', currency: 'CNY', originalAmount: '15000', amountCny: '15000', settledAmountCny: '9000', status: '部分收款' },
-    payable: { id: 'payable-1', billNo: 'LIVE-AP-001', date: reportDay, partyNumber: 'S-1', partyName: '测试供应商乙', materialName: '应付账款', quantity: '0', unit: '', currency: 'CNY', originalAmount: '11000', amountCny: '11000', settledAmountCny: '4000', status: '部分付款' },
+    shipment: { id: 'shipment-1', billNo: 'LIVE-OUT-001', date: reportDay, modifiedAt: fixtureModifiedAt, partyNumber: 'C-1', partyName: '测试客户甲', materialName: '成品 A', quantity: '1', unit: '件', unitPrice: '10000', currency: 'CNY', originalAmount: '10000', amountCny: '10000', settledAmountCny: '0', upstreamBillNo: 'LIVE-SO-001', status: '已审核' },
+    'purchase-receipt': { id: 'receipt-1', billNo: 'LIVE-IN-001', date: reportDay, modifiedAt: fixtureModifiedAt, partyNumber: 'S-1', partyName: '测试供应商乙', materialName: '原料 B', quantity: '2', unit: '箱', unitPrice: '3000', currency: 'CNY', originalAmount: '6000', amountCny: '6000', settledAmountCny: '0', upstreamBillNo: 'LIVE-PO-001', status: '已审核' },
+    'sales-order': { id: 'sales-order-1', billNo: 'LIVE-SO-001', date: reportDay, modifiedAt: fixtureModifiedAt, partyNumber: 'C-1', partyName: '测试客户甲', materialName: '成品 A', quantity: '3', unit: '件', unitPrice: '8000', currency: 'CNY', originalAmount: '24000', amountCny: '24000', settledAmountCny: '0', status: '部分发货' },
+    'purchase-order': { id: 'purchase-order-1', billNo: 'LIVE-PO-001', date: reportDay, modifiedAt: fixtureModifiedAt, partyNumber: 'S-1', partyName: '测试供应商乙', materialName: '原料 B', quantity: '5', unit: '箱', unitPrice: '2800', currency: 'CNY', originalAmount: '14000', amountCny: '14000', settledAmountCny: '0', status: '已审核' },
+    receivable: { id: 'receivable-1', billNo: 'LIVE-AR-001', date: reportDay, modifiedAt: fixtureModifiedAt, partyNumber: 'C-1', partyName: '测试客户甲', materialName: '应收账款', quantity: '0', unit: '', currency: 'CNY', originalAmount: '15000', amountCny: '15000', settledAmountCny: '9000', upstreamBillNo: 'LIVE-SI-001', status: '部分收款' },
+    payable: { id: 'payable-1', billNo: 'LIVE-AP-001', date: reportDay, modifiedAt: fixtureModifiedAt, partyNumber: 'S-1', partyName: '测试供应商乙', materialName: '应付账款', quantity: '0', unit: '', currency: 'CNY', originalAmount: '11000', amountCny: '11000', settledAmountCny: '4000', upstreamBillNo: 'LIVE-PI-001', status: '部分付款' },
+    'sales-invoice': { id: 'sales-invoice-1', billNo: 'LIVE-SI-001', date: reportDay, modifiedAt: fixtureModifiedAt, partyNumber: 'C-1', partyName: '测试客户甲', materialName: '成品 A', quantity: '1', unit: '件', unitPrice: '10000', currency: 'CNY', originalAmount: '10000', amountCny: '10000', settledAmountCny: '0', upstreamBillNo: 'LIVE-OUT-001', status: '已开票' },
+    'purchase-invoice': { id: 'purchase-invoice-1', billNo: 'LIVE-PI-001', date: reportDay, modifiedAt: fixtureModifiedAt, partyNumber: 'S-1', partyName: '测试供应商乙', materialName: '原料 B', quantity: '2', unit: '箱', unitPrice: '3000', currency: 'CNY', originalAmount: '6000', amountCny: '6000', settledAmountCny: '0', upstreamBillNo: 'LIVE-IN-001', status: '已收票' }
   }
+  let incrementalSalesOrder = null
+  const queryRequests = []
   const sourceKinds = Object.keys(documents)
   const dailyReportSources = Object.fromEntries(sourceKinds.map(kind => [kind, { formId: `TEST_${kind.replaceAll('-', '_').toUpperCase()}`, fields: { ...canonicalFields } }]))
   const masterCanonicalFields = { id: 'MID', number: 'MNumber', name: 'MName', status: 'MStatus', department: 'MDepartment', password: 'MPassword' }
@@ -234,14 +239,16 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
     const payload = JSON.parse(JSON.parse(body)[0])
     const kind = sourceKinds.find(sourceKind => dailyReportSources[sourceKind].formId === payload.FormId)
     const masterKind = masterKinds.find(sourceKind => masterDataSources[sourceKind].formId === payload.FormId)
-    const document = kind ? { ...documents[kind] } : null
+    queryRequests.push({ kind, filterString: payload.FilterString, orderString: payload.OrderString })
+    const docs = kind ? [{ ...documents[kind] }, ...(kind === 'sales-order' && incrementalSalesOrder ? [{ ...incrementalSalesOrder }] : [])] : []
     const masterRecord = masterKind ? { ...masterRecords[masterKind] } : null
-    if (invalidERPData && kind === 'sales-order' && document) document.amountCny = 'not-a-number'
     if (invalidMasterData && masterKind === 'customer' && masterRecord) masterRecord.id = ''
-    const docs = document ? [document] : []
-    const sourceRecord = document ?? masterRecord
-    const fieldMap = document ? canonicalFields : masterCanonicalFields
-    const rows = sourceRecord ? [sourceRecord].map(row => payload.FieldKeys.split(',').map(field => row[Object.keys(fieldMap).find(key => fieldMap[key] === field)] ?? '')) : []
+    if (invalidERPData && kind === 'sales-order') for (const document of docs) document.amountCny = 'not-a-number'
+    const cutoff = /FModified\s*>=\s*'([^']+)'/.exec(payload.FilterString)?.[1]
+    const filteredDocs = cutoff ? docs.filter(document => Date.parse(document.modifiedAt) >= Date.parse(`${cutoff.replace(' ', 'T')}Z`)) : docs
+    const fieldMap = kind ? canonicalFields : masterCanonicalFields
+    const sourceRows = kind ? filteredDocs : masterRecord ? [masterRecord] : []
+    const rows = sourceRows.map(row => payload.FieldKeys.split(',').map(field => row[Object.keys(fieldMap).find(key => fieldMap[key] === field)] ?? ''))
     response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ Result: { Rows: rows } }))
   })
   const erpPort = await new Promise((resolve, reject) => erp.listen(0, '127.0.0.1', () => resolve(erp.address().port)).once('error', reject))
@@ -254,11 +261,17 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
     assert.equal(unsafeMappingSave.response.status, 400, 'unsupported fields are rejected even if the K3 Form allowlist contains them')
     const synchronized = await api('/api/daily-reports/k3-sync', { method: 'POST' })
     assert.equal(synchronized.response.status, 200, JSON.stringify(synchronized.data))
-    assert.equal(synchronized.data.totalRows, 6)
+    assert.equal(synchronized.data.totalRows, 8)
     const platformUsersBeforeSync = (await api('/api/auth/users')).data.users.length
+    const fullSyncQueryStart = queryRequests.length
     const fullSync = await api('/api/k3cloud/sync', { method: 'POST' })
     assert.equal(fullSync.response.status, 200, JSON.stringify(fullSync.data))
-    assert.equal(fullSync.data.business.totalRows, 6)
+    assert.equal(fullSync.data.business.totalRows, 0, 'the second sync asks only for rows changed since the last successful watermark')
+    assert.equal(fullSync.data.business.mode, 'incremental')
+    assert.equal(fullSync.data.business.rowCounts['sales-order'], 1, 'unchanged rows remain in the merged scoped snapshot')
+    const incrementalRequests = queryRequests.slice(fullSyncQueryStart).filter(request => request.kind)
+    assert.equal(incrementalRequests.length, 8)
+    assert.ok(incrementalRequests.every(request => request.filterString.includes('FModified >=') && request.orderString === 'FModified ASC'), 'each modifiedAt-mapped source uses an allowlisted incremental filter and stable order')
     assert.equal(fullSync.data.masterData.totalRows, 4)
     const masterSnapshot = await api('/api/k3cloud/master-data')
     assert.equal(masterSnapshot.response.status, 200)
@@ -313,6 +326,14 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
     assert.equal(liveSummary.data.orders.purchase.amountCny, 14000)
     assert.equal(liveSummary.data.balances.receivables.outstandingAmountCny, 6000)
     assert.equal(liveSummary.data.balances.payables.outstandingAmountCny, 7000)
+    assert.equal(liveSummary.data.invoices.sales.rows[0].unitPrice, 10000)
+    assert.equal(liveSummary.data.invoices.purchase.rows[0].unitPrice, 3000)
+    assert.ok(liveSummary.data.fulfillment.sales.rows[0].linkedDocuments.some(row => row.kind === 'sales-order' && row.billNo === 'LIVE-SO-001'))
+    assert.ok(liveSummary.data.fulfillment.purchase.rows[0].linkedDocuments.some(row => row.kind === 'purchase-order' && row.billNo === 'LIVE-PO-001'))
+    assert.ok(liveSummary.data.balances.receivables.rows[0].linkedDocuments.some(row => row.kind === 'sales-invoice' && row.billNo === 'LIVE-SI-001'))
+    assert.ok(liveSummary.data.invoices.sales.rows[0].linkedDocuments.some(row => row.kind === 'receivable' && row.billNo === 'LIVE-AR-001'))
+    assert.ok(liveSummary.data.balances.payables.rows[0].linkedDocuments.some(row => row.kind === 'purchase-invoice' && row.billNo === 'LIVE-PI-001'))
+    assert.ok(liveSummary.data.invoices.purchase.rows[0].linkedDocuments.some(row => row.kind === 'payable' && row.billNo === 'LIVE-AP-001'))
     assert.equal(liveSummary.data.sales.reconciliation.monthDifference.k3Amount, 10000)
     assert.match(liveSummary.data.notice, /非按报表日重算/)
     const earlierReportDay = new Date(Date.parse(`${reportDay}T00:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10)
@@ -327,6 +348,7 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
     assert.match(livePreview.data.text, /LIVE\\-AP\\-001/)
 
     invalidERPData = true
+    documents['sales-order'].modifiedAt = new Date(Date.now() + 60_000).toISOString()
     const changedK3Secret = await api('/api/integrations/settings/k3cloud', { method: 'PUT', body: { appSecret: 'test-retry-secret', dailyReportSources } })
     assert.equal(changedK3Secret.response.status, 200)
     const invalidSourceSync = await api('/api/daily-reports/k3-sync', { method: 'POST' })
@@ -334,6 +356,7 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
     const afterDataFailure = await api(`/api/daily-reports/summary?date=${reportDay}`)
     assert.equal(afterDataFailure.data.orders.sales.amountCny, 24000, 'invalid ERP rows do not overwrite the previous live snapshot')
     invalidERPData = false
+    documents['sales-order'].modifiedAt = fixtureModifiedAt
 
     invalidMasterData = true
     const failedFullSync = await api('/api/k3cloud/sync', { method: 'POST' })
@@ -350,6 +373,19 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
     assert.equal(refusedSync.response.status, 409, 'the sync rejects fields outside the K3 read-only allowlist')
     const preservedSummary = await api(`/api/daily-reports/summary?date=${reportDay}`)
     assert.equal(preservedSummary.data.orders.sales.amountCny, 24000, 'failed sync does not replace the previous committed snapshot')
+
+    const restoredMappings = await api('/api/integrations/settings/k3cloud', { method: 'PUT', body: { appSecret: 'test-delta-secret', dailyReportSources } })
+    assert.equal(restoredMappings.response.status, 200)
+    incrementalSalesOrder = { ...documents['sales-order'], id: 'sales-order-2', billNo: 'LIVE-SO-002', materialName: '成品 B', quantity: '2', unitPrice: '2500', originalAmount: '5000', amountCny: '5000', modifiedAt: new Date(Date.now() + 60_000).toISOString() }
+    const deltaQueryStart = queryRequests.length
+    const deltaSync = await api('/api/daily-reports/k3-sync', { method: 'POST' })
+    assert.equal(deltaSync.response.status, 200, JSON.stringify(deltaSync.data))
+    assert.equal(deltaSync.data.mode, 'incremental')
+    assert.equal(deltaSync.data.changedRowCounts['sales-order'], 1, 'the new order line is fetched once while unchanged rows stay in the snapshot')
+    assert.ok(queryRequests.slice(deltaQueryStart).some(request => request.kind === 'sales-order' && request.filterString.includes('FModified >=') && request.orderString === 'FModified ASC'))
+    const incrementedSummary = await api(`/api/daily-reports/summary?date=${reportDay}`)
+    assert.equal(incrementedSummary.data.orders.sales.count, 2)
+    assert.equal(incrementedSummary.data.orders.sales.amountCny, 29000)
   } finally { await new Promise(resolve => erp.close(resolve)) }
 
   const newTenant = await api('/api/auth/tenants', { method: 'POST', body: { tenantName: '日报隔离租户 B', organizationName: '隔离组织 B', accountName: '隔离账套 B' } })
@@ -361,6 +397,9 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
   const reportsB = await api('/api/daily-reports?from=2026-10-15&to=2026-10-15')
   assert.equal(reportsB.response.status, 200)
   assert.equal(reportsB.data.reports.some(report => report.id === reportId), false)
+  const businessB = await api(`/api/daily-reports/summary?date=${reportDay}`)
+  assert.equal(businessB.data.liveErpConnected, false)
+  assert.equal(businessB.data.orders.sales.rows.some(row => row.billNo === 'LIVE-SO-001'), false, 'business document snapshots stay isolated by tenant, organization and account')
   assert.equal((await api('/api/k3cloud/master-data')).data.lastSyncedAt, null, 'master-data snapshots are isolated by tenant, organization and account')
   assert.equal((await api(`/api/daily-reports/snapshots/${snapshotId}`)).response.status, 404)
   assert.equal((await api('/api/daily-reports', { headers: { 'X-Tenant-ID': setup.data.user.tenantId } })).response.status, 403)

@@ -7,7 +7,8 @@ import cron from 'node-cron'
 import { requireRole } from './auth.js'
 import { db, getAppState, recordSecurityEvent, setAppState } from './database.js'
 import { cacheDeleteIfValue, cacheHealth, cacheSetIfAbsent, initializeCache } from './integrations/cache.js'
-import { k3cloudStatus, queryK3Cloud, testK3CloudConnection, type K3CloudConfig, type K3CloudQueryInput } from './integrations/k3cloud.js'
+import { discoverK3CloudFormMetadata, k3cloudStatus, queryK3Cloud, testK3CloudConnection, type K3CloudConfig, type K3CloudQueryInput } from './integrations/k3cloud.js'
+import { K3_FORM_CATALOG, K3_FORM_CATALOG_NOTE } from './k3cloud-form-catalog.js'
 import { completeTask, flowableHealth, getTaskForActor, listTasksForActor, startProcess, type FlowableConfig } from './integrations/flowable.js'
 import { buildApprovalPreviewUrl, dingtalkStatus, parseCardApprovalAction, sendMarkdown, verifyCardCallbackSignature, type DingTalkConfig } from './integrations/dingtalk.js'
 import { connectorCredentialConfig, connectorSummary, listConnectorConfigs, saveConnectorConfig, type ConnectorConfig, type ConnectorProvider } from './integrations/configuration.js'
@@ -75,8 +76,8 @@ function dailyK3Mappings(config: Record<string, unknown>): Record<string, DailyK
 }
 async function syncDailyK3(scope: WorkspaceScope) {
   const config = connectorCredentialConfig(scope, 'k3cloud'), mappings = dailyK3Mappings(config)
-  return syncK3DailyDocuments(scope, mappings, async (formId, fieldKeys, startRow) => {
-    const result = await queryK3Cloud({ formId, fieldKeys, limit: 200, startRow }, config as Partial<K3CloudConfig>, internalScopeKey(scope))
+  return syncK3DailyDocuments(scope, mappings, async (formId, fieldKeys, startRow, filterString, orderString) => {
+    const result = await queryK3Cloud({ formId, fieldKeys, limit: 200, startRow, ...(filterString ? { filterString } : {}), ...(orderString ? { orderString } : {}) }, config as Partial<K3CloudConfig>, internalScopeKey(scope))
     return result.rows
   })
 }
@@ -102,14 +103,14 @@ async function syncK3Masters(scope: WorkspaceScope) {
     return result.rows
   })
 }
-type K3SyncRun = { startedAt?: string; finishedAt?: string; status?: 'running' | 'success' | 'failed'; source?: 'manual' | 'scheduled'; error?: string; businessRowCounts?: Record<string, number>; masterDataRowCounts?: Record<string, number> }
+type K3SyncRun = { startedAt?: string; finishedAt?: string; status?: 'running' | 'success' | 'failed'; source?: 'manual' | 'scheduled'; error?: string; businessRowCounts?: Record<string, number>; businessChangedRowCounts?: Record<string, number>; businessSyncMode?: 'full' | 'incremental' | 'mixed'; masterDataRowCounts?: Record<string, number> }
 function k3SyncStateKey(scope: WorkspaceScope): string { return scopeKey(scope, 'k3-data-sync-status') }
 function k3SyncRun(scope: WorkspaceScope): K3SyncRun { return getAppState<K3SyncRun>(k3SyncStateKey(scope), {}) }
 function saveK3SyncRun(scope: WorkspaceScope, state: K3SyncRun): void { setAppState(k3SyncStateKey(scope), state) }
 function k3DataSyncSchedule(scope: WorkspaceScope) {
   const config = k3Config(scope), value = record((config as Record<string, unknown>).k3DataSyncSchedule), enabled = value.enabled === true
   const intervalHours = [1, 6, 12, 24].includes(Number(value.intervalHours)) ? Number(value.intervalHours) : 1
-  let ready = false, readinessMessage = 'K3Cloud 六类业务单据与四类主数据映射尚未完整配置。'
+  let ready = false, readinessMessage = 'K3Cloud 八类业务单据与四类主数据映射尚未完整配置。'
   try {
     dailyK3Mappings(config as Record<string, unknown>)
     const masters = k3MasterDataMappings(config as Record<string, unknown>)
@@ -135,7 +136,7 @@ async function performK3DataSync(scope: WorkspaceScope, source: 'manual' | 'sche
         const business = await syncDailyK3(scope)
         const masterData = await syncK3Masters(scope)
         const finishedAt = new Date().toISOString()
-        saveK3SyncRun(scope, { startedAt, finishedAt, status: 'success', source, businessRowCounts: business.rowCounts as Record<string, number>, masterDataRowCounts: masterData.rowCounts as Record<string, number> })
+        saveK3SyncRun(scope, { startedAt, finishedAt, status: 'success', source, businessRowCounts: business.rowCounts as Record<string, number>, businessChangedRowCounts: business.changedRowCounts as Record<string, number>, businessSyncMode: business.mode, masterDataRowCounts: masterData.rowCounts as Record<string, number> })
         return { ok: true, status: 'success' as const, startedAt, finishedAt, business, masterData }
       } catch (error) {
         const finishedAt = new Date().toISOString(), message = error instanceof Error ? error.message : 'K3Cloud 数据同步失败。'
@@ -298,6 +299,25 @@ export function createIntegrationRouter(): Router {
     return res.json({ cache: cacheHealth(), k3cloud, flowable, dingtalk, reporting: { configured: dingtalk.configured, schedules: schedules.length } })
   })
   router.get('/k3cloud/status', (req, res) => { const scope = scopeForRequest(req); return res.json(k3cloudStatus(k3Config(scope), internalScopeKey(scope))) })
+  router.get('/k3cloud/form-catalog', requireRole('admin', 'plm_manager'), (_req, res) => {
+    return res.json({ source: 'uploaded-readonly-package-catalog', entries: K3_FORM_CATALOG, note: K3_FORM_CATALOG_NOTE })
+  })
+  router.post('/k3cloud/metadata/discover', requireRole('admin', 'plm_manager'), async (req, res) => {
+    const scope = scopeForRequest(req), config = connectorCredentialConfig(scope, 'k3cloud'), body = record(req.body)
+    const formId = typeof body.formId === 'string' ? body.formId.trim() : ''
+    if (!/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(formId)) return res.status(400).json({ error: 'invalid_k3cloud_form_id', message: 'FormId 格式无效；请输入 K3Cloud 表单标识。' })
+    const status = k3cloudStatus(config as Partial<K3CloudConfig>, internalScopeKey(scope))
+    if (!status.configured) return res.status(503).json({ error: 'k3cloud_not_configured', message: '当前账套尚未配置完整的 K3Cloud 只读连接。' })
+    if (!status.authenticated) return res.status(409).json({ error: 'k3cloud_connection_not_tested', message: '请先在连接设置中成功测试当前账套连接，再查询表单元数据。' })
+    try {
+      const metadata = await discoverK3CloudFormMetadata(formId, config as Partial<K3CloudConfig>, internalScopeKey(scope))
+      recordSecurityEvent({ userId: req.authUser!.id, tenantId: scope.tenantId, organizationId: scope.organizationId, accountId: scope.accountId, event: 'k3cloud_form_metadata_discovered', subject: formId, ip: req.ip, userAgent: req.get('user-agent') })
+      return res.json(metadata)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'K3Cloud 元数据查询失败。'
+      return res.status(502).json({ error: 'k3cloud_metadata_discovery_failed', message })
+    }
+  })
   router.post('/daily-reports/k3-sync', requireRole('admin', 'plm_manager'), async (req, res) => {
     const scope = scopeForRequest(req), config = connectorCredentialConfig(scope, 'k3cloud')
     if (!k3cloudStatus(config as Partial<K3CloudConfig>, internalScopeKey(scope)).configured) return res.status(503).json({ error: 'k3cloud_not_configured', message: '当前账套尚未配置完整的 K3Cloud 只读连接。' })

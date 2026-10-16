@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto'
 import { cacheGet, cacheSet } from './cache.js'
+import { summarizeK3Metadata } from '../k3cloud-metadata.js'
 
 const LOGIN_PATH = '/Kingdee.BOS.WebApi.ServicesStub.AuthService.LoginByAppSecret.common.kdsvc'
 const QUERY_PATH = '/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.ExecuteBillQuery.common.kdsvc'
+const METADATA_PATH = '/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.QueryBusinessInfo.common.kdsvc'
 const QUERY_TTL_SECONDS = 60
 const MAX_FILTER_LENGTH = 4_000
 const IDENTIFIER_PATTERN = /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/
@@ -94,6 +96,34 @@ export async function testK3CloudConnection(input?: Partial<K3CloudConfig>, scop
   if (!config) return k3cloudStatus(input, scopeKey)
   try { await login(config, scopeKey); return k3cloudStatus(config, scopeKey) }
   catch { return { ...k3cloudStatus(config, scopeKey), lastError: new Date().toISOString() } }
+}
+
+/** Discover fields from the current account's QueryBusinessInfo metadata; never queries business rows. */
+export async function discoverK3CloudFormMetadata(formId: string, connection?: Partial<K3CloudConfig>, scopeKey = '') {
+  const config = getConfig(connection)
+  if (!config) throw new Error('K3Cloud is not fully configured')
+  if (!IDENTIFIER_PATTERN.test(formId)) throw new Error('Invalid K3Cloud FormId')
+  const key = configKey(config, scopeKey)
+  try {
+    const cookie = await login(config, scopeKey)
+    const response = await fetch(endpoint(config.baseUrl, METADATA_PATH), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify([JSON.stringify({ FormId: formId })]),
+      signal: AbortSignal.timeout(config.timeoutMs),
+    })
+    if (!response.ok) throw new Error('metadata request failed')
+    const text = await response.text()
+    let payload: unknown = text
+    try { payload = JSON.parse(text) as unknown } catch { /* metadata may itself be returned as JSON text */ }
+    const result = summarizeK3Metadata(formId, payload)
+    lastErrors.delete(key)
+    return result
+  } catch (error) {
+    recordFailure(key)
+    if (error instanceof Error && error.message.startsWith('K3Cloud 元数据响应')) throw error
+    throw new Error('K3Cloud metadata query failed')
+  }
 }
 
 function validateQuery(input: K3CloudQueryInput): { fields: string[]; filter: string; startRow: number } {

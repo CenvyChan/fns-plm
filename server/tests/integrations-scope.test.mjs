@@ -17,7 +17,7 @@ let origin = ''
 let mockOrigin = ''
 let accessToken = ''
 const tokenScopes = new Map()
-const queryCounts = { login: 0, query: 0, flowable: 0, comments: 0, completed: [] }
+const queryCounts = { login: 0, query: 0, metadata: 0, flowable: 0, comments: 0, completed: [] }
 const dingtalkMockCalls = []
 const dingtalkMockResponses = []
 let dingtalkMockDelayMs = 0
@@ -139,6 +139,21 @@ before(async () => {
         queryCounts.login += 1
         await requestBody(req)
         return json(res, 200, { LoginResultType: 1 }, { 'set-cookie': 'sid=scope-mock; Path=/; HttpOnly' })
+      }
+      if (req.method === 'POST' && path.endsWith('/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.QueryBusinessInfo.common.kdsvc')) {
+        const cookie = req.headers.cookie ?? ''
+        const body = await requestBody(req)
+        const payload = JSON.parse(JSON.parse(body)[0])
+        if (!cookie.includes('sid=scope-mock')) return json(res, 403, { error: 'mock session required' })
+        queryCounts.metadata += 1
+        if (payload.FormId !== 'PUR_PurchaseOrder') return json(res, 200, { Message: '业务对象不存在' })
+        return json(res, 200, { Id: payload.FormId, Key: 'FBillHead', Items: [
+          { Key: 'FBillNo', Name: '单据编号', MustInput: 1 },
+          { Key: 'F_PAEZ_Text', Name: '企业自定义文本', IsViewVisible: true },
+          { Key: 'F_Hidden_Example', Name: '隐藏字段', IsViewVisible: false },
+          { Key: 'F_Flex_Example', Name: '弹性域父字段', ElementType: 60523 },
+          { Key: 'FAUXPROPID__FF100001', Name: 'metadata 标识' },
+        ] })
       }
       if (req.method === 'POST' && path.endsWith('/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.ExecuteBillQuery.common.kdsvc')) {
         const cookie = req.headers.cookie ?? ''
@@ -283,7 +298,7 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
   const mockWebhook = 'https://oapi.dingtalk.com/robot/send?access_token=mock-only'
   await saveProvider('dingtalk', { webhookUrl: mockWebhook, webhookSecret: `mock-report-secret-${random}` })
   const dailyFields = { id: 'FID', billNo: 'FBillNo', date: 'FDate', partyName: 'FParty', originalAmount: 'FAmount', amountCny: 'FCNY', settledAmountCny: 'FSettled' }
-  const dailyKinds = ['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable']
+  const dailyKinds = ['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable', 'sales-invoice', 'purchase-invoice']
   const dailySources = Object.fromEntries(dailyKinds.map(kind => [kind, { formId: `TEST_${kind.replaceAll('-', '_').toUpperCase()}`, fields: { ...dailyFields } }]))
   const dailyAllowlist = Object.fromEntries(Object.values(dailySources).map(mapping => [mapping.formId, Object.values(mapping.fields)]))
   await saveProvider('k3cloud', { baseUrl: mockOrigin, accountId: 'mock-erp-account', username: 'mock-erp-user', organization: 'mock-erp-organization', appId: 'mock-app-id', appSecret: 'mock-app-secret-daily-only', lcid: '2052', formAllowlist: dailyAllowlist, dailyReportSources: dailySources })
@@ -327,7 +342,7 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
   const emptyAPlans = await api('/api/reports/schedules')
   assert.equal(emptyAPlans.data.schedules.length, 0)
 
-  // Environment-based connector defaults must be present only for the exact full triple.
+  // Flowable/DingTalk environment defaults are scope-bound; K3Cloud must use PLM encrypted settings only.
   const defaultsDb = join(tempDir, 'defaults.sqlite')
   const defaultsEnv = {
     ...process.env, NODE_ENV: 'test', DATABASE_FILE: defaultsDb,
@@ -343,7 +358,7 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
     const { connectorCredentialConfig } = await import('./dist/integrations/configuration.js');
     const exact = { tenantId: 'default-tenant', organizationId: 'default-organization', accountId: 'default-account' };
     assert.equal(connectorCredentialConfig(exact, 'flowable').groupMap['user-a'][0], 'group-a');
-    assert.equal(connectorCredentialConfig(exact, 'k3cloud').accountId, 'test-erp-account');
+    assert.deepEqual(connectorCredentialConfig(exact, 'k3cloud'), {}, 'K3Cloud settings must be entered in PLM and never read from environment defaults');
     assert.equal(connectorCredentialConfig(exact, 'dingtalk').corpId, 'test-corp');
     for (const layer of ['tenantId', 'organizationId', 'accountId']) {
       for (const value of ['', 'forged-' + layer]) {
@@ -380,7 +395,34 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
     baseUrl: mockOrigin, accountId: 'mock-erp-account', username: 'mock-erp-user', organization: 'mock-erp-organization',
     appId: 'mock-app-id', appSecret: 'mock-app-secret-only', lcid: '2052', formAllowlist: { BD_MATERIAL: ['FNumber'] },
   }
-  await saveProvider('k3cloud', k3Config)
+  const savedK3Settings = await saveProvider('k3cloud', k3Config)
+  assert.equal(savedK3Settings.secrets.appId, true, 'K3Cloud AppId presence must be reported without returning its value')
+  assert.equal(savedK3Settings.secrets.appSecret, true, 'K3Cloud AppSecret presence must be reported without returning its value')
+  assert.equal(Object.hasOwn(savedK3Settings.config, 'appId'), false, 'K3Cloud AppId must not be echoed in the settings summary')
+  assert.equal(JSON.stringify(savedK3Settings).includes('mock-app-id'), false, 'K3Cloud AppId must not be returned by the settings API')
+  assert.equal(JSON.stringify(savedK3Settings).includes('mock-app-secret-only'), false, 'K3Cloud AppSecret must not be returned by the settings API')
+  const catalog = await api('/api/k3cloud/form-catalog')
+  assertStatus(catalog, 200, 'read-only K3Cloud FormId hint catalog')
+  assert.equal(catalog.data.entries.find(item => item.formId === 'SAL_OUTSTOCK').sourceCatalogMarkedVerified, true)
+  assert.match(catalog.data.note, /不代表当前 PLM 账套可用/)
+  const metadataBeforeTest = await api('/api/k3cloud/metadata/discover', { method: 'POST', body: { formId: 'PUR_PurchaseOrder' } })
+  assertStatus(metadataBeforeTest, 409, 'metadata discovery requires a successful connection test')
+  const invalidMetadataForm = await api('/api/k3cloud/metadata/discover', { method: 'POST', body: { formId: 'bad/form' } })
+  assertStatus(invalidMetadataForm, 400, 'metadata discovery rejects malformed FormId before an ERP request')
+  assert.equal(queryCounts.metadata, 0)
+  const testedK3 = await api('/api/integrations/settings/k3cloud/test', { method: 'POST', body: {} })
+  assertStatus(testedK3, 200, 'test mock K3Cloud credentials before metadata discovery')
+  assert.equal(testedK3.data.status.authenticated, true)
+  const discoveredMetadata = await api('/api/k3cloud/metadata/discover', { method: 'POST', body: { formId: 'PUR_PurchaseOrder' } })
+  assertStatus(discoveredMetadata, 200, 'discover metadata through PLM read-only adapter')
+  assert.equal(discoveredMetadata.data.source, 'query_metadata')
+  assert.ok(discoveredMetadata.data.fields.some(field => field.key === 'F_PAEZ_Text' && field.isCustom))
+  assert.ok(discoveredMetadata.data.hiddenCustomKeys.includes('F_Hidden_Example'))
+  assert.ok(discoveredMetadata.data.flexParentKeys.includes('F_Flex_Example'))
+  assert.ok(!discoveredMetadata.data.fields.some(field => field.key.includes('__')))
+  assert.equal(queryCounts.metadata, 1)
+  const afterDiscoverySettings = await api('/api/integrations/settings')
+  assert.deepEqual(afterDiscoverySettings.data.providers.k3cloud.config.formAllowlist, { BD_MATERIAL: ['FNumber'] }, 'discovery must not silently expand the account allowlist')
   const k3Query = { formId: 'BD_MATERIAL', fieldKeys: 'FNumber', limit: 1 }
   let resultA = await api('/api/k3cloud/query', { method: 'POST', body: k3Query })
   assertStatus(resultA, 200, 'scope A mocked K3Cloud query')
@@ -429,6 +471,7 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
     for (const scope of [scopeA, scopeBRecord]) {
       const row = db.prepare("SELECT tenant_id AS tenantId, organization_id AS organizationId, account_id AS accountId, provider, encrypted_config AS encryptedConfig FROM connector_configs WHERE account_id=? AND provider='k3cloud'").get(scope.accountId)
       assert.deepEqual({ tenantId: row.tenantId, organizationId: row.organizationId, accountId: row.accountId, provider: row.provider }, { tenantId: scope.tenantId, organizationId: scope.organizationId, accountId: scope.accountId, provider: 'k3cloud' })
+      assert.equal(row.encryptedConfig.includes('mock-app-id'), false, 'K3Cloud AppId must remain encrypted at rest')
       assert.equal(row.encryptedConfig.includes('mock-app-secret-only'), false, 'K3Cloud credentials must remain encrypted at rest')
     }
   } finally { db.close() }

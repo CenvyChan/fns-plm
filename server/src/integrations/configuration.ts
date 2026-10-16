@@ -7,7 +7,7 @@ export type ConnectorProvider = 'k3cloud' | 'flowable' | 'dingtalk'
 export type ConnectorConfig = Record<string, unknown>
 type ConnectorScope = Pick<WorkspaceScope, 'tenantId' | 'organizationId' | 'accountId'>
 const secretFields: Record<ConnectorProvider, string[]> = {
-  k3cloud: ['appSecret', 'password', 'clientSecret'],
+  k3cloud: ['appId', 'appSecret', 'password', 'clientSecret'],
   flowable: ['password', 'clientSecret'],
   dingtalk: ['webhookSecret', 'cardCallbackSecret', 'appSecret', 'clientSecret'],
 }
@@ -25,10 +25,9 @@ function envConfig(scope: ConnectorScope, provider: ConnectorProvider): Connecto
   // available only when an operator explicitly binds them to this exact scope.
   if (!environmentScopeMatches(scope)) return {}
   if (provider === 'flowable') return { baseUrl: process.env.FLOWABLE_BASE_URL?.trim() ?? '', username: process.env.FLOWABLE_USERNAME?.trim() ?? '', password: process.env.FLOWABLE_PASSWORD ?? '', timeoutMs: Number(process.env.FLOWABLE_TIMEOUT_MS ?? 10000), userMap: jsonObjectEnv('FLOWABLE_USER_MAP_JSON'), groupMap: jsonObjectEnv('FLOWABLE_GROUP_MAP_JSON') }
-  if (provider === 'k3cloud') return {
-    baseUrl: process.env.K3CLOUD_BASE_URL?.trim() ?? '', accountId: process.env.K3CLOUD_ACCOUNT_ID?.trim() ?? '', username: process.env.K3CLOUD_USERNAME?.trim() ?? '', organization: process.env.K3CLOUD_ORGANIZATION?.trim() ?? '',
-    appId: process.env.K3CLOUD_APP_ID?.trim() ?? '', appSecret: process.env.K3CLOUD_APP_SECRET ?? '', password: process.env.K3CLOUD_PASSWORD ?? '', lcid: String(process.env.K3CLOUD_LCID ?? 2052), timeoutMs: Number(process.env.K3CLOUD_TIMEOUT_MS ?? 20000), formAllowlist: jsonObjectEnv('K3CLOUD_QUERY_ALLOWLIST'),
-  }
+  // K3Cloud connection settings are configured only through PLM's encrypted,
+  // scope-bound record. The transport may separately use a non-secret timeout override.
+  if (provider === 'k3cloud') return {}
   return {
     webhookUrl: process.env.DINGTALK_WEBHOOK_URL?.trim() || process.env.DINGTALK_ROBOT_WEBHOOK?.trim() || '', webhookSecret: process.env.DINGTALK_WEBHOOK_SECRET ?? process.env.DINGTALK_ROBOT_SECRET ?? '',
     cardCallbackSecret: process.env.DINGTALK_CARD_CALLBACK_SECRET ?? '', appKey: process.env.DINGTALK_APP_KEY?.trim() ?? '', appSecret: process.env.DINGTALK_APP_SECRET ?? '',
@@ -65,8 +64,8 @@ function validateConfig(provider: ConnectorProvider, config: ConnectorConfig): v
   }
   if (provider === 'k3cloud' && config.dailyReportSources !== undefined) {
     const sources = config.dailyReportSources
-    const kinds = new Set(['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable'])
-    const canonicalFields = new Set(['id', 'billNo', 'date', 'partyNumber', 'partyName', 'materialName', 'quantity', 'unit', 'currency', 'originalAmount', 'amountCny', 'settledAmountCny', 'status'])
+    const kinds = new Set(['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable', 'sales-invoice', 'purchase-invoice'])
+    const canonicalFields = new Set(['id', 'billNo', 'date', 'modifiedAt', 'partyNumber', 'partyName', 'materialName', 'quantity', 'unit', 'unitPrice', 'currency', 'originalAmount', 'amountCny', 'settledAmountCny', 'status', 'upstreamId', 'upstreamBillNo', 'upstreamLineId', 'taxAmount', 'taxAmountCny'])
     if (!sources || typeof sources !== 'object' || Array.isArray(sources)) throw new Error('K3Cloud dailyReportSources must be a document-kind mapping object.')
     for (const [kind, raw] of Object.entries(sources as Record<string, unknown>)) {
       if (!kinds.has(kind) || !raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('K3Cloud dailyReportSources contains an invalid document kind or mapping.')
@@ -95,7 +94,7 @@ function validateConfig(provider: ConnectorProvider, config: ConnectorConfig): v
     if (value.enabled) {
       const docs = config.dailyReportSources && typeof config.dailyReportSources === 'object' ? config.dailyReportSources as Record<string, unknown> : {}
       const masters = config.masterDataSources && typeof config.masterDataSources === 'object' ? config.masterDataSources as Record<string, unknown> : {}
-      if (['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable'].some(kind => !docs[kind]) || ['customer', 'supplier', 'salesperson', 'user'].some(kind => !masters[kind])) throw new Error('启用 K3Cloud 定时同步前，必须配置六类销售/采购单据和客户、供应商、业务员、ERP 用户四类主数据映射。')
+      if (['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable', 'sales-invoice', 'purchase-invoice'].some(kind => !docs[kind]) || ['customer', 'supplier', 'salesperson', 'user'].some(kind => !masters[kind])) throw new Error('启用 K3Cloud 定时同步前，必须配置八类销售/采购单据、销项发票/采购收票及客户、供应商、业务员、ERP 用户四类主数据映射。')
     }
   }
   if (provider === 'flowable' && config.userMap !== undefined && (!config.userMap || typeof config.userMap !== 'object' || Array.isArray(config.userMap))) throw new Error('Flowable userMap must be an email-to-engine-user JSON object.')
@@ -134,11 +133,11 @@ export function saveConnectorConfig(scope: WorkspaceScope, provider: ConnectorPr
 export function connectorSummary(scope: WorkspaceScope, provider: ConnectorProvider) {
   const row = getConnectorRow(scope, provider), config = getConnectorConfig(scope, provider), missingFields = requiredFields(provider, config), safe: Record<string, unknown> = {}
   const safeFields = provider === 'k3cloud'
-    ? ['baseUrl', 'accountId', 'username', 'organization', 'appId', 'lcid', 'timeoutMs', 'formAllowlist', 'dailyReportSources', 'masterDataSources', 'k3DataSyncSchedule']
+    ? ['baseUrl', 'accountId', 'username', 'organization', 'lcid', 'timeoutMs', 'formAllowlist', 'dailyReportSources', 'masterDataSources', 'k3DataSyncSchedule']
     : provider === 'flowable' ? ['baseUrl', 'username', 'timeoutMs', 'userMap', 'groupMap'] : ['webhookUrl', 'appKey', 'templateId', 'corpId', 'publicAppUrl', 'userMapping']
   for (const key of safeFields) if (config[key] !== undefined && config[key] !== '') safe[key] = config[key]
   const presentSecrets = secretFields[provider].filter(key => typeof config[key] === 'string' && String(config[key]).length > 0)
-  const source = row ? 'encrypted-scope-setting' : environmentScopeMatches(scope) ? 'environment-scope-default' : 'unconfigured'
+  const source = row ? 'encrypted-scope-setting' : provider !== 'k3cloud' && environmentScopeMatches(scope) ? 'environment-scope-default' : 'unconfigured'
   return { provider, configured: missingFields.length === 0, missingFields, config: safe, secrets: Object.fromEntries(secretFields[provider].map(key => [key, presentSecrets.includes(key)])), revision: row?.revision ?? 0, updatedAt: row?.updatedAt ?? null, source }
 }
 export function connectorCredentialConfig(scope: WorkspaceScope, provider: ConnectorProvider): ConnectorConfig { return getConnectorConfig(scope, provider) }
