@@ -4,7 +4,7 @@
   <view a:if="{{error}}" class="error">{{error}}</view>
   <view a:if="{{task}}" class="card">
     <text class="task-title">{{task.title || task.name || '审批任务'}}</text>
-    <view class="row"><text class="label">来源</text><text>{{mode === 'flowable' ? 'Flowable 实时流程' : '本地演示流程'}}</text></view>
+    <view class="row"><text class="label">来源</text><text>{{mode === 'flowable' ? 'Flowable 实时流程' : mode === 'demo' ? '本地演示流程' : '来源未声明'}}</text></view>
     <view class="row"><text class="label">业务类型</text><text>{{task.businessType || '流程审批'}}</text></view>
     <view class="row"><text class="label">业务编号</text><text>{{task.businessId || task.businessKey || '—'}}</text></view>
     <view class="row"><text class="label">申请人</text><text>{{task.requester || task.applicant || task.owner || '—'}}</text></view>
@@ -13,6 +13,7 @@
     <view a:if="{{previewText}}" class="description"><text class="label">业务预览</text><text class="body">{{previewText}}</text></view>
     <view a:if="{{!previewText && task.description}}" class="description"><text class="label">内容</text><text class="body">{{task.description}}</text></view>
   </view>
+  <view a:if="{{task && mode === 'demo'}}" class="mode-note">演示任务：提交意见只记录在本地工作区，不会触发企业 Flowable 流程。</view>
   <view a:if="{{task}}" class="card comment-card">
     <text class="label">审批意见（必填）</text>
     <textarea class="comment" placeholder="填写同意或驳回的理由" maxlength="4000" value="{{comment}}" onInput="onCommentInput" />

@@ -1,7 +1,27 @@
-// 仅替换为已部署、启用 HTTPS 且已登记在钉钉小程序安全域名中的服务端地址。
-const API_BASE_URL = 'https://YOUR-APP-DOMAIN';
 const TOKEN_KEY = 'momentum.mobile-token';
 const SCOPE_KEY = 'momentum.verified-scope';
+
+export function getApiBaseUrl() {
+  let raw = '';
+  try {
+    const app = typeof getApp === 'function' ? getApp() : null;
+    raw = String((app && app.globalData && app.globalData.apiBaseUrl) || '').trim();
+  } catch (_) { /* app bootstrap may not be available yet */ }
+  if (!raw || raw.toUpperCase().includes('YOUR-APP-DOMAIN')) {
+    throw new Error('工作区 API 地址尚未配置；请在 app.js 的 globalData.apiBaseUrl 中设置已部署服务的 HTTPS origin。');
+  }
+  let parsed;
+  try { parsed = new URL(raw); }
+  catch (_) { throw new Error('工作区 API 地址无效；请配置 HTTPS origin，例如 https://plm.example.com。'); }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.pathname !== '/' && parsed.pathname !== '')) {
+    throw new Error('工作区 API 地址必须是无路径、无凭据的 HTTPS origin。');
+  }
+  return parsed.origin;
+}
+
+export function isApiBaseConfigured() {
+  try { getApiBaseUrl(); return true; } catch (_) { return false; }
+}
 
 function readToken() {
   try {
@@ -38,6 +58,8 @@ export function clearSession() {
 
 function request(path, method = 'GET', data, options = {}) {
   return new Promise((resolve, reject) => {
+    let baseUrl;
+    try { baseUrl = getApiBaseUrl(); } catch (error) { reject(error); return; }
     const headers = { accept: 'application/json', 'content-type': 'application/json' };
     const token = options.auth === false ? '' : readToken();
     if (token) headers.Authorization = `Bearer ${token}`;
@@ -48,7 +70,7 @@ function request(path, method = 'GET', data, options = {}) {
       headers['X-Account-ID'] = scope.accountId;
     }
     dd.httpRequest({
-      url: `${API_BASE_URL}${path}`,
+      url: `${baseUrl}${path}`,
       method,
       headers,
       ...(data === undefined ? {} : { data }),
@@ -78,9 +100,17 @@ export function mobileLogin(email, password, accountId) {
     email: String(email || '').trim(), password,
     ...(accountId ? { accountId } : {})
   }, { auth: false }).then((result) => {
-    if (!result || !result.accessToken || !result.user) throw new Error('登录响应缺少移动端会话信息');
-    writeToken(result.accessToken);
-    writeScope(result.user);
+    if (!result || !result.accessToken || !result.user) {
+      clearSession();
+      throw new Error('登录响应缺少移动端会话信息');
+    }
+    try {
+      writeScope(result.user);
+      writeToken(result.accessToken);
+    } catch (error) {
+      clearSession();
+      throw error;
+    }
     return result;
   });
 }
@@ -90,13 +120,23 @@ export function getAuthStatus() {
 }
 
 export function mobileDingTalkLogin(authCode, accountId) {
+  const normalizedAuthCode = String(authCode || '').trim();
+  if (!normalizedAuthCode) return Promise.reject(new Error('未取得有效的钉钉免登授权码，请重试。'));
   return request('/api/auth/dingtalk/mobile-login', 'POST', {
-    authCode: String(authCode || ''),
+    authCode: normalizedAuthCode,
     ...(accountId ? { accountId } : {})
   }, { auth: false }).then((result) => {
-    if (!result || !result.accessToken || !result.user) throw new Error('钉钉登录响应缺少移动端会话信息');
-    writeToken(result.accessToken);
-    writeScope(result.user);
+    if (!result || !result.accessToken || !result.user) {
+      clearSession();
+      throw new Error('钉钉登录响应缺少移动端会话信息');
+    }
+    try {
+      writeScope(result.user);
+      writeToken(result.accessToken);
+    } catch (error) {
+      clearSession();
+      throw error;
+    }
     return result;
   });
 }
@@ -104,7 +144,12 @@ export function mobileDingTalkLogin(authCode, accountId) {
 export function getCurrentUser() {
   if (!readToken()) return Promise.reject(new Error('尚未登录'));
   return request('/api/auth/me').then((result) => {
-    if (result && result.user) writeScope(result.user);
+    if (!result || !result.user) {
+      clearSession();
+      throw new Error('工作区会话响应缺少用户信息');
+    }
+    try { writeScope(result.user); }
+    catch (error) { clearSession(); throw error; }
     return result && result.user;
   });
 }
@@ -121,7 +166,10 @@ export function logout() {
 }
 
 export function getTasks() {
-  return request('/api/workflow/tasks').then(normalizeList);
+  return request('/api/workflow/tasks').then((result) => ({
+    mode: result && (result.mode === 'flowable' || result.mode === 'demo') ? result.mode : 'unknown',
+    tasks: normalizeList(result)
+  }));
 }
 
 export function getTask(id) {

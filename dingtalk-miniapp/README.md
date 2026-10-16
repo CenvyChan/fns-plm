@@ -15,11 +15,11 @@
 
 ## 部署前配置
 
-1. 编辑 `utils/api.js`，将 `API_BASE_URL` 替换为实际 API 的 HTTPS origin，例如 `https://plm.example.com`（不要添加 token；API path 已包含 `/api`）。
+1. 编辑 `app.js` 中 `globalData.apiBaseUrl`，填入已部署 API 的 HTTPS origin，例如 `https://plm.example.com`。客户端只接受 origin，不允许路径、账号、密码、token、查询参数或 Secret；API path 已包含 `/api`。占位值未替换时不会发起服务请求，并会明确显示 API 地址未配置。
 2. 在钉钉小程序管理后台登记该域名为 HTTPS 请求安全域名，并按本企业开发工具要求安装/运行原生小程序工程。
 3. 在 API 服务端设置 `DINGTALK_SSO_CLIENT_ID`、`DINGTALK_SSO_CLIENT_SECRET`、`DINGTALK_SSO_CORP_ID`；Secret 只能放服务端受限环境文件。
 4. 由平台管理员创建既有工作区成员、分配账套角色，并把经可信通讯录核验的 `userId/unionId` 绑定到该用户；钉钉登录不会自动创建用户或授予权限。
-5. 页面使用 `utils/api.js` 的 API 路径；API 服务器需开启对应 HTTPS/CORS/代理访问。`/api/auth/status` 提供不含凭证的 SSO 配置状态。
+5. 页面使用 `utils/api.js` 的 API 路径；API 服务器需开启对应 HTTPS/CORS/代理访问。`/api/auth/status` 提供不含凭证的 SSO 配置状态。审批列表会标识本地演示数据或 Flowable 实时来源；本地演示审批只写本地工作区，不会触发企业流程。
 
 > **身份边界：** SSO 代码路径已实现，但当前企业 Client ID/Secret/Corp ID 尚未提供，故尚未连接或验证任何真实钉钉租户。未配置时页面明确显示未配置状态。身份未绑定、成员停用或无有效成员关系都会拒绝访问；停用成员的会话会撤销。钉钉机器人 Webhook 不等同于小程序 SSO。不得把应用密钥、密码、机器人 Webhook 或 Flowable 凭证嵌入客户端源码。
 
@@ -41,6 +41,12 @@ utils/api.js                 认证、Bearer 注入与统一 API client
 node --check pages/login/index.js
 node --check utils/api.js
 node -e 'JSON.parse(require("node:fs").readFileSync("app.json", "utf8"))'
+```
+
+客户端 mock/交互回归测试（Node.js 20+；stub 钉钉 SDK 和 API 响应，不访问真实钉钉或工作区服务）：
+
+```bash
+npm test --prefix dingtalk-miniapp
 ```
 
 此目录准备了代码与 API 接口；真实钉钉企业凭证、安全域名、企业授权/审查及 miniapp 发布仍未提供或完成，因此不声称已接入实际组织或发布到钉钉。

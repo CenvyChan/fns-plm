@@ -1,14 +1,16 @@
 <view class="page">
   <view class="hero"><text class="eyebrow">MOMENTUM WORKSPACE</text><text class="title">安全登录</text><text class="subtitle">优先使用钉钉企业身份进入已授权工作区</text></view>
   <view a:if="{{!pendingUser}}" class="card">
-    <view a:if="{{!statusLoaded}}" class="notice">正在确认服务端的钉钉免登配置…</view>
+    <view a:if="{{!apiBaseConfigured}}" class="notice">工作区 API 地址尚未配置。部署时请在 app.js 的 globalData.apiBaseUrl 设置已部署服务的 HTTPS origin；地址不得包含账号、token 或路径。</view>
+    <view a:elif="{{!statusLoaded}}" class="notice">正在确认服务端的钉钉免登配置…</view>
     <view a:elif="{{setupRequired}}" class="notice">工作区尚未初始化。请管理员先在 Web 管理端创建平台管理员与企业工作区。</view>
     <view a:elif="{{ssoConfigured}}">
       <button class="primary" loading="{{busy}}" disabled="{{busy}}" onTap="onDingTalkLogin">{{busy ? '正在验证钉钉身份…' : '钉钉企业免登'}}</button>
       <text class="hint">将获取钉钉一次性授权码，由服务端向钉钉验证并映射到已绑定的工作区成员。此操作不会自动创建账号或授予角色。</text>
     </view>
+    <view a:elif="{{statusUnavailable}}" class="notice">无法从工作区服务确认钉钉免登配置；不会尝试钉钉登录。请检查 API 地址、网络与服务状态。{{error}}</view>
     <view a:else class="notice">钉钉企业免登尚未配置。管理员需在服务端设置钉钉企业应用 Client ID、Client Secret 和 Corp ID；未配置前不会连接或冒充真实钉钉租户。</view>
-    <view a:if="{{error}}" class="error">{{error}}</view>
+    <view a:if="{{error && !statusUnavailable}}" class="error">{{error}}</view>
     <button a:if="{{usePassword}}" class="secondary" onTap="hidePasswordLogin">收起备用密码登录</button>
     <button a:else class="secondary" onTap="showPasswordLogin">使用工作区个人密码登录</button>
     <view a:if="{{usePassword}}" class="password-fallback">

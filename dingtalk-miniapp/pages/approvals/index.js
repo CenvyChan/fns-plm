@@ -9,12 +9,12 @@ function redirectToLogin(error) {
 }
 
 Page({
-  data: { tasks: [], loading: false, error: '', mode: 'demo' },
+  data: { tasks: [], loading: false, error: '', mode: 'unknown' },
   onShow() { this.loadTasks(); },
   onPullDownRefresh() { this.loadTasks(true); },
   loadTasks(fromRefresh = false) {
     this.setData({ loading: true, error: '' });
-    getTasks().then((tasks) => this.setData({ tasks, loading: false }))
+    getTasks().then((result) => this.setData({ tasks: result.tasks, mode: result.mode, loading: false }))
       .catch((err) => {
         if (redirectToLogin(err)) return this.setData({ error: '', loading: false });
         this.setData({ error: err.message || '暂时无法加载任务', loading: false });

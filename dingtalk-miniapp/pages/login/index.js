@@ -1,8 +1,11 @@
-import { getAuthStatus, getCurrentUser, mobileDingTalkLogin, mobileLogin, switchScope } from '../../utils/api';
+import { getAuthStatus, getCurrentUser, isApiBaseConfigured, mobileDingTalkLogin, mobileLogin, switchScope } from '../../utils/api';
 
 Page({
-  data: { email: '', password: '', busy: false, error: '', scopes: [], selectedScopeIndex: 0, selectedAccountId: '', selectedAccountName: '', pendingUser: null, statusLoaded: false, ssoConfigured: false, setupRequired: false, usePassword: false },
+  data: { email: '', password: '', busy: false, error: '', scopes: [], selectedScopeIndex: 0, selectedAccountId: '', selectedAccountName: '', pendingUser: null, apiBaseConfigured: false, statusLoaded: false, statusUnavailable: false, ssoConfigured: false, setupRequired: false, usePassword: false },
   onLoad() {
+    const apiBaseConfigured = isApiBaseConfigured();
+    this.setData({ apiBaseConfigured, statusLoaded: !apiBaseConfigured });
+    if (!apiBaseConfigured) return;
     getCurrentUser().then((user) => {
       getApp().globalData.user = user;
       dd.redirectTo({ url: '/pages/home/index' });
@@ -10,7 +13,7 @@ Page({
     getAuthStatus().then((status) => {
       const ssoConfigured = Boolean(status && status.dingtalkSso && status.dingtalkSso.configured);
       this.setData({ statusLoaded: true, ssoConfigured, setupRequired: Boolean(status && status.setupRequired) });
-    }).catch((err) => this.setData({ statusLoaded: true, error: err.message || '无法连接工作区服务' }));
+    }).catch((err) => this.setData({ statusLoaded: true, statusUnavailable: true, error: err.message || '无法连接工作区服务' }));
   },
   onEmailInput(e) { this.setData({ email: e.detail.value || '' }); },
   onPasswordInput(e) { this.setData({ password: e.detail.value || '' }); },

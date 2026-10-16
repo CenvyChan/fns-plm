@@ -1,5 +1,7 @@
 <view class="page">
   <view class="heading"><text class="title">我的审批</text><text class="subtitle">待处理工作流任务</text></view>
+  <view a:if="{{mode === 'demo'}}" class="mode-note">当前为本地演示模式：Flowable 尚未配置或此任务来自本地工作区，不代表企业引擎中的真实待办。</view>
+  <view a:elif="{{mode === 'flowable'}}" class="mode-note live">当前待办来自已配置的 Flowable 服务。</view>
   <view a:if="{{loading}}" class="state">正在加载任务…</view>
   <view a:if="{{error}}" class="error"><text>{{error}}</text><text class="retry" onTap="loadTasks">重试</text></view>
   <view a:if="{{!loading && !error && tasks.length === 0}}" class="state">暂无待办任务</view>
