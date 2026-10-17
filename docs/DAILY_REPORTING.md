@@ -16,6 +16,15 @@
 - **日报推送**：手动 `/api/reports/send` 与计划执行均在发送前刷新 K3Cloud 六类数据，再生成报告；连接器/字段映射缺失或同步失败时本次不发送，防止把过期或演示金额发成真实财务信息。预览只读当前已保存快照，不触发 ERP 查询。Markdown 包含单据汇总、每类前 8 条单据明细、同步时点和余额口径。该功能不会自动新建/变更钉钉接收目标。
 - **模拟渠道**：归档快照上的 email / DingTalk 模拟接口仅记本地模拟结果，不连接 SMTP 或真实收件人。
 
+## 日报业务配置与权限
+
+- **客商业务主档**：日报客户/供应商属于 PLM 日报自己的业务主档，与 K3Cloud 只读镜像分开保存。管理员或 `plm_manager` 可维护名称、别名、启用状态及可选 K3 编码；名称/别名/K3 编码冲突会拒绝覆盖。配置业务主档后，日报必须选择主档客商，不再接受自由文本。
+- **月汇率**：管理员或 `plm_manager` 维护 scope 内 USD→CNY 月汇率。成员可读取汇率用于录入；新建 USD 日报必须有对应月份的主档汇率，服务端忽略客户端自带汇率并使用主档值。修改月汇率不会回写已有日报，编辑既有日报保留行内汇率及人民币金额。
+- **归属关系**：管理员可将已存在的客户/供应商分配给当前账套中已启用成员。旧系统归属候选导入后，不会创建 PLM 账号、邀请用户或授予权限；管理员必须将旧用户/客商显式映射到当前 scope 的成员/主档。
+- **K3 客商映射复核**：导入的旧映射保留原状态为证据，在 PLM 中保持待核验；只有管理员或 `plm_manager` 明确选择 PLM 客商并确认后才生成当前映射，不会改写 K3Cloud 镜像或复用旧系统的自动匹配结论。
+- **成员可见/可写边界**：管理员与 `plm_manager` 可访问两条业务线；有有效客户归属的成员可访问销售日报线，有有效供应商归属的成员可访问采购日报线。成员在有权业务线内可查看公司全部记录，但只能编辑、删除或维护自己有归属客商/供应商的日报。`reviewer` 可读两条业务线、不能写入。归属、主档、汇率、快照及历史记录均继续按 tenant / organization / account 三层 scope 隔离；单线成员不能读取另一业务线的 K3 行、摘要、混合快照或导出。
+- **新建 scope 初始化**：为兼容既有 PLM 手工日报，客商主档尚未配置时保留原来的成员访问/自由文本录入行为；上线新 scope 时必须先建立/导入客商主档、汇率与归属，再导入或开放历史/实时日报。主档配置后，成员业务线权限立即收敛到有效归属，不应在配置完成前导入业务数据。
+
 ## 当前连接状态
 
 非生产环境新账套默认拥有按账套隔离的本地演示数据，**不是用户业务数据或真实 K3Cloud 数据**。本代码仓库当前没有真实 K3Cloud 凭证、企业 FormId/字段映射或钉钉真实收件人配置；因此当前工作区不会被标记为已连接，也没有读取真实 ERP 或发送真实消息。配置并通过企业授权后，管理员可在日报页面点 **同步真实 K3Cloud**。同步后不再允许刷新演示快照。当前不含付款审批或付款指标。
@@ -42,6 +51,13 @@
 | `GET /daily-reports/snapshots/:id/export.html` / `.xlsx` | 已登录 | 下载已归档 HTML / 多工作表 Excel。 |
 | `POST /daily-reports/snapshots/:id/deliveries` | `admin`、`plm_manager`、`member` | 仅记录隔离模拟投递，不发送外部消息。 |
 | `POST /daily-reports/mock-refresh` | `admin`、`plm_manager`；仅非生产 | 刷新本地演示数据；存在真实 ERP 快照时返回 409。 |
+| `GET /daily-reporting/party-options?kind=customer\|supplier` / `/access` | 已登录 | 读取当前成员可选客商和销售/采购访问能力。 |
+| `GET /daily-reporting/exchange-rates` | 已登录 | 读取当前账套 USD→CNY 月汇率；敏感配置变更仍只允许管理员/经理。 |
+| `GET /daily-reporting/management` | `admin`、`plm_manager` | 读取日报主档、归属、汇率、客商映射及当前 scope 已启用成员。 |
+| `POST /daily-reporting/masters` / `PATCH /daily-reporting/masters/:id` | `admin`、`plm_manager` | 维护日报客户/供应商主档；不写入 K3Cloud 主数据镜像。 |
+| `PUT /daily-reporting/exchange-rates` / `/assignments` / `/assignments/:id` | `admin`、`plm_manager` | 维护月汇率与当前 scope 成员归属。 |
+| `GET /daily-reporting/k3-party-mirror`、`PUT` / `DELETE /daily-reporting/party-mappings/:id` | `admin`、`plm_manager` | 检查当前 K3 客商镜像，并人工确认/清除当前 scope 的日报客商映射。 |
+| `POST /daily-reporting/migration/parties`、`/rates`、`/assignments`、`/party-mappings`；`GET /daily-reporting/migration/batches` | `admin`、`plm_manager` | 有界批量迁移旧日报主档候选、月汇率、归属事实和客商映射证据；不自动创建用户/授权，也不把旧映射直接标记为人工确认。 |
 
 ## 验证
 

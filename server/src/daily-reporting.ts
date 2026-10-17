@@ -4,6 +4,7 @@ import { Router, type Request } from 'express'
 import { requireRole } from './auth.js'
 import { getAppStateVersioned, setAppStateIfRevision, StateConflictError } from './database.js'
 import type { WorkspaceScope } from './scope.js'
+import { findDailyParty, getDailyReportingAccess, hasDailyPartyAssignment, readDailyReportingAdminState, type DailyParty } from './daily-reporting-admin.js'
 
 export type DailyKind = 'sales' | 'purchase'
 export type K3DocumentKind = 'shipment' | 'purchase-receipt' | 'sales-order' | 'purchase-order' | 'receivable' | 'payable' | 'sales-invoice' | 'purchase-invoice'
@@ -18,6 +19,7 @@ export interface DailyReport {
   id: string; type: DailyKind; date: string; partyName: string; documentNo: string; quantity: number; currency: string
   originalAmount: number; exchangeRate: number; amountCny: number; note: string; source: DailySource
   createdAt: string; updatedAt: string; createdBy: string; createdByName: string; updatedBy: string; deletedAt?: string; deletedBy?: string
+  partyId?: string
 }
 export interface K3SnapshotRow {
   id: string; kind: K3DocumentKind; type: DailyKind; billNo: string; date: string; partyNumber: string; partyName: string
@@ -139,6 +141,27 @@ function scopeFromRequest(req: Request): WorkspaceScope {
 }
 function actorFromRequest(req: Request): { id: string; name: string } {
   return { id: req.authUser?.id ?? 'unknown', name: req.authUser?.displayName ?? '工作区成员' }
+}
+function partyForReport(scope: WorkspaceScope, req: Request, type: unknown, value: unknown): { party?: DailyParty; error?: string; status?: number } {
+  const kind = type === 'sales' ? 'customer' : type === 'purchase' ? 'supplier' : undefined
+  if (!kind) return {}
+  const partyId = typeof value === 'string' ? value.trim() : ''
+  const configured = readDailyReportingAdminState(scope).masterDataConfigured
+  if (!partyId) return configured ? { error: '请从当前账套客户/供应商主档中选择客商。', status: 400 } : {}
+  const party = findDailyParty(scope, partyId, kind)
+  if (!party) return { error: '所选客商不存在、已停用或与销售/采购类型不匹配。', status: 400 }
+  const role = req.authUser?.role
+  if (role !== 'admin' && role !== 'plm_manager' && !hasDailyPartyAssignment(scope, req.authUser?.id ?? '', kind, party.id)) return { error: '当前成员未被分配到该客商，不能录入或修改该客商日报。', status: 403 }
+  return { party }
+}
+function reportingAccess(scope: WorkspaceScope, req: Request) {
+  return getDailyReportingAccess(scope, req.authUser?.id ?? '', req.authUser?.role ?? '')
+}
+function scopeIsAllowed(access: ReturnType<typeof reportingAccess>, requested: 'sales' | 'purchase' | 'both'): boolean {
+  return requested === 'both' ? access.sales && access.purchase : access[requested]
+}
+function snapshotIsAllowed(access: ReturnType<typeof reportingAccess>, snapshot: DailySnapshot): boolean {
+  return snapshot.scope === 'both' ? access.sales && access.purchase : access[snapshot.scope]
 }
 function liveReports(state: DailyReportState): DailyReport[] { return state.reports.filter(report => !report.deletedAt) }
 function rowAllocation(state: DailyReportState, rowId: string): number {
@@ -308,6 +331,13 @@ function reconciliationFor(state: DailyReportState, kind: DailyKind, reportDate:
 
 export function buildDailyReportSummary(state: DailyReportState, reportDate: string, scope: 'sales' | 'purchase' | 'both' = 'both') {
   const reports = liveReports(state).filter(report => report.date === reportDate && (scope === 'both' || report.type === scope))
+  const visibleK3Kinds = scope === 'sales' ? new Set(['shipment', 'sales-order', 'sales-invoice', 'receivable']) : scope === 'purchase' ? new Set(['purchase-receipt', 'purchase-order', 'purchase-invoice', 'payable']) : null
+  const k3Sync = state.k3Sync ? deepClone(state.k3Sync) : null
+  if (k3Sync && visibleK3Kinds) {
+    k3Sync.rowCounts = Object.fromEntries(Object.entries(k3Sync.rowCounts).filter(([kind]) => visibleK3Kinds.has(kind)))
+    if (k3Sync.changedRowCounts) k3Sync.changedRowCounts = Object.fromEntries(Object.entries(k3Sync.changedRowCounts).filter(([kind]) => visibleK3Kinds.has(kind)))
+    if (k3Sync.fullScanKinds) k3Sync.fullScanKinds = k3Sync.fullScanKinds.filter(kind => visibleK3Kinds.has(kind))
+  }
   const sumDaily = (kind: DailyKind) => {
     const selected = reports.filter(report => report.type === kind)
     return { count: selected.length, quantity: roundMoney(selected.reduce((sum, report) => sum + report.quantity, 0)), amountCny: roundMoney(selected.reduce((sum, report) => sum + report.amountCny, 0)), reportAmountOriginal: roundMoney(selected.reduce((sum, report) => sum + report.originalAmount, 0)), currencyBreakdown: Object.fromEntries([...new Set(selected.map(report => report.currency))].map(currency => [currency, roundMoney(selected.filter(report => report.currency === currency).reduce((sum, report) => sum + report.originalAmount, 0))])) }
@@ -329,7 +359,7 @@ export function buildDailyReportSummary(state: DailyReportState, reportDate: str
   })
   return {
     reportDate, generatedAt: new Date().toISOString(), source: state.mockEnabled ? 'local-mock' : state.k3Sync ? 'k3cloud' : 'workspace', isMock: state.mockEnabled,
-    mockSnapshotAt: state.mockSnapshotAt, k3Sync: state.k3Sync ? deepClone(state.k3Sync) : null, liveErpConnected: Boolean(state.k3Sync),
+    mockSnapshotAt: state.mockSnapshotAt, k3Sync, liveErpConnected: Boolean(state.k3Sync),
     sales: scope === 'purchase' ? undefined : { daily: sumDaily('sales'), reconciliation: reconciliationFor(state, 'sales', reportDate) },
     purchase: scope === 'sales' ? undefined : { daily: sumDaily('purchase'), reconciliation: reconciliationFor(state, 'purchase', reportDate) },
     orders: { sales: orderSummary(salesOrders), purchase: orderSummary(purchaseOrders) },
@@ -375,6 +405,7 @@ function validateReportPayload(body: Record<string, unknown>, existing?: DailyRe
   const originalAmount = finite(body.originalAmount ?? existing?.originalAmount)
   const rawRate = finite(body.exchangeRate ?? existing?.exchangeRate ?? 1)
   const note = body.note ?? existing?.note ?? ''
+  const partyId = body.partyId ?? existing?.partyId
   const source = existing?.source ?? 'manual'
   if (!validKind(type)) return { error: '日报类型必须是 sales 或 purchase。' }
   if (!validDay(date)) return { error: '日期必须是有效的 YYYY-MM-DD。' }
@@ -383,9 +414,10 @@ function validateReportPayload(body: Record<string, unknown>, existing?: DailyRe
   if (quantity === undefined || originalAmount === undefined || rawRate === undefined || rawRate <= 0) return { error: '数量、原币金额和正汇率必须是有限数字。' }
   if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) return { error: '币种必须是 3 位大写 ISO 代码。' }
   if (typeof note !== 'string' || note.length > 2000) return { error: '备注最多 2000 字。' }
+  if (partyId !== undefined && (typeof partyId !== 'string' || partyId.length > 100)) return { error: '客商关联无效。' }
   if (source !== 'manual' && source !== 'history-import') return { error: '日报来源无效。' }
   const exchangeRate = currency === 'CNY' ? 1 : rawRate
-  return { value: { type, date, partyName: partyName.trim(), documentNo: documentNo.trim(), quantity, currency, originalAmount: roundMoney(originalAmount), exchangeRate, amountCny: roundMoney(originalAmount * exchangeRate), note: note.trim(), source } }
+  return { value: { type, date, partyName: partyName.trim(), documentNo: documentNo.trim(), quantity, currency, originalAmount: roundMoney(originalAmount), exchangeRate, amountCny: roundMoney(originalAmount * exchangeRate), note: note.trim(), source, ...(typeof partyId === 'string' && partyId ? { partyId } : {}) } }
 }
 
 function snapshotFromState(state: DailyReportState, reportDate: string, scope: 'sales' | 'purchase' | 'both', actor: { id: string; name: string }): DailySnapshot {
@@ -442,25 +474,32 @@ export function createDailyReportRouter(): Router {
   router.get('/daily-reports', (req, res) => {
     const scope = scopeFromRequest(req), state = readDailyReportState(scope)
     const type = req.query.type === 'sales' || req.query.type === 'purchase' ? req.query.type : undefined
+    const access = reportingAccess(scope, req)
+    if (!access.sales && !access.purchase) return res.status(403).json({ error: 'daily_reporting_access_denied', message: '当前成员尚未分配客户或供应商日报权限。' })
+    if (type && !access[type]) return res.status(403).json({ error: 'daily_reporting_access_denied', message: '当前成员没有此业务线的日报查看权限。' })
     const from = typeof req.query.from === 'string' && validDay(req.query.from) ? req.query.from : undefined
     const to = typeof req.query.to === 'string' && validDay(req.query.to) ? req.query.to : undefined
-    const reports = liveReports(state).filter(report => (!type || report.type === type) && (!from || report.date >= from) && (!to || report.date <= to)).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)).map(report => ({ ...report, allocatedAmount: reportAllocation(state, report.id), links: state.links.filter(link => link.reportId === report.id).map(link => ({ ...link, k3Row: state.k3Rows.find(row => row.id === link.k3RowId) })) }))
-    return res.json({ reports, mockEnabled: state.mockEnabled, source: state.mockEnabled ? 'local-mock' : 'workspace', notice: state.mockEnabled ? '显示隔离演示数据；非真实业务数据。' : '手工日报仍可录入；当前未连接真实 ERP。' })
+    const reports = liveReports(state).filter(report => access[report.type] && (!type || report.type === type) && (!from || report.date >= from) && (!to || report.date <= to)).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)).map(report => ({ ...report, canEdit: req.authUser?.role === 'admin' || req.authUser?.role === 'plm_manager' || (req.authUser?.role === 'member' && !partyForReport(scope, req, report.type, report.partyId).error), allocatedAmount: reportAllocation(state, report.id), links: state.links.filter(link => link.reportId === report.id).map(link => ({ ...link, k3Row: state.k3Rows.find(row => row.id === link.k3RowId) })) }))
+    return res.json({ reports, access, mockEnabled: state.mockEnabled, source: state.mockEnabled ? 'local-mock' : 'workspace', notice: state.mockEnabled ? '显示隔离演示数据；非真实业务数据。' : '手工日报仍可录入；当前未连接真实 ERP。' })
   })
 
   router.get('/daily-reports/k3-lines', (req, res) => {
     const type = req.query.type
     if (!validKind(type)) return res.status(400).json({ error: 'type 必须是 sales 或 purchase。' })
-    const state = readDailyReportState(scopeFromRequest(req)), query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 120) : ''
+    const scope = scopeFromRequest(req), access = reportingAccess(scope, req)
+    if (!access[type]) return res.status(403).json({ error: 'daily_reporting_access_denied', message: '当前成员没有此业务线的 K3 对账查看权限。' })
+    const state = readDailyReportState(scope), query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 120) : ''
     return res.json({ rows: searchRows(state, type, query), source: state.mockEnabled ? 'local-mock' : 'workspace', liveErpConnected: false })
   })
 
   router.get('/daily-reports/summary', (req, res) => {
     const date = req.query.date
     if (!validDay(date)) return res.status(400).json({ error: 'date 必须是有效的 YYYY-MM-DD。' })
-    const state = readDailyReportState(scopeFromRequest(req)), requestedScope = req.query.scope
+    const scope = scopeFromRequest(req), state = readDailyReportState(scope), access = reportingAccess(scope, req), requestedScope = req.query.scope
     if (requestedScope !== undefined && !['sales', 'purchase', 'both'].includes(String(requestedScope))) return res.status(400).json({ error: 'scope 参数无效。' })
-    return res.json(buildDailyReportSummary(state, date, (requestedScope as 'sales' | 'purchase' | 'both' | undefined) ?? 'both'))
+    const effectiveScope = (requestedScope as 'sales' | 'purchase' | 'both' | undefined) ?? (access.sales && access.purchase ? 'both' : access.sales ? 'sales' : access.purchase ? 'purchase' : undefined)
+    if (!effectiveScope || !scopeIsAllowed(access, effectiveScope)) return res.status(403).json({ error: 'daily_reporting_access_denied', message: '当前成员没有所请求业务线的日报汇总权限。' })
+    return res.json({ ...buildDailyReportSummary(state, date, effectiveScope), access })
   })
 
   router.post('/daily-reports/mock-refresh', requireRole('admin', 'plm_manager'), (req, res) => {
@@ -482,7 +521,17 @@ export function createDailyReportRouter(): Router {
   })
 
   router.post('/daily-reports', requireRole(...WRITERS), (req, res) => {
-    const scope = scopeFromRequest(req), actor = actorFromRequest(req), payload = validateReportPayload(asRecord(req.body))
+    const scope = scopeFromRequest(req), actor = actorFromRequest(req), body = asRecord(req.body)
+    const normalizedBody = { ...body }
+    if (body.currency === 'USD' && readDailyReportingAdminState(scope).masterDataConfigured && typeof body.date === 'string' && validDay(body.date)) {
+      const reportMonth = body.date.slice(0, 7)
+      const monthlyRate = readDailyReportingAdminState(scope).exchangeRates.find(item => item.month === reportMonth)
+      if (!monthlyRate) return res.status(400).json({ error: 'monthly_exchange_rate_required', message: `尚未维护 ${reportMonth} USD→CNY 月汇率，请先由日报管理员维护。` })
+      normalizedBody.exchangeRate = monthlyRate.rate
+    }
+    const partyCheck = partyForReport(scope, req, body.type, body.partyId)
+    if (partyCheck.error) return res.status(partyCheck.status ?? 400).json({ error: 'daily_party_rejected', message: partyCheck.error })
+    const payload = validateReportPayload({ ...normalizedBody, ...(partyCheck.party ? { partyId: partyCheck.party.id, partyName: partyCheck.party.name } : {}) })
     if (!payload.value) return res.status(400).json({ error: 'invalid_daily_report', message: payload.error })
     try {
       const report = mutateState(scope, state => {
@@ -497,11 +546,15 @@ export function createDailyReportRouter(): Router {
 
   router.patch('/daily-reports/:id', requireRole(...WRITERS), (req, res) => {
     const scope = scopeFromRequest(req), actor = actorFromRequest(req), body = asRecord(req.body)
+    const existing = readDailyReportState(scope).reports.find(item => item.id === String(req.params.id) && !item.deletedAt)
+    const partyCheck = partyForReport(scope, req, body.type ?? existing?.type, body.partyId ?? existing?.partyId)
+    if (partyCheck.error) return res.status(partyCheck.status ?? 400).json({ error: 'daily_party_rejected', message: partyCheck.error })
+    const patchBody = { ...body, ...(partyCheck.party ? { partyId: partyCheck.party.id, partyName: partyCheck.party.name } : {}) }
     try {
       const updated = mutateState(scope, state => {
         const report = state.reports.find(item => item.id === String(req.params.id) && !item.deletedAt)
         if (!report) return undefined
-        const parsed = validateReportPayload({ ...body, type: body.type ?? report.type }, report)
+        const parsed = validateReportPayload({ ...patchBody, type: body.type ?? report.type }, report)
         if (!parsed.value) throw new TypeError(parsed.error)
         const oldAmount = archivedReportAmount(state, report.id, report.date) ?? report.amountCny
         const oldDate = report.date, oldType = report.type
@@ -525,12 +578,14 @@ export function createDailyReportRouter(): Router {
       const removed = mutateState(scope, state => {
         const report = state.reports.find(item => item.id === String(req.params.id) && !item.deletedAt)
         if (!report) return false
+        if (partyForReport(scope, req, report.type, report.partyId).error) return 'forbidden' as const
         const oldValue = archivedReportAmount(state, report.id, report.date) ?? report.amountCny
         report.deletedAt = new Date().toISOString(); report.deletedBy = actor.id; report.updatedAt = report.deletedAt; report.updatedBy = actor.id
         state.links = state.links.filter(link => link.reportId !== report.id)
         noteCorrection(state, { originalDate: report.date, type: '日报删除', affectedReport: report.type, referenceId: report.id, originalValue: oldValue, newValue: null, diffAmount: roundMoney(-oldValue), reason: `日报 ${report.documentNo || report.id} 已软删除；已归档快照保持不变。` })
         return true
       })
+      if (removed === 'forbidden') return res.status(403).json({ error: 'daily_party_rejected', message: '当前成员未被分配到该客商，不能删除此日报。' })
       return removed ? res.status(204).end() : res.status(404).json({ error: 'daily_report_not_found', message: '日报不存在或已删除。' })
     } catch (error) { return res.status(error instanceof StateConflictError ? 409 : 500).json({ error: error instanceof StateConflictError ? 'workspace_conflict' : 'daily_report_delete_failed', message: error instanceof Error ? error.message : '日报删除失败。' }) }
   })
@@ -544,6 +599,7 @@ export function createDailyReportRouter(): Router {
       const result = mutateState(scope, state => {
         const report = state.reports.find(item => item.id === String(req.params.id) && !item.deletedAt)
         if (!report) return { missing: true as const }
+        if (partyForReport(scope, req, report.type, report.partyId).error) return { partyForbidden: true as const }
         const rows = parsed.map(link => state.k3Rows.find(row => row.id === link.k3RowId))
         if (rows.some(row => !row || !row.active)) return { forbidden: true as const }
         if (rows.some(row => row!.type !== report.type || !['shipment', 'purchase-receipt'].includes(row!.kind))) return { mismatched: true as const }
@@ -566,6 +622,7 @@ export function createDailyReportRouter(): Router {
         return { links: state.links.filter(link => link.reportId === report.id).map(link => ({ ...link, k3Row: state.k3Rows.find(row => row.id === link.k3RowId) })), warnings }
       })
       if ('missing' in result) return res.status(404).json({ error: 'daily_report_not_found', message: '日报不存在或不属于当前账套。' })
+      if ('partyForbidden' in result) return res.status(403).json({ error: 'daily_party_rejected', message: '当前成员未被分配到该客商，不能修改此日报关联。' })
       if ('forbidden' in result) return res.status(403).json({ error: 'k3_line_out_of_scope', message: '快照明细不存在、已失效或不属于当前账套。' })
       if ('mismatched' in result) return res.status(400).json({ error: 'k3_line_type_mismatch', message: '销售日报只能关联销售出库行，采购日报只能关联采购入库行。' })
       return res.json(result)
@@ -573,14 +630,18 @@ export function createDailyReportRouter(): Router {
   })
 
   router.get('/daily-reports/snapshots', (req, res) => {
-    const state = readDailyReportState(scopeFromRequest(req))
-    return res.json({ snapshots: state.snapshots.map(({ id, reportDate, scope, version, createdAt, createdBy, source, isComplete, warnings }) => ({ id, reportDate, scope, version, createdAt, createdBy, source, isComplete, warnings })), corrections: state.corrections, deliveries: state.deliveries, mockEnabled: state.mockEnabled })
+    const scope = scopeFromRequest(req), state = readDailyReportState(scope), access = reportingAccess(scope, req)
+    if (!access.sales && !access.purchase) return res.status(403).json({ error: 'daily_reporting_access_denied', message: '当前成员尚未分配日报业务线权限。' })
+    const snapshots = state.snapshots.filter(snapshot => snapshotIsAllowed(access, snapshot))
+    const snapshotIds = new Set(snapshots.map(snapshot => snapshot.id))
+    return res.json({ snapshots: snapshots.map(({ id, reportDate, scope: snapshotScope, version, createdAt, createdBy, source, isComplete, warnings }) => ({ id, reportDate, scope: snapshotScope, version, createdAt, createdBy, source, isComplete, warnings })), corrections: state.corrections.filter(item => access[item.affectedReport]), deliveries: state.deliveries.filter(item => snapshotIds.has(item.snapshotId)), mockEnabled: state.mockEnabled, access })
   })
 
   router.post('/daily-reports/snapshots', requireRole(...WRITERS), (req, res) => {
     const body = asRecord(req.body), reportDate = body.reportDate, snapshotScope = body.scope ?? 'both'
     if (!validDay(reportDate) || !['sales', 'purchase', 'both'].includes(String(snapshotScope))) return res.status(400).json({ error: 'reportDate 或 scope 参数无效。' })
     const scope = scopeFromRequest(req), actor = actorFromRequest(req)
+    if (!scopeIsAllowed(reportingAccess(scope, req), snapshotScope as 'sales' | 'purchase' | 'both')) return res.status(403).json({ error: 'daily_reporting_access_denied', message: '当前成员不能归档所请求业务线的数据。' })
     try {
       const snapshot = mutateState(scope, state => snapshotFromState(state, reportDate, snapshotScope as 'sales' | 'purchase' | 'both', actor))
       return res.status(201).json(snapshot)
@@ -588,8 +649,8 @@ export function createDailyReportRouter(): Router {
   })
 
   router.get('/daily-reports/snapshots/:id/export.html', (req, res) => {
-    const state = readDailyReportState(scopeFromRequest(req)), snapshot = state.snapshots.find(item => item.id === String(req.params.id))
-    if (!snapshot) return res.status(404).json({ error: 'snapshot_not_found', message: '报表快照不存在或不属于当前账套。' })
+    const scope = scopeFromRequest(req), state = readDailyReportState(scope), snapshot = state.snapshots.find(item => item.id === String(req.params.id))
+    if (!snapshot || !snapshotIsAllowed(reportingAccess(scope, req), snapshot)) return res.status(404).json({ error: 'snapshot_not_found', message: '报表快照不存在或不属于当前账套。' })
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.setHeader('Content-Disposition', `attachment; filename="daily-report-${snapshot.reportDate}-v${snapshot.version}.html"`)
     res.setHeader('Cache-Control', 'private, no-store')
@@ -597,8 +658,8 @@ export function createDailyReportRouter(): Router {
   })
 
   router.get('/daily-reports/snapshots/:id/export.xlsx', async (req, res) => {
-    const state = readDailyReportState(scopeFromRequest(req)), snapshot = state.snapshots.find(item => item.id === String(req.params.id))
-    if (!snapshot) return res.status(404).json({ error: 'snapshot_not_found', message: '报表快照不存在或不属于当前账套。' })
+    const scope = scopeFromRequest(req), state = readDailyReportState(scope), snapshot = state.snapshots.find(item => item.id === String(req.params.id))
+    if (!snapshot || !snapshotIsAllowed(reportingAccess(scope, req), snapshot)) return res.status(404).json({ error: 'snapshot_not_found', message: '报表快照不存在或不属于当前账套。' })
     const workbook = new ExcelJS.Workbook(), data = snapshot.data as Record<string, unknown>, sales = asRecord(data.sales), purchase = asRecord(data.purchase), orders = asRecord(data.orders), balances = asRecord(data.balances)
     const summary = workbook.addWorksheet('摘要')
     summary.addRows([['经营日报', ''], ['报表日期', snapshot.reportDate], ['归档版本', snapshot.version], ['数据来源', snapshot.source === 'local-mock' ? '本地隔离演示（非真实 ERP）' : '工作区'], ['销售日报金额', asRecord(sales.daily).amountCny ?? 0], ['采购日报金额', asRecord(purchase.daily).amountCny ?? 0], ['销售订单金额', asRecord(orders.sales).amountCny ?? 0], ['采购订单金额', asRecord(orders.purchase).amountCny ?? 0], ['应收未收', asRecord(balances.receivables).outstandingAmountCny ?? 0], ['应付未付', asRecord(balances.payables).outstandingAmountCny ?? 0], ['快照完整', snapshot.isComplete ? '是' : '否'], ...snapshot.warnings.map(warning => ['警告', warning])])
@@ -640,6 +701,8 @@ export function createDailyReportRouter(): Router {
     const body = asRecord(req.body), channel = body.channel
     if (channel !== 'email' && channel !== 'dingtalk') return res.status(400).json({ error: 'channel 必须为 email 或 dingtalk。' })
     const scope = scopeFromRequest(req), actor = actorFromRequest(req)
+    const requestedSnapshot = readDailyReportState(scope).snapshots.find(item => item.id === String(req.params.id))
+    if (requestedSnapshot && !snapshotIsAllowed(reportingAccess(scope, req), requestedSnapshot)) return res.status(403).json({ error: 'daily_reporting_access_denied', message: '当前成员不能推送此业务线快照。' })
     try {
       const delivery = mutateState(scope, state => {
         const snapshot = state.snapshots.find(item => item.id === String(req.params.id))
@@ -656,8 +719,8 @@ export function createDailyReportRouter(): Router {
   })
 
   router.get('/daily-reports/snapshots/:id', (req, res) => {
-    const state = readDailyReportState(scopeFromRequest(req)), snapshot = state.snapshots.find(item => item.id === String(req.params.id))
-    if (!snapshot) return res.status(404).json({ error: 'snapshot_not_found', message: '报表快照不存在或不属于当前账套。' })
+    const scope = scopeFromRequest(req), state = readDailyReportState(scope), snapshot = state.snapshots.find(item => item.id === String(req.params.id))
+    if (!snapshot || !snapshotIsAllowed(reportingAccess(scope, req), snapshot)) return res.status(404).json({ error: 'snapshot_not_found', message: '报表快照不存在或不属于当前账套。' })
     return res.json({ snapshot, deliveries: deliveryByChannel(state, snapshot.id) })
   })
 

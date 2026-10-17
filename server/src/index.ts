@@ -13,6 +13,7 @@ import { createAuthRouter, requireRole, sameOriginGuard, sessionGate } from './a
 import { databaseHealth, db, StateConflictError } from './database.js'
 import { createIntegrationRouter, stopIntegrationServices } from './integration-api.js'
 import { createDailyReportRouter } from './daily-reporting.js'
+import { createDailyReportingAdminRouter } from './daily-reporting-admin.js'
 import { closeCache } from './integrations/cache.js'
 import { currentWorkspaceScope, runWithWorkspaceScope, type WorkspaceScope } from './scope.js'
 import { loadScopedWorkspace, persistScopedWorkspace, type BomKind, type Entity, type Project, type Task, type Workspace } from './workspace-store.js'
@@ -816,6 +817,7 @@ app.delete('/api/boms/:id/lines/:lineId', requireRole('admin', 'plm_manager'), (
   bom.lines = next; bom.updatedAt = new Date().toISOString(); persist(); return res.status(204).end()
 })
 app.use('/api', createDailyReportRouter())
+app.use('/api', createDailyReportingAdminRouter())
 app.use('/api', createIntegrationRouter())
 app.use('/api', (error: unknown, _req: Request, res: Response, _next: (error?: unknown) => void) => {
   if (error instanceof StateConflictError) return res.status(409).json({ error: 'workspace_conflict', message: '工作区刚被其他操作更新，请刷新后重试。' })
