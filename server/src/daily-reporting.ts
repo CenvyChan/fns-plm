@@ -3,11 +3,11 @@ import ExcelJS from 'exceljs'
 import multer from 'multer'
 import { Router, type Request } from 'express'
 import { requireRole } from './auth.js'
-import { getAppStateVersioned, setAppStateIfRevision, StateConflictError } from './database.js'
+import { db, getAppStateVersioned, setAppStateIfRevision, StateConflictError } from './database.js'
 import { parseDailyReportImportFile } from './daily-report-import.js'
 import { BoundedPreviewCache, MAX_PENDING_IMPORT_PREVIEW_MEMORY_BYTES, MAX_PENDING_IMPORT_PREVIEWS } from './import-preview-cache.js'
 import type { WorkspaceScope } from './scope.js'
-import { findDailyParty, getDailyReportingAccess, hasDailyPartyAssignment, readDailyReportingAdminState, type DailyParty } from './daily-reporting-admin.js'
+import { findDailyParty, findLegacyDailyParty, getDailyReportingAccess, hasDailyPartyAssignment, readDailyReportingAdminState, recordDailyReportingMigrationBatch, type DailyParty } from './daily-reporting-admin.js'
 
 export type DailyKind = 'sales' | 'purchase'
 export type K3DocumentKind = 'shipment' | 'purchase-receipt' | 'sales-order' | 'purchase-order' | 'receivable' | 'payable' | 'sales-invoice' | 'purchase-invoice'
@@ -15,22 +15,43 @@ export const DAILY_K3_SOURCE_KINDS: K3DocumentKind[] = ['shipment', 'purchase-re
 export const DAILY_K3_REQUIRED_FIELDS = ['id', 'billNo', 'date', 'partyName', 'originalAmount', 'amountCny'] as const
 export type DailyK3Field = 'id' | 'billNo' | 'date' | 'modifiedAt' | 'partyNumber' | 'partyName' | 'materialName' | 'quantity' | 'unit' | 'unitPrice' | 'currency' | 'originalAmount' | 'amountCny' | 'settledAmountCny' | 'status' | 'upstreamId' | 'upstreamBillNo' | 'upstreamLineId' | 'taxAmount' | 'taxAmountCny'
 export type DailyK3SourceMapping = { formId: string; fields: Partial<Record<DailyK3Field, string>> }
-export type DailyK3SyncMetadata = { source: 'k3cloud'; lastSyncedAt: string; rowCounts: Partial<Record<K3DocumentKind, number>>; changedRowCounts?: Partial<Record<K3DocumentKind, number>>; mode?: 'full' | 'incremental' | 'mixed'; incrementalFrom?: string | null; fullScanKinds?: K3DocumentKind[] }
+export type DailyK3SyncMetadata = { source: 'k3cloud' | 'history-import'; lastSyncedAt: string; rowCounts: Partial<Record<K3DocumentKind, number>>; changedRowCounts?: Partial<Record<K3DocumentKind, number>>; mode?: 'full' | 'incremental' | 'mixed'; incrementalFrom?: string | null; fullScanKinds?: K3DocumentKind[] }
 export type DailySource = 'manual' | 'history-import'
 
 export interface DailyReport {
   id: string; type: DailyKind; date: string; partyName: string; documentNo: string; quantity: number; currency: string
   originalAmount: number; originalAmountExact?: string; exchangeRate: number; exchangeRateExact?: string; amountCny: number; amountCnyExact?: string; note: string; source: DailySource
   sourceIdempotencyKey?: string; sourceFileName?: string; sourceRow?: number; importBatchId?: string
+  legacyCompanyCode?: string; legacyPartyId?: string; legacyUserId?: string; legacyUsername?: string; legacyUserName?: string
+  legacySourceFile?: string; legacyImportBatch?: string; legacySourceRow?: number; legacyBusinessType?: string
+  legacySourcePartyStatus?: 'linked' | 'pending'; legacyUserStatus?: 'pending'
   createdAt: string; updatedAt: string; createdBy: string; createdByName: string; updatedBy: string; deletedAt?: string; deletedBy?: string
   partyId?: string
 }
 export interface K3SnapshotRow {
   id: string; kind: K3DocumentKind; type: DailyKind; billNo: string; date: string; partyNumber: string; partyName: string
   materialName: string; quantity: number; unit: string; currency: string; originalAmount: number; amountCny: number
-  settledAmountCny: number; status: string; source: 'local-mock' | 'k3cloud'; snapshotAt: string; active: boolean
+  settledAmountCny: number; status: string; source: 'local-mock' | 'k3cloud' | 'history-import'; snapshotAt: string; active: boolean
   erpId?: string; modifiedAt?: string; inactiveAt?: string; unitPrice?: number; upstreamId?: string; upstreamBillNo?: string; upstreamLineId?: string; taxAmount?: number; taxAmountCny?: number
+  quantityExact?: string; unitPriceExact?: string; originalAmountExact?: string; amountCnyExact?: string
+  legacyCompanyCode?: string; legacyHeaderId?: string; legacyLineId?: string; legacyRecordId?: string; legacyFormId?: string; legacySequence?: number
+  materialNumber?: string; specification?: string
   linkedDocuments?: Array<Pick<K3SnapshotRow, 'id' | 'kind' | 'billNo' | 'date' | 'partyName' | 'materialName' | 'quantity' | 'unit' | 'unitPrice' | 'currency' | 'amountCny' | 'status'>>
+}
+export interface LegacyK3SnapshotHeader {
+  id: string; legacyCompanyCode: string; legacyRecordId: string; formId: string; fid: string
+  kind: 'shipment' | 'purchase-receipt'; type: DailyKind; businessType: 'SALES_OUT' | 'PURCHASE_IN'
+  billNo: string; date: string; status: string; approveDate?: string; orgNumber: string
+  partyNumber: string; partyName: string; currency: string; totalAmountExact: string; totalQuantityExact: string
+  legacyPartyMappingId?: string; active: boolean; inactiveAt?: string; snapshotAt: string
+}
+export interface DailyK3MigrationSummary {
+  legacyCompanyCode: string; headerCount: number; lineCount: number; inactiveHeaderCount: number; inactiveLineCount: number
+  digest: string; completedAt: string
+}
+interface DailyK3MigrationStage {
+  legacyCompanyCode: string; expectedHeaders?: number; expectedLines?: number
+  headers: LegacyK3SnapshotHeader[]; lines: K3SnapshotRow[]
 }
 export interface DailyReportLink {
   id: string; reportId: string; k3RowId: string; allocatedAmount: number; allocatedQuantity: number; linkedAt: string
@@ -43,7 +64,7 @@ export interface DailyCorrection {
 }
 export interface DailySnapshot {
   id: string; reportDate: string; scope: 'sales' | 'purchase' | 'both'; version: number; createdAt: string
-  createdBy: string; source: 'local-mock' | 'k3cloud' | 'workspace'; calculationVersion: string; isComplete: boolean
+  createdBy: string; source: 'local-mock' | 'k3cloud' | 'history-import' | 'workspace'; calculationVersion: string; isComplete: boolean
   warnings: string[]; data: Record<string, unknown>
 }
 export interface DailyDelivery {
@@ -53,10 +74,12 @@ export interface DailyDelivery {
 export interface DailyReportState {
   reports: DailyReport[]; k3Rows: K3SnapshotRow[]; links: DailyReportLink[]; snapshots: DailySnapshot[]
   corrections: DailyCorrection[]; deliveries: DailyDelivery[]; mockSnapshotAt: string | null; mockEnabled: boolean; k3Sync: DailyK3SyncMetadata | null
+  k3HistoricalHeaders: LegacyK3SnapshotHeader[]; k3MigrationStage?: DailyK3MigrationStage; k3MigrationSummary?: DailyK3MigrationSummary
 }
 
 const STATE_PREFIX = 'daily-reporting'
 const WRITERS = ['admin', 'plm_manager', 'member'] as const
+const MIGRATION_MANAGERS = ['admin', 'plm_manager'] as const
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
 const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const validDay = (value: unknown): value is string => {
@@ -111,11 +134,11 @@ function stateKey(scope: Pick<WorkspaceScope, 'tenantId' | 'organizationId' | 'a
   return `${STATE_PREFIX}:${scope.tenantId}:${scope.organizationId}:${scope.accountId}`
 }
 function emptyState(): DailyReportState {
-  return { reports: [], k3Rows: [], links: [], snapshots: [], corrections: [], deliveries: [], mockSnapshotAt: null, mockEnabled: false, k3Sync: null }
+  return { reports: [], k3Rows: [], links: [], snapshots: [], corrections: [], deliveries: [], mockSnapshotAt: null, mockEnabled: false, k3Sync: null, k3HistoricalHeaders: [] }
 }
 function normalizedState(value: unknown): DailyReportState {
   const state = { ...emptyState(), ...asRecord(value) } as DailyReportState
-  for (const key of ['reports', 'k3Rows', 'links', 'snapshots', 'corrections', 'deliveries'] as const) if (!Array.isArray(state[key])) state[key] = [] as never
+  for (const key of ['reports', 'k3Rows', 'links', 'snapshots', 'corrections', 'deliveries', 'k3HistoricalHeaders'] as const) if (!Array.isArray(state[key])) state[key] = [] as never
   state.mockEnabled = Boolean(state.mockEnabled)
   state.mockSnapshotAt = typeof state.mockSnapshotAt === 'string' ? state.mockSnapshotAt : null
   state.k3Sync = state.k3Sync && typeof state.k3Sync.lastSyncedAt === 'string' ? state.k3Sync : null
@@ -178,6 +201,72 @@ function scopeFromRequest(req: Request): WorkspaceScope {
   const user = req.authUser
   if (!user) throw new Error('A verified tenant, organization and account scope is required.')
   return { tenantId: user.tenantId, tenantName: user.tenantName, organizationId: user.organizationId, organizationName: user.organizationName, accountId: user.accountId, accountName: user.accountName, role: user.role, isPlatformAdmin: user.isPlatformAdmin }
+}
+function legacyString(value: unknown, max: number): string | undefined {
+  const candidate = typeof value === 'number' && Number.isSafeInteger(value) ? String(value) : typeof value === 'string' ? value.trim() : ''
+  return candidate && candidate.length <= max ? candidate : undefined
+}
+function legacyBlankString(value: unknown, max: number): string | undefined {
+  if (typeof value === 'string' && value.trim() === '') return ''
+  return legacyString(value, max)
+}
+function legacyDecimal(value: unknown): { exact: string; numeric: number } | undefined {
+  const exact = typeof value === 'number' && Number.isFinite(value) ? String(value) : typeof value === 'string' ? value.trim() : ''
+  if (!exact || exact.length > 100 || !/^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[eE][+-]?\d+)?$/.test(exact)) return undefined
+  const numeric = Number(exact)
+  return Number.isFinite(numeric) ? { exact, numeric } : undefined
+}
+function legacyTimestamp(value: unknown): string | undefined {
+  const input = legacyString(value, 80)
+  if (!input) return undefined
+  const parsed = new Date(input)
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : undefined
+}
+function legacyK3Id(kind: 'header' | 'line', companyCode: string, ...parts: string[]): string {
+  return `legacy-k3-${kind}-${createHash('sha256').update(JSON.stringify([companyCode, ...parts])).digest('hex').slice(0, 32)}`
+}
+function parseLegacyK3Header(value: unknown, companyCode: string): LegacyK3SnapshotHeader | undefined {
+  const row = asRecord(value), legacyRecordId = legacyString(row.legacyRecordId, 40), formId = legacyString(row.formId, 64), fid = legacyString(row.fid, 64)
+  const businessType = row.businessType === 'SALES_OUT' ? 'SALES_OUT' : row.businessType === 'PURCHASE_IN' ? 'PURCHASE_IN' : undefined
+  const type: DailyKind | undefined = businessType === 'SALES_OUT' ? 'sales' : businessType === 'PURCHASE_IN' ? 'purchase' : undefined
+  const date = typeof row.date === 'string' && validDay(row.date) ? row.date : undefined
+  const status = legacyBlankString(row.status, 32), orgNumber = legacyBlankString(row.orgNumber, 64)
+  const partyNumber = legacyBlankString(row.partyNumber, 64), partyName = legacyBlankString(row.partyName, 200)
+  const currency = typeof row.currency === 'string' && row.currency.length <= 16 ? row.currency.trim().toUpperCase() : undefined
+  const totalAmount = legacyDecimal(row.totalAmountExact), totalQuantity = legacyDecimal(row.totalQuantityExact)
+  const snapshotAt = legacyTimestamp(row.snapshotAt), approveDate = row.approveDate === null || row.approveDate === '' || row.approveDate === undefined ? undefined : legacyTimestamp(row.approveDate)
+  const inactiveAt = row.inactiveAt === null || row.inactiveAt === '' || row.inactiveAt === undefined ? undefined : legacyTimestamp(row.inactiveAt)
+  const legacyPartyMappingId = row.legacyPartyMappingId === null || row.legacyPartyMappingId === '' || row.legacyPartyMappingId === undefined ? undefined : legacyString(row.legacyPartyMappingId, 128)
+  if (!legacyRecordId || !/^\d+$/.test(legacyRecordId) || !formId || !fid || !businessType || !type || !date || status === undefined || orgNumber === undefined || partyNumber === undefined || partyName === undefined || currency === undefined || !totalAmount || !totalQuantity || !snapshotAt || (row.approveDate && !approveDate) || (row.inactiveAt && !inactiveAt) || (row.legacyPartyMappingId && !legacyPartyMappingId) || typeof row.active !== 'boolean') return undefined
+  const kind = type === 'sales' ? 'shipment' : 'purchase-receipt'
+  return {
+    id: legacyK3Id('header', companyCode, formId, fid), legacyCompanyCode: companyCode, legacyRecordId, formId, fid,
+    kind, type, businessType, billNo: legacyString(row.billNo, 80) ?? '', date, status, ...(approveDate ? { approveDate } : {}), orgNumber,
+    partyNumber, partyName, currency, totalAmountExact: totalAmount.exact, totalQuantityExact: totalQuantity.exact,
+    ...(legacyPartyMappingId ? { legacyPartyMappingId } : {}), active: row.active, ...(inactiveAt ? { inactiveAt } : {}), snapshotAt,
+  }
+}
+function parseLegacyK3Line(value: unknown, companyCode: string, headersBySourceId: Map<string, LegacyK3SnapshotHeader>): K3SnapshotRow | undefined {
+  const row = asRecord(value), legacyRecordId = legacyString(row.legacyRecordId, 40), legacyHeaderRecordId = legacyString(row.legacyHeaderRecordId, 40)
+  const formId = legacyString(row.formId, 64), fid = legacyString(row.fid, 64), entryId = legacyString(row.entryId, 64)
+  const sourceHeaderKey = formId && fid ? `${formId}\u0000${fid}` : ''
+  const header = headersBySourceId.get(sourceHeaderKey)
+  const sequence = typeof row.sequence === 'number' ? row.sequence : typeof row.sequence === 'string' && /^\d+$/.test(row.sequence) ? Number(row.sequence) : 0
+  const quantity = legacyDecimal(row.quantityExact), unitPrice = legacyDecimal(row.unitPriceExact)
+  const originalAmount = legacyDecimal(row.originalAmountExact), amountCny = legacyDecimal(row.amountCnyExact)
+  const materialNumber = legacyBlankString(row.materialNumber, 80), materialName = legacyBlankString(row.materialName, 200)
+  const specification = legacyBlankString(row.specification, 255), unit = legacyBlankString(row.unit, 32)
+  if (!legacyRecordId || !/^\d+$/.test(legacyRecordId) || !legacyHeaderRecordId || !formId || !fid || !entryId || !header || header.legacyRecordId !== legacyHeaderRecordId || !Number.isSafeInteger(sequence) || sequence < 0 || !quantity || !unitPrice || !originalAmount || !amountCny || materialNumber === undefined || materialName === undefined || specification === undefined || unit === undefined) return undefined
+  const id = legacyK3Id('line', companyCode, formId, fid, entryId)
+  return {
+    id, erpId: `${formId}:${fid}:${entryId}`, kind: header.kind, type: header.type, billNo: header.billNo, date: header.date,
+    partyNumber: header.partyNumber, partyName: header.partyName, materialNumber, materialName, specification, quantity: quantity.numeric, quantityExact: quantity.exact,
+    unit, unitPrice: unitPrice.numeric, unitPriceExact: unitPrice.exact, currency: header.currency,
+    originalAmount: originalAmount.numeric, originalAmountExact: originalAmount.exact, amountCny: amountCny.numeric, amountCnyExact: amountCny.exact,
+    settledAmountCny: 0, status: header.status, source: 'history-import', snapshotAt: header.snapshotAt, active: header.active,
+    ...(header.inactiveAt ? { inactiveAt: header.inactiveAt } : {}), legacyCompanyCode: companyCode, legacyHeaderId: header.id,
+    legacyLineId: entryId, legacyRecordId, legacyFormId: formId, legacySequence: sequence,
+  }
 }
 function actorFromRequest(req: Request): { id: string; name: string } {
   return { id: req.authUser?.id ?? 'unknown', name: req.authUser?.displayName ?? '工作区成员' }
@@ -258,7 +347,7 @@ export async function syncK3DailyDocuments(
   const pageSize = 200, maximumRowsPerSource = 5_000
   const overlapMs = 5 * 60_000
   const stateVersion = versionedState(scope)
-  const previousCheckpoint = stateVersion.value.k3Sync?.lastSyncedAt ?? null
+  const previousCheckpoint = stateVersion.value.k3Sync?.source === 'k3cloud' ? stateVersion.value.k3Sync.lastSyncedAt : null
   const snapshotStartedAt = new Date().toISOString()
   const collected: K3SnapshotRow[] = []
   const changedRowCounts: Partial<Record<K3DocumentKind, number>> = {}
@@ -274,7 +363,7 @@ export async function syncK3DailyDocuments(
     const required = [...DAILY_K3_REQUIRED_FIELDS, ...(['receivable', 'payable'].includes(kind) ? ['settledAmountCny'] : [])]
     if (required.some(key => typeof mapping.fields[key as DailyK3Field] !== 'string' || !/^[A-Za-z0-9_.]{1,128}$/.test(mapping.fields[key as DailyK3Field]!))) throw new TypeError(`K3Cloud ${kind} 必须映射字段：${required.join(', ')}`)
     const selectedFields = [...new Set(Object.values(mapping.fields).filter((field): field is string => typeof field === 'string' && Boolean(field.trim()))) ]
-    const hasPriorKindSnapshot = Object.hasOwn(stateVersion.value.k3Sync?.rowCounts ?? {}, kind)
+    const hasPriorKindSnapshot = stateVersion.value.k3Sync?.source === 'k3cloud' && Object.hasOwn(stateVersion.value.k3Sync.rowCounts, kind)
     const isIncremental = Boolean(previousCheckpoint && hasPriorKindSnapshot && mapping.fields.modifiedAt)
     const sourceCheckpoint = isIncremental ? new Date(Date.parse(previousCheckpoint!) - overlapMs).toISOString() : null
     const filterString = isIncremental ? `${mapping.fields.modifiedAt} >= '${k3FilterTimestamp(sourceCheckpoint!)}'` : ''
@@ -411,9 +500,10 @@ export function buildDailyReportSummary(state: DailyReportState, reportDate: str
     return [{ type: report.type, billNo: sourceRow?.billNo ?? link.k3RowId, overAllocatedAmount: 0, crossDate: false, inactiveSource: true }]
   })
   warningRows.push(...invalidSourceWarnings)
+  const source = state.mockEnabled ? 'local-mock' : state.k3Sync?.source ?? 'workspace'
   return {
-    reportDate, generatedAt: new Date().toISOString(), source: state.mockEnabled ? 'local-mock' : state.k3Sync ? 'k3cloud' : 'workspace', isMock: state.mockEnabled,
-    mockSnapshotAt: state.mockSnapshotAt, k3Sync, liveErpConnected: Boolean(state.k3Sync),
+    reportDate, generatedAt: new Date().toISOString(), source, isMock: state.mockEnabled,
+    mockSnapshotAt: state.mockSnapshotAt, k3Sync, k3HistoricalMigration: state.k3MigrationSummary ?? null, liveErpConnected: state.k3Sync?.source === 'k3cloud',
     sales: scope === 'purchase' ? undefined : { daily: sumDaily('sales'), reconciliation: reconciliationFor(state, 'sales', reportDate) },
     purchase: scope === 'sales' ? undefined : { daily: sumDaily('purchase'), reconciliation: reconciliationFor(state, 'purchase', reportDate) },
     orders: { sales: orderSummary(salesOrders), purchase: orderSummary(purchaseOrders) },
@@ -421,7 +511,7 @@ export function buildDailyReportSummary(state: DailyReportState, reportDate: str
     invoices: { sales: orderSummary(salesInvoices), purchase: orderSummary(purchaseInvoices) },
     balances: { receivables: balanceSummary(receivables), payables: balanceSummary(payables) },
     warnings: warningRows,
-    notice: state.mockEnabled ? '本地隔离演示快照；非真实 K3Cloud 数据，金额仅用于功能验证。' : state.k3Sync ? `真实 K3Cloud 只读快照已同步于 ${state.k3Sync.lastSyncedAt}；应收/应付余额为该同步时点余额，并非按报表日重算。` : '尚无 K3Cloud 快照；金额对账暂不可判定，缺失数据未按零处理。',
+    notice: state.mockEnabled ? '本地隔离演示快照；非真实 K3Cloud 数据，金额仅用于功能验证。' : state.k3Sync?.source === 'history-import' ? `旧系统 K3 历史快照已迁入（${state.k3MigrationSummary?.lineCount ?? 0} 行），不是实时 ERP 连接；应收/应付余额未从该库存历史数据推算。` : state.k3Sync ? `真实 K3Cloud 只读快照已同步于 ${state.k3Sync.lastSyncedAt}；应收/应付余额为该同步时点余额，并非按报表日重算。` : '尚无 K3Cloud 快照；金额对账暂不可判定，缺失数据未按零处理。',
   }
 }
 
@@ -449,7 +539,7 @@ function archivedReportAllocation(state: DailyReportState, reportId: string, rep
   const links = (snapshot.data.links as DailyReportLink[] | undefined) ?? []
   return roundMoney(links.filter(link => link.reportId === reportId).reduce((sum, link) => sum + Math.abs(link.allocatedAmount), 0))
 }
-function validateReportPayload(body: Record<string, unknown>, existing?: DailyReport): { error?: string; value?: Omit<DailyReport, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'createdByName' | 'updatedBy'> } {
+function validateReportPayload(body: Record<string, unknown>, existing?: DailyReport, options: { preserveCnySnapshot?: boolean; allowLegacyMetadata?: boolean } = {}): { error?: string; value?: Omit<DailyReport, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'createdByName' | 'updatedBy'> } {
   const type = body.type ?? existing?.type
   const date = body.date ?? existing?.date
   const partyName = body.partyName ?? existing?.partyName
@@ -460,6 +550,7 @@ function validateReportPayload(body: Record<string, unknown>, existing?: DailyRe
   const originalAmount = finite(originalAmountInput)
   const rawRateInput = body.exchangeRate ?? existing?.exchangeRateExact ?? existing?.exchangeRate ?? 1
   const rawRate = finite(rawRateInput)
+  const rawCnyInput = body.amountCny ?? body.amountCnyExact ?? existing?.amountCnyExact ?? existing?.amountCny
   const note = body.note ?? existing?.note ?? ''
   const partyId = body.partyId ?? existing?.partyId
   const source = existing?.source ?? 'manual'
@@ -474,14 +565,47 @@ function validateReportPayload(body: Record<string, unknown>, existing?: DailyRe
   if (source !== 'manual' && source !== 'history-import') return { error: '日报来源无效。' }
   const originalAmountExact = exactDecimalText(body.originalAmountExact, originalAmountInput, originalAmount)
   const exchangeRateExact = currency === 'CNY' ? '1' : exactDecimalText(body.exchangeRateExact, rawRateInput, rawRate)
-  const amountCnyExact = multiplyDecimalText(originalAmountExact, exchangeRateExact)
+  const hasCnySnapshot = options.preserveCnySnapshot && rawCnyInput !== undefined && rawCnyInput !== null && rawCnyInput !== ''
+  const rawCny = hasCnySnapshot ? finite(rawCnyInput) : undefined
+  if (hasCnySnapshot && rawCny === undefined) return { error: '历史人民币金额快照必须是有限数字。' }
+  const amountCnyExact = rawCny === undefined ? multiplyDecimalText(originalAmountExact, exchangeRateExact) : exactDecimalText(body.amountCnyExact, rawCnyInput, rawCny)
   const amountCny = amountCnyExact === undefined ? undefined : finite(amountCnyExact)
   if (amountCny === undefined) return { error: '原币金额或汇率精度无效，无法生成人民币金额快照。' }
+  const allowLegacyMetadata = options.allowLegacyMetadata === true || existing?.source === 'history-import'
+  const legacy = existing as unknown as Record<string, unknown> | undefined
+  const legacyText = (key: string, max: number): string | undefined | null => {
+    if (!allowLegacyMetadata) return undefined
+    const value = body[key] ?? legacy?.[key]
+    if (value === undefined || value === null || value === '') return undefined
+    if (typeof value !== 'string' || value.length > max) return null
+    return value.trim()
+  }
+  const legacyCompanyCode = legacyText('legacyCompanyCode', 32)
+  const legacyPartyId = legacyText('legacyPartyId', 128)
+  const legacyUserId = legacyText('legacyUserId', 128)
+  const legacyUsername = legacyText('legacyUsername', 128)
+  const legacyUserName = legacyText('legacyUserName', 160)
+  const legacySourceFile = legacyText('legacySourceFile', 255)
+  const legacyImportBatch = legacyText('legacyImportBatch', 128)
+  const legacyBusinessType = legacyText('legacyBusinessType', 64)
+  if ([legacyCompanyCode, legacyPartyId, legacyUserId, legacyUsername, legacyUserName, legacySourceFile, legacyImportBatch, legacyBusinessType].some(value => value === null)) return { error: '旧系统来源或责任人字段长度/类型无效。' }
+  const rawLegacyRow = allowLegacyMetadata ? body.legacySourceRow ?? legacy?.legacySourceRow : undefined
+  const legacySourceRow = rawLegacyRow === undefined || rawLegacyRow === null || rawLegacyRow === '' ? undefined : typeof rawLegacyRow === 'number' ? rawLegacyRow : typeof rawLegacyRow === 'string' && /^\d+$/.test(rawLegacyRow) ? Number(rawLegacyRow) : Number.NaN
+  if (legacySourceRow !== undefined && (!Number.isSafeInteger(legacySourceRow) || legacySourceRow < 1)) return { error: '旧来源行号必须是正整数。' }
+  const sourceCompanyCode = legacyCompanyCode?.toUpperCase()
+  const rawPartyStatus = allowLegacyMetadata ? body.legacySourcePartyStatus ?? existing?.legacySourcePartyStatus : undefined
+  const legacySourcePartyStatus = rawPartyStatus === 'linked' || rawPartyStatus === 'pending' ? rawPartyStatus : undefined
   return { value: {
     type, date, partyName: partyName.trim(), documentNo: documentNo.trim(), quantity, currency,
     originalAmount, originalAmountExact, exchangeRate: currency === 'CNY' ? 1 : rawRate,
     exchangeRateExact, amountCny, amountCnyExact, note: note.trim(), source,
     ...(typeof partyId === 'string' && partyId ? { partyId } : {}),
+    ...(sourceCompanyCode ? { legacyCompanyCode: sourceCompanyCode } : {}),
+    ...(legacyPartyId ? { legacyPartyId } : {}), ...(legacyUserId ? { legacyUserId, legacyUserStatus: 'pending' as const } : {}),
+    ...(legacyUsername ? { legacyUsername } : {}), ...(legacyUserName ? { legacyUserName } : {}),
+    ...(legacySourceFile ? { legacySourceFile } : {}), ...(legacyImportBatch ? { legacyImportBatch } : {}),
+    ...(legacySourceRow === undefined ? {} : { legacySourceRow }), ...(legacyBusinessType ? { legacyBusinessType } : {}),
+    ...(legacySourcePartyStatus ? { legacySourcePartyStatus } : {}),
     ...(existing?.sourceIdempotencyKey ? { sourceIdempotencyKey: existing.sourceIdempotencyKey } : {}),
     ...(existing?.sourceFileName ? { sourceFileName: existing.sourceFileName } : {}),
     ...(existing?.sourceRow !== undefined ? { sourceRow: existing.sourceRow } : {}),
@@ -490,7 +614,7 @@ function validateReportPayload(body: Record<string, unknown>, existing?: DailyRe
 }
 
 type ImportPreviewRow = { line: number; value?: Omit<DailyReport, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'createdByName' | 'updatedBy'>; errors: string[]; duplicateReason?: 'existing' | 'same_batch' }
-type PendingImportPreview = { token: string; actorId: string; scopeKey: string; expiresAt: number; rows: ImportPreviewRow[]; fileName: string }
+type PendingImportPreview = { token: string; actorId: string; scopeKey: string; expiresAt: number; rows: ImportPreviewRow[]; fileName: string; migration: boolean; sourceCompanyCode?: string }
 const pendingImportPreviews = new BoundedPreviewCache<PendingImportPreview>(MAX_PENDING_IMPORT_PREVIEWS, MAX_PENDING_IMPORT_PREVIEW_MEMORY_BYTES)
 const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 1, parts: 2 } }).single('file')
 const importPreviewTtlMs = 15 * 60 * 1000
@@ -526,6 +650,7 @@ function importPreviewResponse(preview: PendingImportPreview, headers: string[],
   return {
     previewId: preview.token, fileName: preview.fileName, expiresAt: new Date(preview.expiresAt).toISOString(), headers, mappedFields,
     totalRows: preview.rows.length, validRows: valid, duplicateRows: duplicates, importableRows: Math.max(0, valid - duplicates), errorRows: errors,
+    migration: preview.migration, ...(preview.sourceCompanyCode ? { sourceCompanyCode: preview.sourceCompanyCode } : {}),
     rows: preview.rows.map(row => ({ line: row.line, status: row.errors.length ? 'invalid' : row.duplicateReason ? 'duplicate' : 'ready', data: row.value, errors: row.errors, duplicateReason: row.duplicateReason })),
   }
 }
@@ -544,7 +669,9 @@ function snapshotFromState(state: DailyReportState, reportDate: string, scope: '
     ...(!state.mockSnapshotAt && !state.k3Sync ? ['未找到 K3Cloud 快照；对账指标显示为暂不可判定。'] : []),
     ...summary.warnings.map(item => item.inactiveSource ? `${item.type} ${item.billNo} 关联来源已失效，当前覆盖率不计入。` : `${item.type} ${item.billNo}${item.crossDate ? ' 存在跨日关联' : ''}${item.overAllocatedAmount ? ` 超额分摊 ${item.overAllocatedAmount.toFixed(2)} 元` : ''}`),
   ]
-  const snapshot: DailySnapshot = { id, reportDate, scope, version, createdAt: new Date().toISOString(), createdBy: actor.id, source: state.mockEnabled ? 'local-mock' : state.k3Sync ? 'k3cloud' : 'workspace', calculationVersion: 'v1.0.0', isComplete: Boolean(state.mockSnapshotAt || state.k3Sync), warnings: [...warnings, ...(state.k3Sync ? [`K3Cloud 数据于 ${state.k3Sync.lastSyncedAt} 同步；应收/应付余额为同步时点余额。`] : [])], data: { ...deepClone(summary), reports: deepClone(reports), links: deepClone(links), k3Rows: deepClone(k3Rows), corrections: deepClone(corrections) } }
+  const snapshotSource = state.mockEnabled ? 'local-mock' : state.k3Sync?.source === 'history-import' ? 'history-import' : state.k3Sync ? 'k3cloud' : 'workspace'
+  const snapshotNote = state.k3Sync?.source === 'history-import' ? `旧系统 K3 历史快照已于 ${state.k3Sync.lastSyncedAt} 迁入；不代表实时 ERP 连接。` : state.k3Sync ? `K3Cloud 数据于 ${state.k3Sync.lastSyncedAt} 同步；应收/应付余额为同步时点余额。` : undefined
+  const snapshot: DailySnapshot = { id, reportDate, scope, version, createdAt: new Date().toISOString(), createdBy: actor.id, source: snapshotSource, calculationVersion: 'v1.0.0', isComplete: Boolean(state.mockSnapshotAt || state.k3Sync), warnings: [...warnings, ...(snapshotNote ? [snapshotNote] : [])], data: { ...deepClone(summary), reports: deepClone(reports), links: deepClone(links), k3Rows: deepClone(k3Rows), corrections: deepClone(corrections) } }
   state.snapshots.unshift(snapshot)
   for (const correction of corrections) correction.reportedInSnapshotId = id
   return snapshot
@@ -575,7 +702,7 @@ function renderSnapshotHtml(snapshot: DailySnapshot): string {
   const rows = dailyRows.map(row => `<tr><td>${escapeHtml(row.type === 'sales' ? '销售' : '采购')}</td><td>${escapeHtml(row.date)}</td><td>${escapeHtml(row.documentNo)}</td><td>${escapeHtml(row.partyName)}</td><td>${escapeHtml(row.quantity)}</td><td>${escapeHtml(row.currency)}</td><td>${escapeHtml(row.originalAmountExact ?? row.originalAmount)}</td><td>${escapeHtml(row.exchangeRateExact ?? row.exchangeRate)}</td><td>${escapeHtml(row.amountCnyExact ?? row.amountCny)}</td></tr>`).join('')
   const k3 = k3Rows.map(row => `<tr><td>${escapeHtml(row.kind)}</td><td>${escapeHtml(row.billNo)}</td><td>${escapeHtml(row.date)}</td><td>${escapeHtml(row.partyName)}</td><td>${escapeHtml(row.materialName)}</td><td>${escapeHtml(row.amountCny.toFixed(2))}</td></tr>`).join('')
   const amount = (object: unknown, key: string) => Number(asRecord(object)[key] ?? 0).toFixed(2)
-  const sourceLabel = snapshot.source === 'local-mock' ? '本地隔离演示快照（非真实 ERP）' : snapshot.source === 'k3cloud' ? 'K3Cloud 只读快照' : '工作区快照'
+  const sourceLabel = snapshot.source === 'local-mock' ? '本地隔离演示快照（非真实 ERP）' : snapshot.source === 'history-import' ? '旧系统 K3 历史迁移快照（非实时连接）' : snapshot.source === 'k3cloud' ? 'K3Cloud 只读快照' : '工作区快照'
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>经营日报 ${escapeHtml(snapshot.reportDate)}</title><style>body{font:14px system-ui,sans-serif;color:#243047;max-width:1100px;margin:32px auto;padding:0 20px}h1,h2{color:#1d3353}.warn{background:#fff8e8;border:1px solid #ead7a7;padding:12px;border-radius:8px}table{width:100%;border-collapse:collapse;margin:10px 0 24px}th,td{border:1px solid #dce2eb;padding:7px;text-align:left}th{background:#f2f5f9}.meta{color:#718096}</style></head><body><h1>销售 / 采购经营日报</h1><p class="meta">报表日期 ${escapeHtml(snapshot.reportDate)} · 归档版本 ${snapshot.version} · ${escapeHtml(snapshot.createdAt)} · ${escapeHtml(sourceLabel)}</p><section class="warn"><b>数据说明</b><ul>${warnings || '<li>无额外警告</li>'}</ul></section><h2>经营摘要</h2><p>销售日报：${amount(sales.daily, 'count')} 笔，金额 ¥${amount(sales.daily, 'amountCny')}；采购日报：${amount(purchase.daily, 'count')} 笔，金额 ¥${amount(purchase.daily, 'amountCny')}。</p><p>销售订单：${amount(asRecord(orders).sales, 'count')} 笔，¥${amount(asRecord(orders).sales, 'amountCny')}；采购订单：${amount(asRecord(orders).purchase, 'count')} 笔，¥${amount(asRecord(orders).purchase, 'amountCny')}。</p><p>应收未收 ¥${amount(asRecord(balances).receivables, 'outstandingAmountCny')}；应付未付 ¥${amount(asRecord(balances).payables, 'outstandingAmountCny')}。</p><h2>日报明细</h2><table><thead><tr><th>类型</th><th>日期</th><th>编号</th><th>客户 / 供应商</th><th>数量</th><th>币种</th><th>原币金额</th><th>汇率</th><th>人民币金额</th></tr></thead><tbody>${rows || '<tr><td colspan="9">暂无日报记录</td></tr>'}</tbody></table><h2>K3Cloud / 演示快照行</h2><table><thead><tr><th>单据类型</th><th>单号</th><th>日期</th><th>客商</th><th>物料 / 科目</th><th>金额(人民币)</th></tr></thead><tbody>${k3 || '<tr><td colspan="6">暂无快照行</td></tr>'}</tbody></table></body></html>`
 }
 
@@ -608,7 +735,125 @@ export function createDailyReportRouter(): Router {
     const scope = scopeFromRequest(req), access = reportingAccess(scope, req)
     if (!access[type]) return res.status(403).json({ error: 'daily_reporting_access_denied', message: '当前成员没有此业务线的 K3 对账查看权限。' })
     const state = readDailyReportState(scope), query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 120) : ''
-    return res.json({ rows: searchRows(state, type, query), source: state.mockEnabled ? 'local-mock' : 'workspace', liveErpConnected: false })
+    return res.json({ rows: searchRows(state, type, query), source: state.mockEnabled ? 'local-mock' : state.k3Sync?.source ?? 'workspace', liveErpConnected: state.k3Sync?.source === 'k3cloud' })
+  })
+
+  router.get('/daily-reporting/migration/k3/status', requireRole(...MIGRATION_MANAGERS), (req, res) => {
+    const state = readDailyReportState(scopeFromRequest(req)), stage = state.k3MigrationStage
+    return res.json({ finalized: state.k3MigrationSummary ?? null, staged: stage ? { companyCode: stage.legacyCompanyCode, headers: stage.headers.length, lines: stage.lines.length, expectedHeaders: stage.expectedHeaders ?? null, expectedLines: stage.expectedLines ?? null } : null })
+  })
+
+  router.post('/daily-reporting/migration/k3/headers', requireRole(...MIGRATION_MANAGERS), (req, res) => {
+    const body = asRecord(req.body), companyCode = legacyString(body.companyCode, 32)?.toUpperCase() ?? '', rows = body.rows
+    const expectedCount = body.expectedCount === undefined ? undefined : finite(body.expectedCount)
+    if (!companyCode || !Array.isArray(rows) || rows.length < 1 || rows.length > 1000 || (expectedCount !== undefined && (!Number.isSafeInteger(expectedCount) || expectedCount < 0 || expectedCount > 100_000)) || (body.expectedCount !== undefined && expectedCount === undefined)) return res.status(400).json({ error: 'k3_header_import_request_invalid', message: '公司代码、1–1000 条表头和可选 expectedCount 必须有效。' })
+    const parsed = rows.map((row, index) => ({ index, value: parseLegacyK3Header(row, companyCode) }))
+    if (parsed.some(item => !item.value)) return res.status(422).json({ error: 'k3_header_import_row_invalid', message: '有无效的旧 K3 表头；未写入该批次。', rows: parsed.filter(item => !item.value).map(item => item.index + 1) })
+    const incoming = parsed.map(item => item.value!), scope = scopeFromRequest(req)
+    try {
+      const result = mutateState(scope, state => {
+        const finalized = state.k3MigrationSummary
+        if (finalized) {
+          const existing = new Map(state.k3HistoricalHeaders.map(item => [item.id, item]))
+          const same = finalized.legacyCompanyCode === companyCode && incoming.every(item => JSON.stringify(existing.get(item.id)) === JSON.stringify(item))
+          return same ? { alreadyFinalized: true as const, inserted: 0, skipped: incoming.length, total: finalized.headerCount } : { conflict: 'A different K3 migration is already finalized for this scope.' }
+        }
+        if (state.k3Sync?.source === 'k3cloud') return { conflict: 'A live K3Cloud snapshot exists; historical import is blocked to prevent mixing.' }
+        if (state.k3MigrationStage && state.k3MigrationStage.legacyCompanyCode !== companyCode) return { conflict: 'A different company migration is already staged in this scope.' }
+        const stage = state.k3MigrationStage ?? { legacyCompanyCode: companyCode, headers: [], lines: [] }
+        if (expectedCount !== undefined && stage.expectedHeaders !== undefined && stage.expectedHeaders !== expectedCount) return { conflict: 'expected header count cannot change within a migration.' }
+        const known = new Map(stage.headers.map(item => [item.id, item])), additions: LegacyK3SnapshotHeader[] = []
+        let skipped = 0
+        for (const item of incoming) {
+          const prior = known.get(item.id)
+          if (prior) { if (JSON.stringify(prior) !== JSON.stringify(item)) return { conflict: `conflicting source header ${item.formId}/${item.fid}.` }; skipped++; continue }
+          known.set(item.id, item); additions.push(item)
+        }
+        if (expectedCount !== undefined) stage.expectedHeaders = expectedCount
+        stage.headers.push(...additions); state.k3MigrationStage = stage
+        return { inserted: additions.length, skipped, total: stage.headers.length }
+      })
+      if ('conflict' in result) return res.status(409).json({ error: 'k3_header_import_conflict', message: result.conflict })
+      return res.status('alreadyFinalized' in result ? 200 : 201).json({ ...result, companyCode })
+    } catch (error) { return res.status(error instanceof StateConflictError ? 409 : 500).json({ error: 'k3_header_import_failed', message: error instanceof Error ? error.message : 'K3 历史表头暂存失败。' }) }
+  })
+
+  router.post('/daily-reporting/migration/k3/lines', requireRole(...MIGRATION_MANAGERS), (req, res) => {
+    const body = asRecord(req.body), companyCode = legacyString(body.companyCode, 32)?.toUpperCase() ?? '', rows = body.rows
+    const expectedCount = body.expectedCount === undefined ? undefined : finite(body.expectedCount)
+    if (!companyCode || !Array.isArray(rows) || rows.length < 1 || rows.length > 1000 || (expectedCount !== undefined && (!Number.isSafeInteger(expectedCount) || expectedCount < 0 || expectedCount > 100_000)) || (body.expectedCount !== undefined && expectedCount === undefined)) return res.status(400).json({ error: 'k3_line_import_request_invalid', message: '公司代码、1–1000 条明细和可选 expectedCount 必须有效。' })
+    const scope = scopeFromRequest(req)
+    try {
+      const result = mutateState(scope, state => {
+        const finalized = state.k3MigrationSummary
+        if (finalized) {
+          const existing = new Map(state.k3Rows.filter(item => item.source === 'history-import').map(item => [item.id, item]))
+          const headers = new Map(state.k3HistoricalHeaders.map(item => [`${item.formId}\u0000${item.fid}`, item]))
+          const incoming = rows.map(row => parseLegacyK3Line(row, companyCode, headers))
+          const same = finalized.legacyCompanyCode === companyCode && incoming.every(item => item && JSON.stringify(existing.get(item.id)) === JSON.stringify(item))
+          return same ? { alreadyFinalized: true as const, inserted: 0, skipped: incoming.length, total: finalized.lineCount } : { conflict: 'A different K3 migration is already finalized for this scope.' }
+        }
+        const stage = state.k3MigrationStage
+        if (!stage || stage.legacyCompanyCode !== companyCode) return { conflict: 'Import all K3 headers for this company before staging lines.' }
+        if (state.k3Sync?.source === 'k3cloud') return { conflict: 'A live K3Cloud snapshot exists; historical import is blocked to prevent mixing.' }
+        if (expectedCount !== undefined && stage.expectedLines !== undefined && stage.expectedLines !== expectedCount) return { conflict: 'expected line count cannot change within a migration.' }
+        const headersBySourceId = new Map(stage.headers.map(item => [`${item.formId}\u0000${item.fid}`, item]))
+        const parsed = rows.map((row, index) => ({ index, value: parseLegacyK3Line(row, companyCode, headersBySourceId) }))
+        if (parsed.some(item => !item.value)) return { invalidRows: parsed.filter(item => !item.value).map(item => item.index + 1) }
+        const incoming = parsed.map(item => item.value!), known = new Map(stage.lines.map(item => [item.id, item])), additions: K3SnapshotRow[] = []
+        let skipped = 0
+        for (const item of incoming) {
+          const prior = known.get(item.id)
+          if (prior) { if (JSON.stringify(prior) !== JSON.stringify(item)) return { conflict: `conflicting source line ${item.legacyFormId}/${item.erpId}.` }; skipped++; continue }
+          known.set(item.id, item); additions.push(item)
+        }
+        if (expectedCount !== undefined) stage.expectedLines = expectedCount
+        stage.lines.push(...additions)
+        return { inserted: additions.length, skipped, total: stage.lines.length }
+      })
+      if ('conflict' in result) return res.status(409).json({ error: 'k3_line_import_conflict', message: result.conflict })
+      if ('invalidRows' in result) return res.status(422).json({ error: 'k3_line_import_row_invalid', message: '有无效的旧 K3 明细或缺少对应表头；未写入该批次。', rows: result.invalidRows })
+      return res.status('alreadyFinalized' in result ? 200 : 201).json({ ...result, companyCode })
+    } catch (error) { return res.status(error instanceof StateConflictError ? 409 : 500).json({ error: 'k3_line_import_failed', message: error instanceof Error ? error.message : 'K3 历史明细暂存失败。' }) }
+  })
+
+  router.post('/daily-reporting/migration/k3/finalize', requireRole(...MIGRATION_MANAGERS), (req, res) => {
+    const body = asRecord(req.body), companyCode = legacyString(body.companyCode, 32)?.toUpperCase() ?? ''
+    const expectedHeaders = finite(body.expectedHeaders), expectedLines = finite(body.expectedLines)
+    if (!companyCode || expectedHeaders === undefined || expectedLines === undefined || !Number.isSafeInteger(expectedHeaders) || !Number.isSafeInteger(expectedLines) || expectedHeaders < 0 || expectedLines < 0 || expectedHeaders > 100_000 || expectedLines > 100_000) return res.status(400).json({ error: 'k3_finalize_request_invalid', message: '公司代码以及有效的 expectedHeaders/expectedLines 为必填项。' })
+    const scope = scopeFromRequest(req), actor = actorFromRequest(req)
+    try {
+      const result = db.transaction(() => mutateState(scope, state => {
+        if (state.k3MigrationSummary) {
+          const summary = state.k3MigrationSummary
+          return summary.legacyCompanyCode === companyCode && summary.headerCount === expectedHeaders && summary.lineCount === expectedLines
+            ? { alreadyFinalized: true as const, summary }
+            : { conflict: 'A different K3 migration has already been finalized.' }
+        }
+        const stage = state.k3MigrationStage
+        if (!stage || stage.legacyCompanyCode !== companyCode) return { conflict: 'No staged K3 migration exists for this company.' }
+        if ((stage.expectedHeaders !== undefined && stage.expectedHeaders !== expectedHeaders) || (stage.expectedLines !== undefined && stage.expectedLines !== expectedLines)) return { conflict: 'Final counts differ from the staged manifest.' }
+        if (stage.headers.length !== expectedHeaders || stage.lines.length !== expectedLines) return { incomplete: { headers: stage.headers.length, expectedHeaders, lines: stage.lines.length, expectedLines } }
+        if (state.mockEnabled || state.k3Sync?.source === 'k3cloud' || state.k3Rows.some(row => row.source !== 'history-import') || state.k3HistoricalHeaders.length) return { conflict: 'This scope already contains demo, live K3, or prior historical snapshot rows; import cannot be mixed.' }
+        const headerIds = new Set(stage.headers.map(item => item.id))
+        if (stage.lines.some(line => !line.legacyHeaderId || !headerIds.has(line.legacyHeaderId))) return { conflict: 'At least one line has no staged legacy header.' }
+        const sortedHeaders = [...stage.headers].sort((a, b) => a.id.localeCompare(b.id)), sortedLines = [...stage.lines].sort((a, b) => a.id.localeCompare(b.id))
+        const digest = createHash('sha256').update(JSON.stringify({ headers: sortedHeaders, lines: sortedLines })).digest('hex')
+        const completedAt = new Date().toISOString(), inactiveHeaderCount = stage.headers.filter(item => !item.active).length, inactiveLineCount = stage.lines.filter(item => !item.active).length
+        const summary: DailyK3MigrationSummary = { legacyCompanyCode: companyCode, headerCount: stage.headers.length, lineCount: stage.lines.length, inactiveHeaderCount, inactiveLineCount, digest, completedAt }
+        const rowCounts = { shipment: stage.lines.filter(item => item.kind === 'shipment' && item.active).length, 'purchase-receipt': stage.lines.filter(item => item.kind === 'purchase-receipt' && item.active).length }
+        const lastSyncedAt = stage.headers.map(item => item.snapshotAt).sort().at(-1) ?? completedAt
+        state.k3HistoricalHeaders = stage.headers; state.k3Rows.push(...stage.lines)
+        state.k3Sync = { source: 'history-import', lastSyncedAt, rowCounts, mode: 'full', incrementalFrom: null, fullScanKinds: ['shipment', 'purchase-receipt'] }
+        state.k3MigrationSummary = summary; delete state.k3MigrationStage
+        recordDailyReportingMigrationBatch(scope, req, 'M06-k3-headers', companyCode, stage.headers.length, createHash('sha256').update(JSON.stringify(sortedHeaders)).digest('hex'), { inserted: stage.headers.length, skipped: 0, conflicts: 0 })
+        recordDailyReportingMigrationBatch(scope, req, 'M06-k3-lines', companyCode, stage.lines.length, createHash('sha256').update(JSON.stringify(sortedLines)).digest('hex'), { inserted: stage.lines.length, skipped: 0, conflicts: 0 })
+        return { summary, activeLineCounts: rowCounts, actor: actor.name }
+      }))()
+      if ('conflict' in result) return res.status(409).json({ error: 'k3_migration_finalize_conflict', message: result.conflict })
+      if ('incomplete' in result) return res.status(422).json({ error: 'k3_migration_incomplete', message: '暂存行数与清单不一致；未发布历史快照。', ...result.incomplete })
+      return res.status('alreadyFinalized' in result ? 200 : 201).json(result)
+    } catch (error) { return res.status(error instanceof StateConflictError ? 409 : 500).json({ error: 'k3_migration_finalize_failed', message: error instanceof Error ? error.message : 'K3 历史快照完结失败。' }) }
   })
 
   router.get('/daily-reports/summary', (req, res) => {
@@ -646,20 +891,30 @@ export function createDailyReportRouter(): Router {
     try {
       const parsed = await parseDailyReportImportFile(req.file.originalname, req.file.buffer, defaultType)
       if (!parsed.rows.length) return res.status(400).json({ error: 'daily_report_import_empty', message: '文件没有日报数据行。' })
+      const migration = parsed.mappedFields.includes('legacyCompanyCode')
+      if (migration && !['admin', 'plm_manager'].includes(req.authUser?.role ?? '')) return res.status(403).json({ error: 'migration_manager_required', message: '包含旧公司/责任人迁移字段的文件只能由日报管理员导入。' })
+      const sourceCodes = parsed.rows.map(row => typeof row.values.legacyCompanyCode === 'string' ? row.values.legacyCompanyCode.trim().toUpperCase() : '').filter(Boolean)
+      const sourceCompanyCode = sourceCodes[0]
+      if (migration && (!sourceCompanyCode || sourceCodes.length !== parsed.rows.length || new Set(sourceCodes).size !== 1)) return res.status(400).json({ error: 'daily_report_import_company_mismatch', message: '迁移文件每一行都必须含相同的旧公司代码。' })
+      const scope = scopeFromRequest(req)
       const rows: ImportPreviewRow[] = parsed.rows.map(row => {
-        const validation = validateReportPayload(row.values)
+        const validation = validateReportPayload(row.values, undefined, { preserveCnySnapshot: true, allowLegacyMetadata: migration })
         const errors = [...row.errors, ...(validation.error ? [validation.error] : [])]
         const rawKey = row.values.sourceIdempotencyKey
         const externalKey = typeof rawKey === 'string' ? rawKey.trim() : ''
         if (rawKey !== undefined && (typeof rawKey !== 'string' || externalKey.length > 160 || /[\u0000-\u001f\u007f]/.test(externalKey))) errors.push('来源幂等键必须是最多 160 字且不含控制字符的文本。')
-        return { line: row.line, value: validation.value ? { ...validation.value, source: 'history-import', sourceIdempotencyKey: makeImportSourceKey(validation.value, externalKey || undefined) } : undefined, errors }
+        let value = validation.value ? { ...validation.value, source: 'history-import' as const, sourceIdempotencyKey: makeImportSourceKey(validation.value, externalKey || undefined) } : undefined
+        if (value && migration) {
+          const party = value.legacyCompanyCode && value.legacyPartyId ? findLegacyDailyParty(scope, value.type === 'sales' ? 'customer' : 'supplier', value.legacyCompanyCode, value.legacyPartyId) : undefined
+          value = { ...value, ...(party ? { partyId: party.id, legacySourcePartyStatus: 'linked' as const } : { legacySourcePartyStatus: 'pending' as const }) }
+        }
+        return { line: row.line, value, errors }
       })
-      const scope = scopeFromRequest(req)
       classifyImportDuplicates(readDailyReportState(scope), rows)
       const actor = actorFromRequest(req)
       const now = Date.now()
       pendingImportPreviews.prune(now)
-      const preview: PendingImportPreview = { token: randomUUID(), actorId: actor.id, scopeKey: stateKey(scope), expiresAt: now + importPreviewTtlMs, rows, fileName: req.file.originalname.slice(0, 160) }
+      const preview: PendingImportPreview = { token: randomUUID(), actorId: actor.id, scopeKey: stateKey(scope), expiresAt: now + importPreviewTtlMs, rows, fileName: req.file.originalname.slice(0, 160), migration, ...(sourceCompanyCode ? { sourceCompanyCode } : {}) }
       if (!pendingImportPreviews.set(preview, now)) return res.status(413).json({ error: 'daily_report_import_preview_too_large', message: '该预览超过服务器缓存容量，无法安全保留；请减少文件行数或备注长度后重试。' })
       return res.status(200).json(importPreviewResponse(preview, parsed.headers, parsed.mappedFields))
     } catch (error) {
@@ -676,36 +931,50 @@ export function createDailyReportRouter(): Router {
     }
     const scope = scopeFromRequest(req), actor = actorFromRequest(req)
     if (preview.actorId !== actor.id || preview.scopeKey !== stateKey(scope)) return res.status(404).json({ error: 'daily_report_import_preview_not_found', message: '导入预览不属于当前用户和账套。' })
+    if (preview.migration && !['admin', 'plm_manager'].includes(req.authUser?.role ?? '')) return res.status(403).json({ error: 'migration_manager_required', message: '旧公司历史迁移只能由日报管理员提交。' })
     const invalidRows = preview.rows.filter(row => row.errors.length)
-    if (invalidRows.length) return res.status(422).json({ error: 'daily_report_import_validation_failed', message: '存在字段错误行；请修正文件后重新预览，未写入任何日报。', rows: invalidRows.map(row => ({ line: row.line, errors: row.errors })) })
+    if (invalidRows.length) return res.status(422).json({ error: 'daily_report_import_validation_failed', message: '存在字段错误行；请修正文件后重新预览并提交，未写入任何日报。', rows: invalidRows.map(row => ({ line: row.line, errors: row.errors })) })
     try {
-      const result = mutateState(scope, state => {
+      const transactionResult = db.transaction(() => mutateState(scope, state => {
         const knownKeys = new Set(liveReports(state).map(importDuplicateKey))
         const knownSourceKeys = new Set(state.reports.map(item => item.sourceIdempotencyKey).filter((key): key is string => Boolean(key)))
         const batchKeys = new Set<string>(), batchSourceKeys = new Set<string>()
         const imported: DailyReport[] = []
+        const migrationCounts: Record<DailyKind, { rowCount: number; inserted: number; skipped: number; digestRows: unknown[] }> = {
+          sales: { rowCount: 0, inserted: 0, skipped: 0, digestRows: [] }, purchase: { rowCount: 0, inserted: 0, skipped: 0, digestRows: [] },
+        }
         let skippedDuplicates = 0
         for (const row of preview.rows) {
-          const validation = validateReportPayload(row.value as unknown as Record<string, unknown>)
+          const validation = validateReportPayload(row.value as unknown as Record<string, unknown>, undefined, { preserveCnySnapshot: true, allowLegacyMetadata: preview.migration })
           if (!validation.value) throw new TypeError(`第 ${row.line} 行重新校验失败：${validation.error}`)
           const value = {
             ...validation.value, source: 'history-import' as const,
             sourceIdempotencyKey: row.value!.sourceIdempotencyKey,
             sourceFileName: preview.fileName, sourceRow: row.line, importBatchId: preview.token,
           }
+          const migrationCount = migrationCounts[value.type]
+          migrationCount.rowCount += 1
+          migrationCount.digestRows.push({ line: row.line, sourceIdempotencyKey: value.sourceIdempotencyKey, legacyPartyId: value.legacyPartyId, originalAmountExact: value.originalAmountExact, exchangeRateExact: value.exchangeRateExact, amountCnyExact: value.amountCnyExact })
           const key = importDuplicateKey(value)
           const sourceKey = value.sourceIdempotencyKey
-          if (!sourceKey) throw new TypeError(`第 ${row.line} 行缺少来源幂等键。`)
-          if (knownKeys.has(key) || knownSourceKeys.has(sourceKey) || batchKeys.has(key) || batchSourceKeys.has(sourceKey)) { skippedDuplicates++; continue }
+          if (typeof sourceKey !== 'string' || !sourceKey) throw new TypeError(`第 ${row.line} 行缺少来源幂等键。`)
+          if (knownKeys.has(key) || knownSourceKeys.has(sourceKey) || batchKeys.has(key) || batchSourceKeys.has(sourceKey)) { skippedDuplicates++; migrationCount.skipped++; continue }
           knownKeys.add(key); knownSourceKeys.add(sourceKey); batchKeys.add(key); batchSourceKeys.add(sourceKey)
           const now = new Date().toISOString()
           const item: DailyReport = { ...value, id: randomUUID(), createdAt: now, updatedAt: now, createdBy: actor.id, createdByName: actor.name, updatedBy: actor.id }
           state.reports.unshift(item)
           noteCorrection(state, { originalDate: item.date, type: '历史日报导入', affectedReport: item.type, referenceId: item.id, originalValue: archivedReportAmount(state, item.id, item.date), newValue: item.amountCny, diffAmount: item.amountCny, reason: '已归档日期新增历史日报记录。' })
-          imported.push(item)
+          imported.push(item); migrationCount.inserted++
         }
-        return { importedCount: imported.length, skippedDuplicates, imported: imported.map(item => ({ id: item.id, type: item.type, date: item.date, documentNo: item.documentNo, amountCny: item.amountCny, sourceIdempotencyKey: item.sourceIdempotencyKey })) }
-      })
+        if (preview.migration && preview.sourceCompanyCode) for (const type of ['sales', 'purchase'] as const) {
+          const item = migrationCounts[type]
+          if (!item.rowCount) continue
+          const digest = createHash('sha256').update(JSON.stringify(item.digestRows)).digest('hex')
+          recordDailyReportingMigrationBatch(scope, req, type === 'sales' ? 'M01-sales-reports' : 'M02-purchase-reports', preview.sourceCompanyCode, item.rowCount, digest, { inserted: item.inserted, skipped: item.skipped, conflicts: 0 })
+        }
+        return { importedCount: imported.length, skippedDuplicates, imported: imported.map(item => ({ id: item.id, type: item.type, date: item.date, documentNo: item.documentNo, amountCny: item.amountCny, amountCnyExact: item.amountCnyExact, sourceIdempotencyKey: item.sourceIdempotencyKey })) }
+      }))()
+      const result = transactionResult
       pendingImportPreviews.delete(previewId)
       return res.json({ ...result, message: `已导入 ${result.importedCount} 条，跳过重复 ${result.skippedDuplicates} 条。` })
     } catch (error) {
@@ -748,7 +1017,10 @@ export function createDailyReportRouter(): Router {
       const updated = mutateState(scope, state => {
         const report = state.reports.find(item => item.id === String(req.params.id) && !item.deletedAt)
         if (!report) return undefined
-        const parsed = validateReportPayload({ ...patchBody, type: body.type ?? report.type }, report)
+        const parsed = validateReportPayload({ ...patchBody, type: body.type ?? report.type }, report, {
+          preserveCnySnapshot: report.source === 'history-import' && body.originalAmount === undefined && body.exchangeRate === undefined && body.currency === undefined,
+          allowLegacyMetadata: report.source === 'history-import',
+        })
         if (!parsed.value) throw new TypeError(parsed.error)
         const oldAmount = archivedReportAmount(state, report.id, report.date) ?? report.amountCny
         const oldDate = report.date, oldType = report.type

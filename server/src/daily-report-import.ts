@@ -21,8 +21,18 @@ const aliases: Record<string, string[]> = {
   currency: ['currency', '币种', '原币币种'],
   originalAmount: ['originalamount', 'amount', '原币金额', '金额', '发生金额'],
   exchangeRate: ['exchangerate', 'rate', '汇率', '折算汇率'],
+  amountCny: ['amountcny', '人民币金额', '折算人民币金额', '本币金额'],
   note: ['note', 'remark', '备注', '摘要', '说明'],
   sourceIdempotencyKey: ['sourceidempotencykey', 'sourcekey', 'sourceid', 'externalid', '来源幂等键', '来源键', '外部行ID', '外部单据行ID', '源系统ID'],
+  legacyCompanyCode: ['legacycompanycode', '旧公司代码', '来源公司代码'],
+  legacyPartyId: ['legacypartyid', '旧客商ID', '来源客商ID', '来源客户ID', '来源供应商ID'],
+  legacyUserId: ['legacyuserid', '旧用户ID', '来源用户ID', '旧系统责任人ID'],
+  legacyUsername: ['legacyusername', '旧用户名', '来源用户名'],
+  legacyUserName: ['legacyuserdisplayname', '旧用户姓名', '来源用户姓名', '旧责任人姓名'],
+  legacySourceFile: ['legacysourcefile', '原来源文件', '旧来源文件'],
+  legacyImportBatch: ['legacyimportbatch', '原导入批次', '旧导入批次'],
+  legacySourceRow: ['legacysourcerow', '原来源行号', '旧来源行号'],
+  legacyBusinessType: ['legacybusinesstype', '旧业务类型', '原业务类型'],
 }
 const normalizeHeader = (value: string) => value.trim().toLocaleLowerCase().replace(/[\s_\-()（）/\\:：.]/g, '')
 
@@ -152,8 +162,8 @@ function parseGrid(headers: string[], rows: Array<{ line: number; values: unknow
       try {
         if (field === 'date') values.date = dateValue(raw)
         else if (field === 'type') values.type = parseType(raw) || defaultType
-        else if (field === 'quantity') values[field] = numberValue(raw)
-        else if (field === 'originalAmount' || field === 'exchangeRate') {
+        else if (field === 'quantity' || field === 'legacySourceRow') values[field] = numberValue(raw)
+        else if (field === 'originalAmount' || field === 'exchangeRate' || field === 'amountCny') {
           values[field] = numberValue(raw)
           values[`${field}Exact`] = normalizedNumericText(raw)
         }

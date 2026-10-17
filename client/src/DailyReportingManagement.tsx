@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Archive, Check, Coins, Database, Link2, RefreshCw, Save, Users } from 'lucide-react'
 import { apiFetch } from './api'
+import LegacyDailyReportMigration from './LegacyDailyReportMigration'
 import './daily-reporting-admin.css'
 
 type PartyKind = 'customer' | 'supplier'
@@ -9,9 +10,10 @@ type Rate = { id: string; month: string; currency: 'USD'; targetCurrency: 'CNY';
 type Assignment = { id: string; kind: PartyKind; partyId: string | null; userId: string | null; legacyCompanyCode: string; legacyPartyId: string; legacyUserId: string; legacyUsername: string; legacyUserName: string; status: 'unmapped' | 'party-unmapped' | 'member-unmapped' | 'mapped'; updatedAt: string }
 type PartyMapping = { id: string; kind: PartyKind; k3Number: string; k3Name: string; partyId: string | null; status: 'PENDING' | 'MANUAL' | 'UNMATCHED'; legacyStatus: string; legacyPartyId: string; legacyCompanyCode: string; candidates: Array<{ legacyId?: string; name: string; score?: number }>; updatedAt: string; updatedBy: string }
 type Member = { id: string; displayName: string; role: string; disabled: boolean }
+type LegacyMembership = { id: string; legacyCompanyCode: string; legacyUserId: string; legacyUsername: string; legacyUserName: string; legacyGroups: string[]; legacyActive: boolean; legacyMustChangePassword: boolean; status: 'member-unmapped'; updatedAt: string }
 type ImportBatch = { id: string; category: string; sourceCompanyCode: string; rowCount: number; inserted: number; skipped: number; conflicts: number; digest: string; createdAt: string; createdBy: string }
 type MirrorRecord = { number: string; name: string; status: string }
-type Management = { masterDataConfigured: boolean; parties: Party[]; exchangeRates: Rate[]; assignments: Assignment[]; partyMappings: PartyMapping[]; importBatches: ImportBatch[]; members: Member[]; k3Parties: { customerCount: number; supplierCount: number; lastSyncedAt: string | null } }
+type Management = { masterDataConfigured: boolean; parties: Party[]; exchangeRates: Rate[]; assignments: Assignment[]; partyMappings: PartyMapping[]; legacyMemberships: LegacyMembership[]; importBatches: ImportBatch[]; members: Member[]; k3Parties: { customerCount: number; supplierCount: number; lastSyncedAt: string | null }; migrationScope: { tenantId: string; tenantName: string; organizationId: string; organizationName: string; accountId: string; accountName: string; accountCode: string } }
 type Tab = 'parties' | 'rates' | 'assignments' | 'mappings'
 
 const KIND_LABEL: Record<PartyKind, string> = { customer: '客户', supplier: '供应商' }
@@ -166,6 +168,7 @@ export default function DailyReportingManagement({ onChanged }: { onChanged: () 
     <div className="iw-card-head"><div><div className="iw-eyebrow">DAILY REPORTING / ADMIN</div><h2>日报业务设置</h2><p>按当前 tenant / organization / account 隔离。只有管理员和 PLM 经理能维护主档、汇率、归属与 K3 映射；不会创建用户或扩大权限。</p></div><button className="iw-button iw-secondary iw-small" onClick={() => void load()} disabled={loading || busy}><RefreshCw size={13}/>刷新</button></div>
     {error && <div className="iw-alert iw-error" role="alert">{error}</div>}{notice && <div className="iw-alert iw-success" role="status">{notice}</div>}
     {data && <>
+      <LegacyDailyReportMigration scope={data.migrationScope} onChanged={() => { void load(true); onChanged() }}/>
       <div className="dr-admin-tabs" role="tablist" aria-label="日报业务设置功能">
         <button className={tab === 'parties' ? 'is-active' : ''} onClick={() => setTab('parties')}><Database size={14}/>客户 / 供应商</button>
         <button className={tab === 'rates' ? 'is-active' : ''} onClick={() => setTab('rates')}><Coins size={14}/>月汇率</button>
@@ -201,6 +204,7 @@ export default function DailyReportingManagement({ onChanged }: { onChanged: () 
           const unresolved = !item.partyId || !item.userId
           return <tr key={item.id}><td>{KIND_LABEL[item.kind]} · {item.legacyCompanyCode || 'PLM'} / {item.legacyPartyId || '—'}<small>{item.legacyUserName || item.legacyUsername || item.legacyUserId || '当前 PLM 归属'}</small></td><td>{unresolved ? <select value={selected.partyId} onChange={event => setAssignmentSelections(current => ({ ...current, [item.id]: { ...selected, partyId: event.target.value } }))}><option value="">选择匹配客商</option>{activeParties.filter(party => party.kind === item.kind).map(party => <option key={party.id} value={party.id}>{party.name}</option>)}</select> : partyNameById.get(item.partyId!) ?? '已关联客商'}</td><td>{unresolved ? <select value={selected.userId} onChange={event => setAssignmentSelections(current => ({ ...current, [item.id]: { ...selected, userId: event.target.value } }))}><option value="">选择当前账套成员</option>{members.map(member => <option key={member.id} value={member.id}>{member.displayName} · {roleLabel(member.role)}</option>)}</select> : memberById.get(item.userId!)?.displayName ?? '成员不可用'}</td><td><span className={`dr-admin-status ${item.status}`}>{item.status === 'mapped' ? '已映射' : item.status === 'party-unmapped' ? '待匹配客商' : '待匹配成员'}</span></td><td>{unresolved && <button className="iw-button iw-secondary iw-small" onClick={() => void mapLegacyAssignment(item)} disabled={busy}>确认映射</button>}</td></tr>
         })}</tbody></table>{!data.assignments.length && <div className="iw-empty">暂无归属记录。可在上方按客商直接分配现有 PLM 成员。</div>}</div></div>
+        <div className="dr-admin-table-block"><h3>旧系统成员待核对 · {data.legacyMemberships.length} 条</h3><p className="dr-admin-help">只保留身份、旧群组和密码策略事实；不迁移密码、会话或 MFA，不自动创建 PLM 账号，也不授予任何 PLM 角色。需人工确认身份后另行处理。</p><div className="iw-table-wrap dr-admin-table"><table><thead><tr><th>旧身份 / 公司</th><th>旧群组（未转成 PLM 权限）</th><th>旧状态</th><th>密码策略留痕</th><th>PLM 状态</th></tr></thead><tbody>{data.legacyMemberships.map(item => <tr key={item.id}><td><b>{item.legacyUserName || item.legacyUsername || item.legacyUserId}</b><small>{item.legacyCompanyCode} · {item.legacyUserId}{item.legacyUsername ? ` · ${item.legacyUsername}` : ''}</small></td><td>{item.legacyGroups.join('、') || '—'}</td><td>{item.legacyActive ? '旧系统启用' : '旧系统停用'}<small>{dateTime(item.updatedAt)}</small></td><td>{item.legacyMustChangePassword ? '旧系统曾要求首次改密' : '无首次改密标记'}<small>口令本身未迁移</small></td><td><span className="dr-admin-status party-unmapped">待人工确认</span><small>未建立 PLM 用户或角色</small></td></tr>)}</tbody></table>{!data.legacyMemberships.length && <div className="iw-empty">暂无旧成员映射清单。</div>}</div></div>
       </div>}
 
       {tab === 'mappings' && <div className="dr-admin-stack">

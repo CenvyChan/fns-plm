@@ -28,20 +28,25 @@ export interface DailyPartyMapping {
   status: DailyMappingStatus; legacyStatus: string; legacyPartyId: string; legacyCompanyCode: string
   candidates: Array<{ legacyId?: string; name: string; score?: number }>; updatedAt: string; updatedBy: string
 }
+export interface DailyLegacyMembership {
+  id: string; legacyCompanyCode: string; legacyUserId: string; legacyUsername: string; legacyUserName: string
+  legacyGroups: string[]; legacyActive: boolean; legacyMustChangePassword: boolean
+  status: 'member-unmapped'; updatedAt: string
+}
 export interface DailyManagementImportBatch {
   id: string; category: string; sourceCompanyCode: string; rowCount: number; inserted: number; skipped: number
   conflicts: number; digest: string; createdAt: string; createdBy: string
 }
 export interface DailyReportingAdminState {
   masterDataConfigured: boolean; parties: DailyParty[]; exchangeRates: DailyExchangeRate[]
-  assignments: DailyAssignment[]; partyMappings: DailyPartyMapping[]
+  assignments: DailyAssignment[]; partyMappings: DailyPartyMapping[]; legacyMemberships: DailyLegacyMembership[]
   importBatches: DailyManagementImportBatch[]
 }
 
 const PREFIX = 'daily-reporting-admin'
 const MANAGERS = ['admin', 'plm_manager'] as const
 const EMPTY: DailyReportingAdminState = {
-  masterDataConfigured: false, parties: [], exchangeRates: [], assignments: [], partyMappings: [], importBatches: [],
+  masterDataConfigured: false, parties: [], exchangeRates: [], assignments: [], partyMappings: [], legacyMemberships: [], importBatches: [],
 }
 const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const text = (value: unknown, max: number): string => typeof value === 'string' ? value.trim().slice(0, max) : ''
@@ -60,7 +65,7 @@ function stateKey(scope: Pick<WorkspaceScope, 'tenantId' | 'organizationId' | 'a
 }
 function normalized(value: unknown): DailyReportingAdminState {
   const state = { ...EMPTY, ...asRecord(value) } as DailyReportingAdminState
-  for (const key of ['parties', 'exchangeRates', 'assignments', 'partyMappings', 'importBatches'] as const) {
+  for (const key of ['parties', 'exchangeRates', 'assignments', 'partyMappings', 'legacyMemberships', 'importBatches'] as const) {
     if (!Array.isArray(state[key])) state[key] = [] as never
   }
   state.masterDataConfigured = Boolean(state.masterDataConfigured || state.parties.length)
@@ -140,11 +145,14 @@ export function listDailyPartyOptions(scope: WorkspaceScope, userId: string, rol
   return state.parties.filter(item => item.kind === kind && item.active && (manager || !state.masterDataConfigured || hasDailyPartyAssignment(scope, userId, kind, item.id)))
     .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
 }
-function importBatch(scope: WorkspaceScope, req: Request, category: string, companyCode: string, rows: unknown[], digest: string, counters: { inserted: number; skipped: number; conflicts: number }): DailyManagementImportBatch {
-  const batch = { id: randomUUID(), category, sourceCompanyCode: companyCode, rowCount: rows.length, ...counters, digest, createdAt: new Date().toISOString(), createdBy: actorId(req) }
+export function recordDailyReportingMigrationBatch(scope: WorkspaceScope, req: Request, category: string, companyCode: string, rowCount: number, digest: string, counters: { inserted: number; skipped: number; conflicts: number }): DailyManagementImportBatch {
+  const batch = { id: randomUUID(), category, sourceCompanyCode: companyCode, rowCount, ...counters, digest, createdAt: new Date().toISOString(), createdBy: actorId(req) }
   mutate(scope, current => { current.importBatches.unshift(batch); current.importBatches = current.importBatches.slice(0, 500) })
-  audit(req, scope, 'daily_reporting_migration_import', `${category}:${companyCode}`, { rowCount: rows.length, ...counters })
+  audit(req, scope, 'daily_reporting_migration_import', `${category}:${companyCode}`, { rowCount, ...counters })
   return batch
+}
+function importBatch(scope: WorkspaceScope, req: Request, category: string, companyCode: string, rows: unknown[], digest: string, counters: { inserted: number; skipped: number; conflicts: number }): DailyManagementImportBatch {
+  return recordDailyReportingMigrationBatch(scope, req, category, companyCode, rows.length, digest, counters)
 }
 function rowsDigest(value: unknown): string { return createHash('sha256').update(JSON.stringify(value)).digest('hex') }
 function validatePartyInput(body: Record<string, unknown>, kind: DailyPartyKind): Omit<DailyParty, 'id' | 'createdAt' | 'updatedAt' | 'source'> | undefined {
@@ -192,7 +200,9 @@ export function createDailyReportingAdminRouter(): Router {
     const members = masterMemberList(scope).map(item => ({ id: item.id, displayName: item.displayName, role: item.role, disabled: Boolean(item.disabled) }))
     const mirror = readK3CloudMasterData(scope)
     const k3Parties = { customerCount: mirror.rowCounts.customer ?? 0, supplierCount: mirror.rowCounts.supplier ?? 0, lastSyncedAt: mirror.lastSyncedAt }
-    return res.json({ ...state, members, k3Parties })
+    const account = db.prepare('SELECT code FROM accounts WHERE id=? AND tenant_id=? AND organization_id=?').get(scope.accountId, scope.tenantId, scope.organizationId) as { code: string } | undefined
+    const migrationScope = { tenantId: scope.tenantId, tenantName: scope.tenantName, organizationId: scope.organizationId, organizationName: scope.organizationName, accountId: scope.accountId, accountName: scope.accountName, accountCode: account?.code ?? '' }
+    return res.json({ ...state, members, k3Parties, migrationScope })
   })
 
   router.post('/daily-reporting/masters', requireRole(...MANAGERS), (req, res) => {
@@ -412,6 +422,35 @@ export function createDailyReportingAdminRouter(): Router {
       const batch = importBatch(scope, req, 'M05-assignments', text(body.companyCode, 32).toUpperCase(), rows, digest, counters)
       return res.status(201).json({ batch, ...counters, rowCount: rows.length, note: '只保留旧系统归属事实；未创建用户、未分配 PLM 权限，需管理员将其映射到当前账套既有成员。' })
     } catch (error) { return res.status(error instanceof StateConflictError ? 409 : 500).json({ error: 'assignment_import_failed', message: error instanceof Error ? error.message : '归属迁移失败。' }) }
+  })
+
+  router.post('/daily-reporting/migration/memberships', requireRole(...MANAGERS), (req, res) => {
+    const body = asRecord(req.body), rows = body.rows, companyCode = text(body.companyCode, 32).toUpperCase()
+    if (!companyCode || !Array.isArray(rows) || rows.length < 1 || rows.length > 500) return res.status(400).json({ error: '一次需导入 1–500 条、含公司代码的旧公司成员关系。' })
+    const parsed = rows.map(value => {
+      const row = asRecord(value), legacyUserId = text(row.legacyUserId, 128), legacyUsername = text(row.legacyUsername, 128), legacyUserName = text(row.legacyUserName, 160)
+      if (!legacyUserId || !legacyUsername || typeof row.active !== 'boolean' || (row.groups !== undefined && !Array.isArray(row.groups)) || (row.mustChangePassword !== undefined && typeof row.mustChangePassword !== 'boolean')) return undefined
+      const legacyGroups = Array.isArray(row.groups) ? [...new Set(row.groups.map(value => text(value, 100)).filter(Boolean))].sort().slice(0, 50) : []
+      return { legacyCompanyCode: companyCode, legacyUserId, legacyUsername, legacyUserName, legacyGroups, legacyActive: row.active, legacyMustChangePassword: row.mustChangePassword === true }
+    })
+    if (parsed.some(item => !item)) return res.status(400).json({ error: '成员关系必须含 legacyUserId、legacyUsername、active，且 groups 为文本数组。' })
+    const scope = scopeFromRequest(req), digest = rowsDigest(rows), counters = { inserted: 0, skipped: 0, conflicts: 0 }
+    try {
+      mutate(scope, state => {
+        for (const item of parsed as Array<NonNullable<(typeof parsed)[number]>>) {
+          const prior = state.legacyMemberships.find(value => value.legacyCompanyCode === item.legacyCompanyCode && value.legacyUserId === item.legacyUserId)
+          if (prior) {
+            if (prior.legacyUsername === item.legacyUsername && prior.legacyUserName === item.legacyUserName && prior.legacyActive === item.legacyActive && prior.legacyMustChangePassword === item.legacyMustChangePassword && JSON.stringify(prior.legacyGroups) === JSON.stringify(item.legacyGroups)) counters.skipped += 1
+            else counters.conflicts += 1
+            continue
+          }
+          state.legacyMemberships.push({ id: randomUUID(), ...item, status: 'member-unmapped', updatedAt: new Date().toISOString() })
+          counters.inserted += 1
+        }
+      })
+      const batch = importBatch(scope, req, 'M08-memberships', companyCode, rows, digest, counters)
+      return res.status(counters.conflicts ? 207 : 201).json({ batch, ...counters, rowCount: rows.length, note: '仅保留旧成员、群组与密码策略为待核验元数据；未读取凭据、未创建 PLM 用户、未分配成员关系或角色。' })
+    } catch (error) { return res.status(error instanceof StateConflictError ? 409 : 500).json({ error: 'membership_import_failed', message: error instanceof Error ? error.message : '旧公司成员关系迁移失败。' }) }
   })
 
   router.post('/daily-reporting/migration/party-mappings', requireRole(...MANAGERS), (req, res) => {
