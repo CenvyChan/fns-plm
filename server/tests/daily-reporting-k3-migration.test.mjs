@@ -108,21 +108,24 @@ test('M06 imports exact historical K3 headers and lines atomically, preserves in
   assert.equal(secondHeaderBatch.response.status, 201, JSON.stringify(secondHeaderBatch.data))
   assert.equal(secondHeaderBatch.data.total, 2)
 
-  const premature = await api('/api/daily-reporting/migration/k3/finalize', { method: 'POST', body: { companyCode: 'FNS', expectedHeaders: 2, expectedLines: 2 } })
+  const premature = await api('/api/daily-reporting/migration/k3/finalize', { method: 'POST', body: { companyCode: 'FNS', expectedHeaders: 2, expectedLines: 3 } })
   assert.equal(premature.response.status, 422, 'headers are not published until every expected detail arrives')
   assert.equal((await api('/api/daily-reporting/migration/k3/status')).data.finalized, null)
 
+  const longSpecification = '规'.repeat(294)
+  assert.equal(longSpecification.length, 294)
   const lines = [
     { legacyRecordId: '101', legacyHeaderRecordId: '11', formId: 'SAL_OUTSTOCK', fid: '501', entryId: '7001', sequence: 1, materialNumber: 'MAT-001', materialName: '旧物料甲', specification: '规格 A', quantityExact: '1.250000', unit: '件', unitPriceExact: '8.096000', originalAmountExact: '10.1200', amountCnyExact: '10.1200' },
     { legacyRecordId: '102', legacyHeaderRecordId: '12', formId: 'STK_InStock', fid: '502', entryId: '7002', sequence: 1, materialNumber: 'MAT-002', materialName: '旧物料乙', specification: '规格 B', quantityExact: '2.000000', unit: '箱', unitPriceExact: '2.250000', originalAmountExact: '4.5000', amountCnyExact: '4.5000' },
+    { legacyRecordId: '103', legacyHeaderRecordId: '11', formId: 'SAL_OUTSTOCK', fid: '501', entryId: '7003', sequence: 2, materialNumber: 'MAT-003', materialName: '旧物料丙', specification: longSpecification, quantityExact: '1.000000', unit: '件', unitPriceExact: '1.000000', originalAmountExact: '1.0000', amountCnyExact: '1.0000' },
   ]
-  const stagedLines = await api('/api/daily-reporting/migration/k3/lines', { method: 'POST', body: { companyCode: 'FNS', expectedCount: 2, rows: lines } })
+  const stagedLines = await api('/api/daily-reporting/migration/k3/lines', { method: 'POST', body: { companyCode: 'FNS', expectedCount: 3, rows: lines } })
   assert.equal(stagedLines.response.status, 201, JSON.stringify(stagedLines.data))
-  assert.equal(stagedLines.data.total, 2)
-  const finalized = await api('/api/daily-reporting/migration/k3/finalize', { method: 'POST', body: { companyCode: 'FNS', expectedHeaders: 2, expectedLines: 2 } })
+  assert.equal(stagedLines.data.total, 3)
+  const finalized = await api('/api/daily-reporting/migration/k3/finalize', { method: 'POST', body: { companyCode: 'FNS', expectedHeaders: 2, expectedLines: 3 } })
   assert.equal(finalized.response.status, 201, JSON.stringify(finalized.data))
   assert.equal(finalized.data.summary.headerCount, 2)
-  assert.equal(finalized.data.summary.lineCount, 2)
+  assert.equal(finalized.data.summary.lineCount, 3)
   assert.equal(finalized.data.summary.inactiveHeaderCount, 1)
   assert.equal(finalized.data.summary.inactiveLineCount, 1)
 
@@ -138,14 +141,15 @@ test('M06 imports exact historical K3 headers and lines atomically, preserves in
   assert.equal(dailySummary.data.k3HistoricalMigration.inactiveLineCount, 1)
   const salesLines = await api('/api/daily-reports/k3-lines?type=sales')
   assert.ok(salesLines.data.rows.some(row => row.legacyRecordId === '101' && row.materialNumber === 'MAT-001' && row.specification === '规格 A' && row.amountCnyExact === '10.1200' && row.quantityExact === '1.250000'))
+  assert.ok(salesLines.data.rows.some(row => row.legacyRecordId === '103' && row.specification === longSpecification && row.specification.length === 294), '294-character source specification is stored without truncation')
 
   const duplicateHeader = await api('/api/daily-reporting/migration/k3/headers', { method: 'POST', body: { companyCode: 'FNS', expectedCount: 2, rows: [headerA] } })
   assert.equal(duplicateHeader.response.status, 200)
   assert.equal(duplicateHeader.data.skipped, 1)
-  const duplicateLines = await api('/api/daily-reporting/migration/k3/lines', { method: 'POST', body: { companyCode: 'FNS', expectedCount: 2, rows: lines } })
+  const duplicateLines = await api('/api/daily-reporting/migration/k3/lines', { method: 'POST', body: { companyCode: 'FNS', expectedCount: 3, rows: lines } })
   assert.equal(duplicateLines.response.status, 200)
-  assert.equal(duplicateLines.data.skipped, 2)
-  const duplicateFinalize = await api('/api/daily-reporting/migration/k3/finalize', { method: 'POST', body: { companyCode: 'FNS', expectedHeaders: 2, expectedLines: 2 } })
+  assert.equal(duplicateLines.data.skipped, 3)
+  const duplicateFinalize = await api('/api/daily-reporting/migration/k3/finalize', { method: 'POST', body: { companyCode: 'FNS', expectedHeaders: 2, expectedLines: 3 } })
   assert.equal(duplicateFinalize.response.status, 200)
-  assert.equal((await api('/api/daily-reporting/migration/k3/status')).data.finalized.lineCount, 2)
+  assert.equal((await api('/api/daily-reporting/migration/k3/status')).data.finalized.lineCount, 3)
 })

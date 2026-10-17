@@ -255,7 +255,7 @@ function parseLegacyK3Line(value: unknown, companyCode: string, headersBySourceI
   const quantity = legacyDecimal(row.quantityExact), unitPrice = legacyDecimal(row.unitPriceExact)
   const originalAmount = legacyDecimal(row.originalAmountExact), amountCny = legacyDecimal(row.amountCnyExact)
   const materialNumber = legacyBlankString(row.materialNumber, 80), materialName = legacyBlankString(row.materialName, 200)
-  const specification = legacyBlankString(row.specification, 255), unit = legacyBlankString(row.unit, 32)
+  const specification = legacyBlankString(row.specification, 512), unit = legacyBlankString(row.unit, 32)
   if (!legacyRecordId || !/^\d+$/.test(legacyRecordId) || !legacyHeaderRecordId || !formId || !fid || !entryId || !header || header.legacyRecordId !== legacyHeaderRecordId || !Number.isSafeInteger(sequence) || sequence < 0 || !quantity || !unitPrice || !originalAmount || !amountCny || materialNumber === undefined || materialName === undefined || specification === undefined || unit === undefined) return undefined
   const id = legacyK3Id('line', companyCode, formId, fid, entryId)
   return {
