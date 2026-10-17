@@ -29,7 +29,7 @@ export interface K3SnapshotRow {
   id: string; kind: K3DocumentKind; type: DailyKind; billNo: string; date: string; partyNumber: string; partyName: string
   materialName: string; quantity: number; unit: string; currency: string; originalAmount: number; amountCny: number
   settledAmountCny: number; status: string; source: 'local-mock' | 'k3cloud'; snapshotAt: string; active: boolean
-  erpId?: string; modifiedAt?: string; unitPrice?: number; upstreamId?: string; upstreamBillNo?: string; upstreamLineId?: string; taxAmount?: number; taxAmountCny?: number
+  erpId?: string; modifiedAt?: string; inactiveAt?: string; unitPrice?: number; upstreamId?: string; upstreamBillNo?: string; upstreamLineId?: string; taxAmount?: number; taxAmountCny?: number
   linkedDocuments?: Array<Pick<K3SnapshotRow, 'id' | 'kind' | 'billNo' | 'date' | 'partyName' | 'materialName' | 'quantity' | 'unit' | 'unitPrice' | 'currency' | 'amountCny' | 'status'>>
 }
 export interface DailyReportLink {
@@ -210,6 +210,10 @@ function rowAllocation(state: DailyReportState, rowId: string): number {
 function reportAllocation(state: DailyReportState, reportId: string): number {
   return roundMoney(state.links.filter(link => link.reportId === reportId).reduce((total, link) => total + Math.abs(link.allocatedAmount), 0))
 }
+function activeReportAllocation(state: DailyReportState, reportId: string): number {
+  const activeRowIds = new Set(state.k3Rows.filter(row => row.active).map(row => row.id))
+  return roundMoney(state.links.filter(link => link.reportId === reportId && activeRowIds.has(link.k3RowId)).reduce((total, link) => total + Math.abs(link.allocatedAmount), 0))
+}
 function startOfMonth(day: string): string { return `${day.slice(0, 7)}-01` }
 function startOfYear(day: string): string { return `${day.slice(0, 4)}-01-01` }
 
@@ -319,9 +323,12 @@ export async function syncK3DailyDocuments(
   const refreshedAt = new Date().toISOString()
   const incomingIds = new Set(collected.map(row => row.id))
   const previousRows = stateVersion.value.k3Rows.filter(row => row.source === 'k3cloud' && !incomingIds.has(row.id) && !fullScanKinds.includes(row.kind))
-  const nextRows = [...previousRows, ...collected]
+  const inactiveRows = stateVersion.value.k3Rows
+    .filter(row => row.source === 'k3cloud' && !incomingIds.has(row.id) && fullScanKinds.includes(row.kind))
+    .map(row => row.active ? { ...row, active: false, inactiveAt: refreshedAt } : row)
+  const nextRows = [...previousRows, ...inactiveRows, ...collected]
   const nextRowIds = new Set(nextRows.map(row => row.id))
-  const rowCounts = Object.fromEntries(DAILY_K3_SOURCE_KINDS.map(kind => [kind, nextRows.filter(row => row.kind === kind).length])) as Partial<Record<K3DocumentKind, number>>
+  const rowCounts = Object.fromEntries(DAILY_K3_SOURCE_KINDS.map(kind => [kind, nextRows.filter(row => row.kind === kind && row.active).length])) as Partial<Record<K3DocumentKind, number>>
   const localMockReportIds = new Set(stateVersion.value.reports.filter(report => report.createdBy === 'local-mock').map(report => report.id))
   stateVersion.value.k3Rows = nextRows
   stateVersion.value.reports = stateVersion.value.reports.filter(report => !localMockReportIds.has(report.id))
@@ -338,7 +345,7 @@ function reconciliationFor(state: DailyReportState, kind: DailyKind, reportDate:
   const reports = liveReports(state).filter(report => report.type === kind)
   const dailyReports = reports.filter(report => report.date === reportDate)
   const dailyBase = roundMoney(dailyReports.reduce((sum, report) => sum + Math.abs(report.amountCny), 0))
-  const covered = roundMoney(dailyReports.reduce((sum, report) => sum + Math.min(Math.abs(report.amountCny), Math.abs(reportAllocation(state, report.id))), 0))
+  const covered = roundMoney(dailyReports.reduce((sum, report) => sum + Math.min(Math.abs(report.amountCny), activeReportAllocation(state, report.id)), 0))
   const monthReports = reports.filter(report => report.date >= startOfMonth(reportDate) && report.date <= reportDate)
   const monthSystem = roundMoney(monthReports.reduce((sum, report) => sum + report.amountCny, 0))
   const yearReports = reports.filter(report => report.date >= startOfYear(reportDate) && report.date <= reportDate)
@@ -362,7 +369,7 @@ function reconciliationFor(state: DailyReportState, kind: DailyKind, reportDate:
     return { ...row, allocatedAmount: allocated, remainingAmount: roundMoney(Math.max(0, Math.abs(row.amountCny) - allocated)), overAllocatedAmount: over, crossDate }
   })
   return {
-    dailyCoverage: { reportCount: dailyReports.length, totalAmount: dailyBase, coveredAmount: covered, coverageRate: dailyBase ? roundMoney(covered / dailyBase * 100) : null, reports: dailyReports.map(report => ({ ...report, allocatedAmount: reportAllocation(state, report.id), cappedAllocatedAmount: Math.min(Math.abs(report.amountCny), Math.abs(reportAllocation(state, report.id))) })) },
+    dailyCoverage: { reportCount: dailyReports.length, totalAmount: dailyBase, coveredAmount: covered, coverageRate: dailyBase ? roundMoney(covered / dailyBase * 100) : null, reports: dailyReports.map(report => { const allocatedAmount = activeReportAllocation(state, report.id); return { ...report, allocatedAmount, historicalAllocatedAmount: reportAllocation(state, report.id), cappedAllocatedAmount: Math.min(Math.abs(report.amountCny), allocatedAmount) } }) },
     monthDifference: { from: startOfMonth(reportDate), to: reportDate, systemAmount: monthSystem, k3Amount: monthK3, difference: monthDiff, differenceRate: complete && monthK3 !== 0 ? roundMoney(monthDiff / Math.abs(monthK3) * 100) : null, isComplete: complete },
     yearDifference: { from: startOfYear(reportDate), to: reportDate, systemAmount: yearSystem, k3Amount: yearK3, difference: yearDiff, differenceRate: complete && yearK3 !== 0 ? roundMoney(yearDiff / Math.abs(yearK3) * 100) : null, isComplete: complete },
     k3Allocation: { rowCount: allocationRows.length, originalAmount: roundMoney(monthRows.reduce((sum, row) => sum + row.amountCny, 0)), allocatedAmount: roundMoney(allocationRows.reduce((sum, row) => sum + row.allocatedAmount, 0)), remainingAmount: roundMoney(allocationRows.reduce((sum, row) => sum + Math.max(0, Math.abs(row.amountCny) - Math.abs(row.allocatedAmount)), 0)), overAllocatedAmount: roundMoney(allocationRows.reduce((sum, row) => sum + row.overAllocatedAmount, 0)), crossDateCount: allocationRows.filter(row => row.crossDate).length, rows: allocationRows },
@@ -395,8 +402,15 @@ export function buildDailyReportSummary(state: DailyReportState, reportDate: str
   const balanceSummary = (rows: K3SnapshotRow[]) => ({ count: rows.length, documentAmountCny: roundMoney(rows.reduce((sum, row) => sum + row.amountCny, 0)), settledAmountCny: roundMoney(rows.reduce((sum, row) => sum + row.settledAmountCny, 0)), outstandingAmountCny: roundMoney(rows.reduce((sum, row) => sum + Math.max(0, row.amountCny - row.settledAmountCny), 0)), rows: rows.map(row => ({ ...linkedRow(row), outstandingAmountCny: roundMoney(Math.max(0, row.amountCny - row.settledAmountCny)) })) })
   const warningRows = ['sales', 'purchase'].flatMap(kind => {
     if (scope !== 'both' && scope !== kind) return []
-    return reconciliationFor(state, kind as DailyKind, reportDate).k3Allocation.rows.filter(row => row.overAllocatedAmount > 0 || row.crossDate).map(row => ({ type: kind, billNo: row.billNo, overAllocatedAmount: row.overAllocatedAmount, crossDate: row.crossDate }))
+    return reconciliationFor(state, kind as DailyKind, reportDate).k3Allocation.rows.filter(row => row.overAllocatedAmount > 0 || row.crossDate).map(row => ({ type: kind, billNo: row.billNo, overAllocatedAmount: row.overAllocatedAmount, crossDate: row.crossDate, inactiveSource: false }))
   })
+  const invalidSourceWarnings = state.links.flatMap(link => {
+    const report = state.reports.find(item => item.id === link.reportId && !item.deletedAt)
+    if (!report || (scope !== 'both' && report.type !== scope) || state.k3Rows.find(row => row.id === link.k3RowId)?.active) return []
+    const sourceRow = state.k3Rows.find(row => row.id === link.k3RowId)
+    return [{ type: report.type, billNo: sourceRow?.billNo ?? link.k3RowId, overAllocatedAmount: 0, crossDate: false, inactiveSource: true }]
+  })
+  warningRows.push(...invalidSourceWarnings)
   return {
     reportDate, generatedAt: new Date().toISOString(), source: state.mockEnabled ? 'local-mock' : state.k3Sync ? 'k3cloud' : 'workspace', isMock: state.mockEnabled,
     mockSnapshotAt: state.mockSnapshotAt, k3Sync, liveErpConnected: Boolean(state.k3Sync),
@@ -523,11 +537,12 @@ function snapshotFromState(state: DailyReportState, reportDate: string, scope: '
   const reports = liveReports(state).filter(report => report.date === reportDate && (scope === 'both' || report.type === scope))
   const reportIds = new Set(reports.map(report => report.id))
   const links = state.links.filter(link => reportIds.has(link.reportId))
-  const k3Rows = state.k3Rows.filter(row => row.active && (row.date <= reportDate || (row.kind === 'receivable' && scope !== 'purchase') || (row.kind === 'payable' && scope !== 'sales')) && (scope === 'both' || row.type === scope)).map(row => ({ ...row, linkedDocuments: documentLinks(state, row) }))
+  const linkedK3RowIds = new Set(links.map(link => link.k3RowId))
+  const k3Rows = state.k3Rows.filter(row => ((row.active && (row.date <= reportDate || (row.kind === 'receivable' && scope !== 'purchase') || (row.kind === 'payable' && scope !== 'sales'))) || linkedK3RowIds.has(row.id)) && (scope === 'both' || row.type === scope)).map(row => ({ ...row, linkedDocuments: documentLinks(state, row) }))
   const warnings = [
     ...(state.mockEnabled ? ['当前为本地隔离演示数据，不能用于财务判断或正式对账。'] : []),
     ...(!state.mockSnapshotAt && !state.k3Sync ? ['未找到 K3Cloud 快照；对账指标显示为暂不可判定。'] : []),
-    ...summary.warnings.map(item => `${item.type} ${item.billNo}${item.crossDate ? ' 存在跨日关联' : ''}${item.overAllocatedAmount ? ` 超额分摊 ${item.overAllocatedAmount.toFixed(2)} 元` : ''}`),
+    ...summary.warnings.map(item => item.inactiveSource ? `${item.type} ${item.billNo} 关联来源已失效，当前覆盖率不计入。` : `${item.type} ${item.billNo}${item.crossDate ? ' 存在跨日关联' : ''}${item.overAllocatedAmount ? ` 超额分摊 ${item.overAllocatedAmount.toFixed(2)} 元` : ''}`),
   ]
   const snapshot: DailySnapshot = { id, reportDate, scope, version, createdAt: new Date().toISOString(), createdBy: actor.id, source: state.mockEnabled ? 'local-mock' : state.k3Sync ? 'k3cloud' : 'workspace', calculationVersion: 'v1.0.0', isComplete: Boolean(state.mockSnapshotAt || state.k3Sync), warnings: [...warnings, ...(state.k3Sync ? [`K3Cloud 数据于 ${state.k3Sync.lastSyncedAt} 同步；应收/应付余额为同步时点余额。`] : [])], data: { ...deepClone(summary), reports: deepClone(reports), links: deepClone(links), k3Rows: deepClone(k3Rows), corrections: deepClone(corrections) } }
   state.snapshots.unshift(snapshot)

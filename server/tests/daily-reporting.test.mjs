@@ -250,6 +250,10 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
   const formAllowlist = Object.fromEntries(Object.values(allSources).map(mapping => [mapping.formId, Object.values(mapping.fields)]))
   let invalidERPData = false
   let invalidMasterData = false
+  let omitShipment = false
+  let historyLinkedReportId = ''
+  let staleSnapshotId = ''
+  let shipmentRowId = ''
   const erp = createServer(async (request, response) => {
     if (request.url?.includes('LoginByAppSecret')) {
       response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'kdservice-session=fixture; Path=/; HttpOnly' })
@@ -262,7 +266,7 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
     const kind = sourceKinds.find(sourceKind => dailyReportSources[sourceKind].formId === payload.FormId)
     const masterKind = masterKinds.find(sourceKind => masterDataSources[sourceKind].formId === payload.FormId)
     queryRequests.push({ kind, filterString: payload.FilterString, orderString: payload.OrderString })
-    const docs = kind ? [{ ...documents[kind] }, ...(kind === 'sales-order' && incrementalSalesOrder ? [{ ...incrementalSalesOrder }] : [])] : []
+    const docs = kind && !(kind === 'shipment' && omitShipment) ? [{ ...documents[kind] }, ...(kind === 'sales-order' && incrementalSalesOrder ? [{ ...incrementalSalesOrder }] : [])] : []
     const masterRecord = masterKind ? { ...masterRecords[masterKind] } : null
     if (invalidMasterData && masterKind === 'customer' && masterRecord) masterRecord.id = ''
     if (invalidERPData && kind === 'sales-order') for (const document of docs) document.amountCny = 'not-a-number'
@@ -408,6 +412,62 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
     const incrementedSummary = await api(`/api/daily-reports/summary?date=${reportDay}`)
     assert.equal(incrementedSummary.data.orders.sales.count, 2)
     assert.equal(incrementedSummary.data.orders.sales.amountCny, 29000)
+
+    const shipmentRow = liveSummary.data.fulfillment.sales.rows[0]
+    shipmentRowId = shipmentRow.id
+    const linkedReport = await api('/api/daily-reports', { method: 'POST', body: { type: 'sales', date: reportDay, partyName: '测试客户甲', documentNo: 'LIVE-OUT-REPORT-001', quantity: 1, currency: 'CNY', originalAmount: 10000, exchangeRate: 1 } })
+    assert.equal(linkedReport.response.status, 201, JSON.stringify(linkedReport.data))
+    historyLinkedReportId = linkedReport.data.id
+    const savedHistoryLink = await api(`/api/daily-reports/${historyLinkedReportId}/links`, { method: 'PUT', body: { links: [{ k3RowId: shipmentRowId, allocatedAmount: 10000, allocatedQuantity: 1 }] } })
+    assert.equal(savedHistoryLink.response.status, 200, JSON.stringify(savedHistoryLink.data))
+
+    const fullScanSources = structuredClone(dailyReportSources)
+    delete fullScanSources.shipment.fields.modifiedAt
+    const savedFullScanMapping = await api('/api/integrations/settings/k3cloud', { method: 'PUT', body: { dailyReportSources: fullScanSources } })
+    assert.equal(savedFullScanMapping.response.status, 200)
+    omitShipment = true
+    const missingSourceSync = await api('/api/daily-reports/k3-sync', { method: 'POST' })
+    assert.equal(missingSourceSync.response.status, 200, JSON.stringify(missingSourceSync.data))
+    assert.ok(missingSourceSync.data.fullScanKinds.includes('shipment'))
+    assert.equal(missingSourceSync.data.rowCounts.shipment, 0, 'row counts describe currently active ERP rows, not retained history')
+    const missingSourceSummary = await api(`/api/daily-reports/summary?date=${reportDay}`)
+    assert.equal(missingSourceSummary.data.fulfillment.sales.count, 0, 'a missing source line is no longer presented as active fulfillment')
+    assert.equal(missingSourceSummary.data.sales.reconciliation.dailyCoverage.coverageRate, 0, 'an inactive source link does not count as current reconciliation coverage')
+    assert.ok(missingSourceSummary.data.warnings.some(warning => warning.inactiveSource), 'an inactive linked source is explicitly warned')
+    const inactiveReportList = await api(`/api/daily-reports?from=${reportDay}&to=${reportDay}`)
+    const inactiveReport = inactiveReportList.data.reports.find(report => report.id === historyLinkedReportId)
+    assert.equal(inactiveReport.links.length, 1, 'the report-to-K3 association is retained when a full scan no longer returns the source row')
+    assert.equal(inactiveReport.links[0].k3Row.active, false)
+    assert.ok(inactiveReport.links[0].k3Row.inactiveAt)
+
+    const staleSnapshot = await api('/api/daily-reports/snapshots', { method: 'POST', body: { reportDate: reportDay, scope: 'sales' } })
+    assert.equal(staleSnapshot.response.status, 201, JSON.stringify(staleSnapshot.data))
+    staleSnapshotId = staleSnapshot.data.id
+    assert.equal(staleSnapshot.data.data.k3Rows.find(row => row.id === shipmentRowId)?.active, false, 'an archive retains inactive K3 rows that its included reports link to')
+    assert.ok(staleSnapshot.data.data.links.some(link => link.reportId === historyLinkedReportId && link.k3RowId === shipmentRowId))
+    assert.ok(staleSnapshot.data.warnings.some(warning => warning.includes('关联来源已失效')))
+
+    await stopServer()
+    await startServer()
+    const persistedInactiveReports = await api(`/api/daily-reports?from=${reportDay}&to=${reportDay}`)
+    const persistedInactiveReport = persistedInactiveReports.data.reports.find(report => report.id === historyLinkedReportId)
+    assert.equal(persistedInactiveReport.links[0].k3Row.id, shipmentRowId)
+    assert.equal(persistedInactiveReport.links[0].k3Row.active, false, 'inactive status and historical association survive a SQLite-backed process restart')
+    const persistedInactiveArchive = await api(`/api/daily-reports/snapshots/${staleSnapshotId}`)
+    assert.equal(persistedInactiveArchive.response.status, 200)
+    assert.equal(persistedInactiveArchive.data.snapshot.data.k3Rows.find(row => row.id === shipmentRowId)?.active, false)
+
+    omitShipment = false
+    const restoredSourceSync = await api('/api/daily-reports/k3-sync', { method: 'POST' })
+    assert.equal(restoredSourceSync.response.status, 200, JSON.stringify(restoredSourceSync.data))
+    const restoredReportList = await api(`/api/daily-reports?from=${reportDay}&to=${reportDay}`)
+    const restoredReport = restoredReportList.data.reports.find(report => report.id === historyLinkedReportId)
+    assert.equal(restoredReport.links[0].k3Row.id, shipmentRowId, 'the stable K3 identity reactivates without recreating or dropping its association')
+    assert.equal(restoredReport.links[0].k3Row.active, true)
+    assert.equal(Object.hasOwn(restoredReport.links[0].k3Row, 'inactiveAt'), false)
+    const restoredSummary = await api(`/api/daily-reports/summary?date=${reportDay}`)
+    assert.equal(restoredSummary.data.sales.reconciliation.dailyCoverage.coverageRate, 100)
+    assert.equal(restoredSummary.data.warnings.some(warning => warning.inactiveSource), false)
   } finally { await new Promise(resolve => erp.close(resolve)) }
 
   const newTenant = await api('/api/auth/tenants', { method: 'POST', body: { tenantName: '日报隔离租户 B', organizationName: '隔离组织 B', accountName: '隔离账套 B' } })
@@ -419,6 +479,8 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
   const reportsB = await api('/api/daily-reports?from=2026-10-15&to=2026-10-15')
   assert.equal(reportsB.response.status, 200)
   assert.equal(reportsB.data.reports.some(report => report.id === reportId), false)
+  const scopedLinkedReportsB = await api(`/api/daily-reports?from=${reportDay}&to=${reportDay}`)
+  assert.equal(scopedLinkedReportsB.data.reports.some(report => report.id === historyLinkedReportId), false, 'historical associations do not cross tenant, organization or account scope')
   const businessB = await api(`/api/daily-reports/summary?date=${reportDay}`)
   assert.equal(businessB.data.liveErpConnected, false)
   assert.equal(businessB.data.orders.sales.rows.some(row => row.billNo === 'LIVE-SO-001'), false, 'business document snapshots stay isolated by tenant, organization and account')
@@ -447,6 +509,12 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
   assert.equal(persisted.response.status, 200, 'the authenticated snapshot survives a server restart against the isolated SQLite database')
   assert.equal(persisted.data.snapshot.data.reports.find(report => report.id === reportId).amountCny, 200)
   assert.equal(persisted.data.deliveries.length, 2)
+  const persistedLinkedReports = await api(`/api/daily-reports?from=${reportDay}&to=${reportDay}`)
+  const persistedLinkedReport = persistedLinkedReports.data.reports.find(report => report.id === historyLinkedReportId)
+  assert.equal(persistedLinkedReport.links[0].k3Row.id, shipmentRowId)
+  assert.equal(persistedLinkedReport.links[0].k3Row.active, true, 'reactivated source identity and association survive a second restart')
+  const persistedStaleArchive = await api(`/api/daily-reports/snapshots/${staleSnapshotId}`)
+  assert.equal(persistedStaleArchive.data.snapshot.data.k3Rows.find(row => row.id === shipmentRowId)?.active, false, 'archived inactive-source evidence stays immutable after the live source reappears')
 })
 
 test('historical daily import validates CSV/XLSX and commits atomically within the authenticated scope', { concurrency: false }, async () => {
