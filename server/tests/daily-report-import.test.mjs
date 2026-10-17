@@ -23,6 +23,14 @@ test('CSV preserves quoted CRLF newlines and reports physical source line number
   assert.equal(parsed.rows[1].values.note, '第三行')
 })
 
+test('CSV retains exact original amount and exchange-rate decimal text', async () => {
+  const parsed = await parseCsv('日期,客户名称,原币金额,汇率\n2024-02-01,客户甲,"1,250.500000",7.2000\n')
+  assert.equal(parsed.rows[0].values.originalAmount, 1250.5)
+  assert.equal(parsed.rows[0].values.originalAmountExact, '1250.500000')
+  assert.equal(parsed.rows[0].values.exchangeRate, 7.2)
+  assert.equal(parsed.rows[0].values.exchangeRateExact, '7.2000')
+})
+
 test('CSV rejects malformed UTF-8 instead of replacing invalid byte sequences', async () => {
   const prefix = Buffer.from('日期,客户名称,原币金额,备注\n2024-02-01,客户甲,10,', 'utf8')
   const suffix = Buffer.from('\n', 'utf8')

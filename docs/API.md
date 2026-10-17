@@ -129,9 +129,9 @@ K3Cloud API 是**只读**。过滤字段、排序字段和列必须被 allowlist
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | `GET` | `/api/daily-reports?from=...&to=...&type=sales\|purchase` | 已登录 | 当前账套日报历史。 |
-| `POST` | `/api/daily-reports` | `admin`, `plm_manager`, `member` | 手工录入；服务端计算 CNY 金额并绑定操作者。 |
-| `POST` | `/api/daily-reports/import/preview` | `admin`, `plm_manager`, `member` | multipart `file`（CSV/XLSX，≤10 MB）及可选默认 `type`；字段校验、逐行错误/重复反馈，返回绑定当前操作者和三层 scope 的 15 分钟预览令牌，不写入数据。最多 5,000 行。 |
-| `POST` | `/api/daily-reports/import/commit` | `admin`, `plm_manager`, `member` | `{ "previewId": "…" }`；重新检查 scope、行校验和当前重复项；错误行导致整批拒绝，成功时以单次状态写入原子提交，重复项跳过。 |
+| `POST` | `/api/daily-reports` | `admin`, `plm_manager`, `member` | 手工录入；持久化原币金额/汇率精确十进制字符串，并用十进制运算生成 6 位人民币金额快照。 |
+| `POST` | `/api/daily-reports/import/preview` | `admin`, `plm_manager`, `member` | multipart `file`（CSV/XLSX，≤10 MB）及可选默认 `type`；可含 `sourceIdempotencyKey` / 来源幂等键列，返回字段校验、逐行错误/重复反馈和绑定操作者、三层 scope 的 15 分钟预览令牌，不写入数据。最多 5,000 行。 |
+| `POST` | `/api/daily-reports/import/commit` | `admin`, `plm_manager`, `member` | `{ "previewId": "…" }`；重新检查 scope、行校验及数据库内来源键/业务重复项；错误行导致整批拒绝，成功时在一次状态写入中持久化来源键、文件/源行/批次、精确金额与汇率快照；重复导入跨服务重启仍跳过。 |
 | `PATCH` / `DELETE` | `/api/daily-reports/:id` | 同上 | 更正或软删除；已归档数据产生更正记录，不改写历史快照。 |
 | `GET` | `/api/daily-reports/k3-lines?type=...` | 已登录 | 当前账套 K3 快照行。 |
 | `POST` | `/api/daily-reports/k3-sync` | `admin`, `plm_manager` | 根据当前账套 `dailyReportSources` 映射同步销售出库、采购入库、销售/采购订单、应收/应付六类单据；字段必须在 `formAllowlist` 中，失败保留旧快照。 |
@@ -141,7 +141,7 @@ K3Cloud API 是**只读**。过滤字段、排序字段和列必须被 allowlist
 | `PUT` | `/api/daily-reports/:id/links` | `admin`, `plm_manager`, `member` | 多对多部分分摊；类型/账套校验，超额/跨日显式警告。 |
 | `GET` | `/api/daily-reports/summary?date=...&scope=both` | 已登录 | 日报覆盖率、月/年同期间差异、K3 行分摊三维对账。 |
 | `GET` / `POST` | `/api/daily-reports/snapshots` | 已登录 / 写角色 | 查询或追加不可变归档快照；晚到更正进入后续快照。 |
-| `GET` | `/api/daily-reports/snapshots/:id/export.html` / `.xlsx` | 已登录 | 导出已归档 HTML / 多工作表 Excel。 |
+| `GET` | `/api/daily-reports/snapshots/:id/export.html` / `.xlsx` | 已登录 | 导出已归档 HTML / 多工作表 Excel；日报明细包含原币金额、汇率与人民币金额精确快照文本。 |
 | `POST` | `/api/daily-reports/snapshots/:id/deliveries` | 写角色 | 仅记录隔离 email/DingTalk 模拟结果，不发送外部消息。 |
 | `POST` | `/api/daily-reports/mock-refresh` | `admin`, `plm_manager`；非生产 | 刷新本地演示 K3 快照，不访问真实 ERP。 |
 

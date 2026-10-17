@@ -22,6 +22,7 @@ const aliases: Record<string, string[]> = {
   originalAmount: ['originalamount', 'amount', '原币金额', '金额', '发生金额'],
   exchangeRate: ['exchangerate', 'rate', '汇率', '折算汇率'],
   note: ['note', 'remark', '备注', '摘要', '说明'],
+  sourceIdempotencyKey: ['sourceidempotencykey', 'sourcekey', 'sourceid', 'externalid', '来源幂等键', '来源键', '外部行ID', '外部单据行ID', '源系统ID'],
 }
 const normalizeHeader = (value: string) => value.trim().toLocaleLowerCase().replace(/[\s_\-()（）/\\:：.]/g, '')
 
@@ -100,6 +101,14 @@ function numberValue(value: unknown): unknown {
   const parsed = Number(raw)
   return Number.isFinite(parsed) ? parsed : raw
 }
+function normalizedNumericText(value: unknown): string | undefined {
+  if (value === null || value === undefined || value === '') return undefined
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : undefined
+  let raw = displayValue(value).replace(/[￥¥$,，\s]/g, '')
+  if (!raw) return undefined
+  if (/^\(.*\)$/.test(raw)) raw = `-${raw.slice(1, -1)}`
+  return raw
+}
 function parseType(value: unknown): unknown {
   if (value === undefined || value === null || value === '') return value
   const raw = displayValue(value).trim().toLocaleLowerCase()
@@ -143,7 +152,11 @@ function parseGrid(headers: string[], rows: Array<{ line: number; values: unknow
       try {
         if (field === 'date') values.date = dateValue(raw)
         else if (field === 'type') values.type = parseType(raw) || defaultType
-        else if (field === 'quantity' || field === 'originalAmount' || field === 'exchangeRate') values[field] = numberValue(raw)
+        else if (field === 'quantity') values[field] = numberValue(raw)
+        else if (field === 'originalAmount' || field === 'exchangeRate') {
+          values[field] = numberValue(raw)
+          values[`${field}Exact`] = normalizedNumericText(raw)
+        }
         else if (field === 'currency') values.currency = displayValue(raw).toUpperCase()
         else values[field] = displayValue(raw)
       } catch (error) {

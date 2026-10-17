@@ -20,7 +20,8 @@ export type DailySource = 'manual' | 'history-import'
 
 export interface DailyReport {
   id: string; type: DailyKind; date: string; partyName: string; documentNo: string; quantity: number; currency: string
-  originalAmount: number; exchangeRate: number; amountCny: number; note: string; source: DailySource
+  originalAmount: number; originalAmountExact?: string; exchangeRate: number; exchangeRateExact?: string; amountCny: number; amountCnyExact?: string; note: string; source: DailySource
+  sourceIdempotencyKey?: string; sourceFileName?: string; sourceRow?: number; importBatchId?: string
   createdAt: string; updatedAt: string; createdBy: string; createdByName: string; updatedBy: string; deletedAt?: string; deletedBy?: string
   partyId?: string
 }
@@ -68,6 +69,42 @@ const finite = (value: unknown): number | undefined => {
   if (value === '' || value === null || value === undefined) return undefined
   const result = Number(value)
   return Number.isFinite(result) ? result : undefined
+}
+function decimalParts(value: string): { coefficient: bigint; scale: number } | undefined {
+  const match = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/.exec(value)
+  if (!match || value.length > 100) return undefined
+  const exponent = Number(match[5] ?? 0)
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 80) return undefined
+  const integer = match[2] ?? '0', fraction = match[3] ?? match[4] ?? ''
+  let scale = fraction.length - exponent
+  if (scale > 80) return undefined
+  let coefficient = BigInt(`${integer}${fraction}` || '0')
+  if (match[1] === '-') coefficient = -coefficient
+  if (scale < 0) { coefficient *= 10n ** BigInt(-scale); scale = 0 }
+  return { coefficient, scale }
+}
+function multiplyDecimalText(leftText: string, rightText: string, targetScale = 6): string | undefined {
+  const left = decimalParts(leftText), right = decimalParts(rightText)
+  if (!left || !right) return undefined
+  let coefficient = left.coefficient * right.coefficient
+  const sourceScale = left.scale + right.scale
+  if (sourceScale > targetScale) {
+    const divisor = 10n ** BigInt(sourceScale - targetScale), negative = coefficient < 0n
+    const absolute = negative ? -coefficient : coefficient
+    coefficient = (absolute + divisor / 2n) / divisor
+    if (negative) coefficient = -coefficient
+  } else coefficient *= 10n ** BigInt(targetScale - sourceScale)
+  const negative = coefficient < 0n, digits = (negative ? -coefficient : coefficient).toString().padStart(targetScale + 1, '0')
+  return `${negative ? '-' : ''}${digits.slice(0, -targetScale)}.${digits.slice(-targetScale)}`
+}
+function exactDecimalText(preferred: unknown, original: unknown, numeric: number): string {
+  const decimalPattern = /^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[eE][+-]?\d+)?$/
+  for (const candidate of [preferred, original]) {
+    if (typeof candidate !== 'string') continue
+    const text = candidate.trim()
+    if (text.length <= 100 && decimalPattern.test(text) && Number.isFinite(Number(text)) && Number(text) === numeric) return text
+  }
+  return String(numeric)
 }
 const deepClone = <T>(value: T): T => structuredClone(value)
 function stateKey(scope: Pick<WorkspaceScope, 'tenantId' | 'organizationId' | 'accountId'>): string {
@@ -405,8 +442,10 @@ function validateReportPayload(body: Record<string, unknown>, existing?: DailyRe
   const documentNo = body.documentNo ?? existing?.documentNo ?? ''
   const quantity = finite(body.quantity ?? existing?.quantity ?? 0)
   const currency = body.currency ?? existing?.currency ?? 'CNY'
-  const originalAmount = finite(body.originalAmount ?? existing?.originalAmount)
-  const rawRate = finite(body.exchangeRate ?? existing?.exchangeRate ?? 1)
+  const originalAmountInput = body.originalAmount ?? existing?.originalAmountExact ?? existing?.originalAmount
+  const originalAmount = finite(originalAmountInput)
+  const rawRateInput = body.exchangeRate ?? existing?.exchangeRateExact ?? existing?.exchangeRate ?? 1
+  const rawRate = finite(rawRateInput)
   const note = body.note ?? existing?.note ?? ''
   const partyId = body.partyId ?? existing?.partyId
   const source = existing?.source ?? 'manual'
@@ -419,8 +458,21 @@ function validateReportPayload(body: Record<string, unknown>, existing?: DailyRe
   if (typeof note !== 'string' || note.length > 2000) return { error: '备注最多 2000 字。' }
   if (partyId !== undefined && (typeof partyId !== 'string' || partyId.length > 100)) return { error: '客商关联无效。' }
   if (source !== 'manual' && source !== 'history-import') return { error: '日报来源无效。' }
-  const exchangeRate = currency === 'CNY' ? 1 : rawRate
-  return { value: { type, date, partyName: partyName.trim(), documentNo: documentNo.trim(), quantity, currency, originalAmount: roundMoney(originalAmount), exchangeRate, amountCny: roundMoney(originalAmount * exchangeRate), note: note.trim(), source, ...(typeof partyId === 'string' && partyId ? { partyId } : {}) } }
+  const originalAmountExact = exactDecimalText(body.originalAmountExact, originalAmountInput, originalAmount)
+  const exchangeRateExact = currency === 'CNY' ? '1' : exactDecimalText(body.exchangeRateExact, rawRateInput, rawRate)
+  const amountCnyExact = multiplyDecimalText(originalAmountExact, exchangeRateExact)
+  const amountCny = amountCnyExact === undefined ? undefined : finite(amountCnyExact)
+  if (amountCny === undefined) return { error: '原币金额或汇率精度无效，无法生成人民币金额快照。' }
+  return { value: {
+    type, date, partyName: partyName.trim(), documentNo: documentNo.trim(), quantity, currency,
+    originalAmount, originalAmountExact, exchangeRate: currency === 'CNY' ? 1 : rawRate,
+    exchangeRateExact, amountCny, amountCnyExact, note: note.trim(), source,
+    ...(typeof partyId === 'string' && partyId ? { partyId } : {}),
+    ...(existing?.sourceIdempotencyKey ? { sourceIdempotencyKey: existing.sourceIdempotencyKey } : {}),
+    ...(existing?.sourceFileName ? { sourceFileName: existing.sourceFileName } : {}),
+    ...(existing?.sourceRow !== undefined ? { sourceRow: existing.sourceRow } : {}),
+    ...(existing?.importBatchId ? { importBatchId: existing.importBatchId } : {}),
+  } }
 }
 
 type ImportPreviewRow = { line: number; value?: Omit<DailyReport, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'createdByName' | 'updatedBy'>; errors: string[]; duplicateReason?: 'existing' | 'same_batch' }
@@ -429,22 +481,28 @@ const pendingImportPreviews = new BoundedPreviewCache<PendingImportPreview>(MAX_
 const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 1, parts: 2 } }).single('file')
 const importPreviewTtlMs = 15 * 60 * 1000
 
-function importDuplicateKey(value: Pick<DailyReport, 'type' | 'date' | 'partyName' | 'documentNo' | 'quantity' | 'currency' | 'originalAmount' | 'exchangeRate' | 'note'>): string {
+function importDuplicateKey(value: Pick<DailyReport, 'type' | 'date' | 'partyName' | 'documentNo' | 'quantity' | 'currency' | 'originalAmount' | 'exchangeRate' | 'note'> & Partial<Pick<DailyReport, 'originalAmountExact' | 'exchangeRateExact'>>): string {
   const documentNo = value.documentNo.trim().toLocaleLowerCase()
   return documentNo
     ? `${value.type}|${value.date}|doc:${documentNo}`
-    : `${value.type}|${value.date}|row:${JSON.stringify([value.partyName.trim().toLocaleLowerCase(), value.quantity, value.currency, value.originalAmount, value.exchangeRate, value.note.trim()])}`
+    : `${value.type}|${value.date}|row:${JSON.stringify([value.partyName.trim().toLocaleLowerCase(), value.quantity, value.currency, value.originalAmountExact ?? value.originalAmount, value.exchangeRateExact ?? value.exchangeRate, value.note.trim()])}`
+}
+function makeImportSourceKey(value: Parameters<typeof importDuplicateKey>[0], externalKey?: string): string {
+  if (externalKey) return `external:${value.type}:${externalKey}`
+  return `auto:${createHash('sha256').update(importDuplicateKey(value)).digest('hex')}`
 }
 function classifyImportDuplicates(state: DailyReportState, rows: ImportPreviewRow[]): void {
   const existingKeys = new Set(liveReports(state).map(importDuplicateKey))
-  const batchKeys = new Set<string>()
+  const existingSourceKeys = new Set(state.reports.map(item => item.sourceIdempotencyKey).filter((key): key is string => Boolean(key)))
+  const batchKeys = new Set<string>(), batchSourceKeys = new Set<string>()
   for (const row of rows) {
     row.duplicateReason = undefined
     if (!row.value || row.errors.length) continue
     const key = importDuplicateKey(row.value)
-    if (existingKeys.has(key)) row.duplicateReason = 'existing'
-    else if (batchKeys.has(key)) row.duplicateReason = 'same_batch'
-    batchKeys.add(key)
+    const sourceKey = row.value.sourceIdempotencyKey ?? ''
+    if (existingKeys.has(key) || existingSourceKeys.has(sourceKey)) row.duplicateReason = 'existing'
+    else if (batchKeys.has(key) || batchSourceKeys.has(sourceKey)) row.duplicateReason = 'same_batch'
+    batchKeys.add(key); batchSourceKeys.add(sourceKey)
   }
 }
 function importPreviewResponse(preview: PendingImportPreview, headers: string[], mappedFields: string[]) {
@@ -499,11 +557,11 @@ function renderSnapshotHtml(snapshot: DailySnapshot): string {
   const dailyRows = (data.reports as DailyReport[] | undefined) ?? []
   const k3Rows = (data.k3Rows as K3SnapshotRow[] | undefined) ?? []
   const warnings = snapshot.warnings.map(warning => `<li>${escapeHtml(warning)}</li>`).join('')
-  const rows = dailyRows.map(row => `<tr><td>${escapeHtml(row.type === 'sales' ? '销售' : '采购')}</td><td>${escapeHtml(row.date)}</td><td>${escapeHtml(row.documentNo)}</td><td>${escapeHtml(row.partyName)}</td><td>${escapeHtml(row.quantity)}</td><td>${escapeHtml(row.currency)}</td><td>${escapeHtml(row.amountCny.toFixed(2))}</td></tr>`).join('')
+  const rows = dailyRows.map(row => `<tr><td>${escapeHtml(row.type === 'sales' ? '销售' : '采购')}</td><td>${escapeHtml(row.date)}</td><td>${escapeHtml(row.documentNo)}</td><td>${escapeHtml(row.partyName)}</td><td>${escapeHtml(row.quantity)}</td><td>${escapeHtml(row.currency)}</td><td>${escapeHtml(row.originalAmountExact ?? row.originalAmount)}</td><td>${escapeHtml(row.exchangeRateExact ?? row.exchangeRate)}</td><td>${escapeHtml(row.amountCnyExact ?? row.amountCny)}</td></tr>`).join('')
   const k3 = k3Rows.map(row => `<tr><td>${escapeHtml(row.kind)}</td><td>${escapeHtml(row.billNo)}</td><td>${escapeHtml(row.date)}</td><td>${escapeHtml(row.partyName)}</td><td>${escapeHtml(row.materialName)}</td><td>${escapeHtml(row.amountCny.toFixed(2))}</td></tr>`).join('')
   const amount = (object: unknown, key: string) => Number(asRecord(object)[key] ?? 0).toFixed(2)
   const sourceLabel = snapshot.source === 'local-mock' ? '本地隔离演示快照（非真实 ERP）' : snapshot.source === 'k3cloud' ? 'K3Cloud 只读快照' : '工作区快照'
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>经营日报 ${escapeHtml(snapshot.reportDate)}</title><style>body{font:14px system-ui,sans-serif;color:#243047;max-width:1100px;margin:32px auto;padding:0 20px}h1,h2{color:#1d3353}.warn{background:#fff8e8;border:1px solid #ead7a7;padding:12px;border-radius:8px}table{width:100%;border-collapse:collapse;margin:10px 0 24px}th,td{border:1px solid #dce2eb;padding:7px;text-align:left}th{background:#f2f5f9}.meta{color:#718096}</style></head><body><h1>销售 / 采购经营日报</h1><p class="meta">报表日期 ${escapeHtml(snapshot.reportDate)} · 归档版本 ${snapshot.version} · ${escapeHtml(snapshot.createdAt)} · ${escapeHtml(sourceLabel)}</p><section class="warn"><b>数据说明</b><ul>${warnings || '<li>无额外警告</li>'}</ul></section><h2>经营摘要</h2><p>销售日报：${amount(sales.daily, 'count')} 笔，金额 ¥${amount(sales.daily, 'amountCny')}；采购日报：${amount(purchase.daily, 'count')} 笔，金额 ¥${amount(purchase.daily, 'amountCny')}。</p><p>销售订单：${amount(asRecord(orders).sales, 'count')} 笔，¥${amount(asRecord(orders).sales, 'amountCny')}；采购订单：${amount(asRecord(orders).purchase, 'count')} 笔，¥${amount(asRecord(orders).purchase, 'amountCny')}。</p><p>应收未收 ¥${amount(asRecord(balances).receivables, 'outstandingAmountCny')}；应付未付 ¥${amount(asRecord(balances).payables, 'outstandingAmountCny')}。</p><h2>日报明细</h2><table><thead><tr><th>类型</th><th>日期</th><th>编号</th><th>客户 / 供应商</th><th>数量</th><th>币种</th><th>人民币</th></tr></thead><tbody>${rows || '<tr><td colspan="7">暂无日报记录</td></tr>'}</tbody></table><h2>K3Cloud / 演示快照行</h2><table><thead><tr><th>单据类型</th><th>单号</th><th>日期</th><th>客商</th><th>物料 / 科目</th><th>金额(人民币)</th></tr></thead><tbody>${k3 || '<tr><td colspan="6">暂无快照行</td></tr>'}</tbody></table></body></html>`
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>经营日报 ${escapeHtml(snapshot.reportDate)}</title><style>body{font:14px system-ui,sans-serif;color:#243047;max-width:1100px;margin:32px auto;padding:0 20px}h1,h2{color:#1d3353}.warn{background:#fff8e8;border:1px solid #ead7a7;padding:12px;border-radius:8px}table{width:100%;border-collapse:collapse;margin:10px 0 24px}th,td{border:1px solid #dce2eb;padding:7px;text-align:left}th{background:#f2f5f9}.meta{color:#718096}</style></head><body><h1>销售 / 采购经营日报</h1><p class="meta">报表日期 ${escapeHtml(snapshot.reportDate)} · 归档版本 ${snapshot.version} · ${escapeHtml(snapshot.createdAt)} · ${escapeHtml(sourceLabel)}</p><section class="warn"><b>数据说明</b><ul>${warnings || '<li>无额外警告</li>'}</ul></section><h2>经营摘要</h2><p>销售日报：${amount(sales.daily, 'count')} 笔，金额 ¥${amount(sales.daily, 'amountCny')}；采购日报：${amount(purchase.daily, 'count')} 笔，金额 ¥${amount(purchase.daily, 'amountCny')}。</p><p>销售订单：${amount(asRecord(orders).sales, 'count')} 笔，¥${amount(asRecord(orders).sales, 'amountCny')}；采购订单：${amount(asRecord(orders).purchase, 'count')} 笔，¥${amount(asRecord(orders).purchase, 'amountCny')}。</p><p>应收未收 ¥${amount(asRecord(balances).receivables, 'outstandingAmountCny')}；应付未付 ¥${amount(asRecord(balances).payables, 'outstandingAmountCny')}。</p><h2>日报明细</h2><table><thead><tr><th>类型</th><th>日期</th><th>编号</th><th>客户 / 供应商</th><th>数量</th><th>币种</th><th>原币金额</th><th>汇率</th><th>人民币金额</th></tr></thead><tbody>${rows || '<tr><td colspan="9">暂无日报记录</td></tr>'}</tbody></table><h2>K3Cloud / 演示快照行</h2><table><thead><tr><th>单据类型</th><th>单号</th><th>日期</th><th>客商</th><th>物料 / 科目</th><th>金额(人民币)</th></tr></thead><tbody>${k3 || '<tr><td colspan="6">暂无快照行</td></tr>'}</tbody></table></body></html>`
 }
 
 export function createDailyReportRouter(): Router {
@@ -576,7 +634,10 @@ export function createDailyReportRouter(): Router {
       const rows: ImportPreviewRow[] = parsed.rows.map(row => {
         const validation = validateReportPayload(row.values)
         const errors = [...row.errors, ...(validation.error ? [validation.error] : [])]
-        return { line: row.line, value: validation.value ? { ...validation.value, source: 'history-import' } : undefined, errors }
+        const rawKey = row.values.sourceIdempotencyKey
+        const externalKey = typeof rawKey === 'string' ? rawKey.trim() : ''
+        if (rawKey !== undefined && (typeof rawKey !== 'string' || externalKey.length > 160 || /[\u0000-\u001f\u007f]/.test(externalKey))) errors.push('来源幂等键必须是最多 160 字且不含控制字符的文本。')
+        return { line: row.line, value: validation.value ? { ...validation.value, source: 'history-import', sourceIdempotencyKey: makeImportSourceKey(validation.value, externalKey || undefined) } : undefined, errors }
       })
       const scope = scopeFromRequest(req)
       classifyImportDuplicates(readDailyReportState(scope), rows)
@@ -604,23 +665,31 @@ export function createDailyReportRouter(): Router {
     if (invalidRows.length) return res.status(422).json({ error: 'daily_report_import_validation_failed', message: '存在字段错误行；请修正文件后重新预览，未写入任何日报。', rows: invalidRows.map(row => ({ line: row.line, errors: row.errors })) })
     try {
       const result = mutateState(scope, state => {
-        const knownKeys = new Set(liveReports(state).map(importDuplicateKey)), batchKeys = new Set<string>()
+        const knownKeys = new Set(liveReports(state).map(importDuplicateKey))
+        const knownSourceKeys = new Set(state.reports.map(item => item.sourceIdempotencyKey).filter((key): key is string => Boolean(key)))
+        const batchKeys = new Set<string>(), batchSourceKeys = new Set<string>()
         const imported: DailyReport[] = []
         let skippedDuplicates = 0
         for (const row of preview.rows) {
           const validation = validateReportPayload(row.value as unknown as Record<string, unknown>)
           if (!validation.value) throw new TypeError(`第 ${row.line} 行重新校验失败：${validation.error}`)
-          const value = { ...validation.value, source: 'history-import' as const }
+          const value = {
+            ...validation.value, source: 'history-import' as const,
+            sourceIdempotencyKey: row.value!.sourceIdempotencyKey,
+            sourceFileName: preview.fileName, sourceRow: row.line, importBatchId: preview.token,
+          }
           const key = importDuplicateKey(value)
-          if (knownKeys.has(key) || batchKeys.has(key)) { skippedDuplicates++; continue }
-          knownKeys.add(key); batchKeys.add(key)
+          const sourceKey = value.sourceIdempotencyKey
+          if (!sourceKey) throw new TypeError(`第 ${row.line} 行缺少来源幂等键。`)
+          if (knownKeys.has(key) || knownSourceKeys.has(sourceKey) || batchKeys.has(key) || batchSourceKeys.has(sourceKey)) { skippedDuplicates++; continue }
+          knownKeys.add(key); knownSourceKeys.add(sourceKey); batchKeys.add(key); batchSourceKeys.add(sourceKey)
           const now = new Date().toISOString()
           const item: DailyReport = { ...value, id: randomUUID(), createdAt: now, updatedAt: now, createdBy: actor.id, createdByName: actor.name, updatedBy: actor.id }
           state.reports.unshift(item)
           noteCorrection(state, { originalDate: item.date, type: '历史日报导入', affectedReport: item.type, referenceId: item.id, originalValue: archivedReportAmount(state, item.id, item.date), newValue: item.amountCny, diffAmount: item.amountCny, reason: '已归档日期新增历史日报记录。' })
           imported.push(item)
         }
-        return { importedCount: imported.length, skippedDuplicates, imported: imported.map(item => ({ id: item.id, type: item.type, date: item.date, documentNo: item.documentNo, amountCny: item.amountCny })) }
+        return { importedCount: imported.length, skippedDuplicates, imported: imported.map(item => ({ id: item.id, type: item.type, date: item.date, documentNo: item.documentNo, amountCny: item.amountCny, sourceIdempotencyKey: item.sourceIdempotencyKey })) }
       })
       pendingImportPreviews.delete(previewId)
       return res.json({ ...result, message: `已导入 ${result.importedCount} 条，跳过重复 ${result.skippedDuplicates} 条。` })
@@ -776,7 +845,7 @@ export function createDailyReportRouter(): Router {
     summary.columns = [{ width: 24 }, { width: 70 }]
     const reportSheet = workbook.addWorksheet('日报明细')
     reportSheet.addRow(['类型', '日期', '编号', '客商', '数量', '币种', '原币金额', '汇率', '人民币金额', '备注'])
-    for (const row of (data.reports as DailyReport[] | undefined) ?? []) reportSheet.addRow([row.type === 'sales' ? '销售' : '采购', row.date, row.documentNo, row.partyName, row.quantity, row.currency, row.originalAmount, row.exchangeRate, row.amountCny, row.note])
+    for (const row of (data.reports as DailyReport[] | undefined) ?? []) reportSheet.addRow([row.type === 'sales' ? '销售' : '采购', row.date, row.documentNo, row.partyName, row.quantity, row.currency, row.originalAmountExact ?? row.originalAmount, row.exchangeRateExact ?? row.exchangeRate, row.amountCnyExact ?? row.amountCny, row.note])
     const k3Sheet = workbook.addWorksheet('K3快照')
     k3Sheet.addRow(['类型', '单号', '日期', '客商', '物料/科目', '数量', '单位', '单价', '币种', '原币金额', '人民币金额', '已收/付', '状态', '上游单号', '关联单据', '数据来源'])
     for (const row of (data.k3Rows as K3SnapshotRow[] | undefined) ?? []) k3Sheet.addRow([row.kind, row.billNo, row.date, row.partyName, row.materialName, row.quantity, row.unit, row.unitPrice ?? '', row.currency, row.originalAmount, row.amountCny, row.settledAmountCny, row.status, row.upstreamBillNo ?? '', row.linkedDocuments?.map(link => `${link.kind}:${link.billNo}`).join('；') ?? '', row.source])
