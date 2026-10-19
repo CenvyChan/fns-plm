@@ -70,7 +70,7 @@ test("daily list and form permissions fail closed and follow assigned business l
     true,
   );
 });
-test("daily managers can maintain masters but report delivery writes remain admin-only", () => {
+test("daily managers can maintain masters but report definition and delivery writes remain admin-only", () => {
   for (const page of [
     "daily-parties",
     "daily-rates",
@@ -93,7 +93,10 @@ test("daily managers can maintain masters but report delivery writes remain admi
   }
   assert.equal(nav.canAccessPage("reports", user("member"), full), true);
   assert.equal(nav.canAccessPage("report-definitions", user("member"), full), true);
-  assert.equal(nav.canAccessPage("report-definitions-new", user("member"), full), true);
+  assert.equal(nav.canAccessPage("report-definitions-new", user("member"), full), false);
+  assert.equal(nav.canAccessPage("report-definitions-edit", user("member"), full), false);
+  assert.equal(nav.canAccessPage("report-definitions-new", user("admin"), full), true);
+  assert.equal(nav.canAccessPage("report-definitions-edit", user("admin"), full), true);
   assert.equal(nav.canAccessPage("tenants", user("admin"), full), false);
   assert.equal(
     nav.canAccessPage(

@@ -10,6 +10,7 @@ import { apiJson, getApiBaseUrl, isNativeApp, jsonRequest, setApiScope, setApiTo
 import Plm from './Plm'
 import WorkflowWorkbench from './WorkflowWorkbench'
 import ReportsWorkbench from './ReportsWorkbench'
+import ReportDefinitionsWorkbench from './ReportDefinitionsWorkbench'
 import DailyReportingWorkbench from './DailyReportingWorkbench'
 import DailyReportingManagement from './DailyReportingManagement'
 import DailyReportImport from './DailyReportImport'
@@ -307,7 +308,8 @@ function App() {
     {['kpi', 'materials', 'boms', 'documents'].includes(page) && <Plm page={page} workspace={workspace} onChange={commit} onToast={setToast} currentUser={authUser}/>}
     {page === 'workflow' && canAccessPage(page, authUser, dailyAccess) && <WorkflowWorkbench/>}
     {isDailyWorkbenchPage(page) && <DailyReportingWorkbench page={page} onNavigate={setPage}/>}
-    {isReportPage(page) && canAccessPage(page, authUser, dailyAccess) && <ReportsWorkbench page={page} onNavigate={setPage} canManage={authUser.role === 'admin'}/>}
+    {['report-definitions','report-definitions-new','report-definitions-edit'].includes(page) && canAccessPage(page, authUser, dailyAccess) && <ReportDefinitionsWorkbench key={`${authUser.tenantId}:${authUser.organizationId}:${authUser.accountId}`} page={page} onNavigate={setPage} canManage={authUser.role === 'admin'}/>}
+    {(page === 'reports' || page.startsWith('report-schedules')) && isReportPage(page) && canAccessPage(page, authUser, dailyAccess) && <ReportsWorkbench page={page} onNavigate={setPage} canManage={authUser.role === 'admin'}/>}
     {isDailyImportPage(page) && canAccessPage(page, authUser, dailyAccess) && <DailyReportImport key={page} kind={page === 'daily-sales-import' ? 'sales' : 'purchase'} onNavigate={setPage}/>}
     {isDailyManagementPage(page) && canAccessPage(page, authUser, dailyAccess) && <DailyReportingManagement canManageUsers={authUser.role === 'admin'} page={page} onNavigate={setPage} onChanged={() => setAccessRevision(value => value + 1)}/>}
     {!isDailyWorkbenchPage(page) && !canAccessPage(page, authUser, dailyAccess) && <section className="iw-card"><h1>无权访问此页面</h1><p>当前账套角色未获授权，请从导航选择可用页面。</p><button className="iw-button iw-secondary" onClick={() => setPage('overview')}>返回总览</button></section>}

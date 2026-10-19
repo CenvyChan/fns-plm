@@ -1,12 +1,7 @@
 import type { AuthUser } from "./api";
 
 export type NavigationGroup =
-  | "workspace"
-  | "product"
-  | "business"
-  | "reporting"
-  | "masters"
-  | "system";
+  "workspace" | "product" | "business" | "reporting" | "masters" | "system";
 export type DailyAccess = {
   sales: boolean;
   purchase: boolean;
@@ -130,8 +125,28 @@ export const pages: PageDefinition[] = [
     icon: "archive",
   },
   { id: "reports", label: "报告展示", group: "reporting", icon: "chart" },
-  { id: "report-definitions", label: "报表定义", group: "reporting", icon: "file" },
-  { id: "report-definitions-new", label: "新增报表定义", group: "reporting", icon: "file", parent: "report-definitions" },
+  {
+    id: "report-definitions",
+    label: "报表定义",
+    group: "reporting",
+    icon: "file",
+  },
+  {
+    id: "report-definitions-new",
+    label: "新增报表定义",
+    group: "reporting",
+    icon: "file",
+    admin: true,
+    parent: "report-definitions",
+  },
+  {
+    id: "report-definitions-edit",
+    label: "编辑报表定义",
+    group: "reporting",
+    icon: "file",
+    admin: true,
+    parent: "report-definitions",
+  },
   {
     id: "report-schedules",
     label: "报表发送计划",
@@ -242,7 +257,11 @@ export const pageById = Object.fromEntries(
 export const resolvePage = (value: string | null) =>
   value && pageById[value] ? value : "overview";
 export const pageFromLocation = () =>
-  resolvePage(new URLSearchParams(window.location.search).get("page"));
+  resolvePage(
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("page"),
+  );
 export const isDailyImportPage = (page: string) =>
   page === "daily-sales-import" || page === "daily-purchase-import";
 export const isDailyWorkbenchPage = (page: string) =>
@@ -251,7 +270,11 @@ export const isDailyWorkbenchPage = (page: string) =>
 export const isDailyManagementPage = (page: string) =>
   pageById[page]?.group === "masters";
 export const isReportPage = (page: string) =>
-  page === "reports" || page === "report-definitions" || page === "report-definitions-new" || page.startsWith("report-schedules");
+  page === "reports" ||
+  page === "report-definitions" ||
+  page === "report-definitions-new" ||
+  page === "report-definitions-edit" ||
+  page.startsWith("report-schedules");
 export function canAccessPage(
   page: string,
   user: AuthUser,

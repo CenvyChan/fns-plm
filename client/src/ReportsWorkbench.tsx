@@ -7,7 +7,6 @@ import {
 } from "react";
 import {
   CalendarClock,
-  BookOpen,
   Plus,
   ChevronRight,
   Pencil,
@@ -17,7 +16,6 @@ import {
 } from "lucide-react";
 import { apiFetch } from "./api";
 import ConfirmDialog from "./ConfirmDialog";
-import DetailDrawer from "./DetailDrawer";
 import "./reports-workbench.css";
 
 type Schedule = {
@@ -42,8 +40,6 @@ type ReportPreview = {
   channelStatus?: unknown;
   channels?: unknown;
 };
-type BuiltinDefinition = { id: string; name: string; summary: string; metrics: string[]; source: string; status: string };
-const builtinDefinitions: BuiltinDefinition[] = [{ id: "workspace-overview", name: "PLM 工作区报告", summary: "由服务端 buildWorkspaceReport 固定生成的工作区汇总；预览和推送均使用此固定内容。", metrics: ["任务总数、进行中、已完成、逾期", "项目总数及各项目任务进度", "KPI 规则数、待审查数", "物料、BOM、图文档总数及已发布数", "流程待办、已批准、已驳回数", "可用时包含销售/采购日报摘要、订单与往来余额"], source: "服务端当前工作区数据及可选日报摘要；不是用户自定义定义。具体范围受当前账套及可用数据影响。", status: "固定内置，只读；无定义列表/详情持久化接口。" }];
 type Props = {
   page: string;
   onNavigate: (page: string) => void;
@@ -69,7 +65,6 @@ export default function ReportsWorkbench({
   onNavigate,
   canManage,
 }: Props) {
-  const [selectedDefinition, setSelectedDefinition] = useState<BuiltinDefinition | null>(null);
   const [preview, setPreview] = useState<ReportPreview | null>(null);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -120,8 +115,7 @@ export default function ReportsWorkbench({
       if (!response.ok)
         throw new Error(await responseError(response, "计划加载失败"));
       const result = (await response.json()) as
-        | Schedule[]
-        | { schedules?: Schedule[] };
+        Schedule[] | { schedules?: Schedule[] };
       setSchedules(Array.isArray(result) ? result : (result.schedules ?? []));
     } catch (error) {
       setErrorSchedules(
@@ -136,11 +130,8 @@ export default function ReportsWorkbench({
     void loadSchedules();
   }, [loadPreview, loadSchedules]);
   const channelStatus = preview?.channelStatus as
-    | { configured?: boolean; connected?: boolean; message?: string }
-    | undefined;
+    { configured?: boolean; connected?: boolean; message?: string } | undefined;
   const channelReady = Boolean(channelStatus?.configured);
-  const isDefinitions = page === "report-definitions";
-  const isDefinitionCreate = page === "report-definitions-new";
   const isForm =
     page === "report-schedules-new" || page === "report-schedules-edit";
   const editing = page === "report-schedules-edit";
@@ -363,7 +354,6 @@ export default function ReportsWorkbench({
         : result || "已运行";
   return (
     <section className="iw-page">
-      <DetailDrawer open={Boolean(selectedDefinition)} title={selectedDefinition?.name ?? "报表定义详情"} subtitle="服务端固定实现 · 只读" onClose={() => setSelectedDefinition(null)}>{selectedDefinition && <div className="rw-definition-detail"><p>{selectedDefinition.summary}</p><h3>当前包含指标</h3><ul>{selectedDefinition.metrics.map(metric => <li key={metric}>{metric}</li>)}</ul><h3>数据来源与范围</h3><p>{selectedDefinition.source}</p><h3>状态</h3><p>{selectedDefinition.status}</p><p>需结合实际账套数据核验指标口径与权限；此详情不能编辑或保存。</p></div>}</DetailDrawer>
       <ConfirmDialog
         open={Boolean(pendingDelete)}
         title="删除发送计划"
@@ -385,14 +375,14 @@ export default function ReportsWorkbench({
                 : "新增发送计划"
               : page === "report-schedules"
                 ? "发送计划"
-                : isDefinitions ? "报表定义" : isDefinitionCreate ? "新增定义" : "报告展示"}
+                : "报告展示"}
           </h1>
           <p>
             {isForm
-              ? "配置已有报告定义的发送时间与周期。此处不创建新的报表定义。"
+              ? "配置固定内置工作区报告的发送时间与周期；尚不绑定新增的销售/采购日报定义。"
               : page === "report-schedules"
                 ? "查看和管理现有日报、周报发送计划。"
-                : isDefinitions ? "这里只展示服务端已实现的固定内置定义；当前没有自定义定义管理服务。" : isDefinitionCreate ? "当前仅说明创建边界，不提供会造成误解的保存表单。" : "查看固定内置报告生成的内容，并管理推送；推送由已配置渠道及计划决定。"}
+                : "查看固定内置报告生成的内容，并管理推送；推送由已配置渠道及计划决定。"}
           </p>
         </div>
         <button
@@ -416,7 +406,6 @@ export default function ReportsWorkbench({
           <span>{editing ? "编辑计划" : "新增计划"}</span>
         </nav>
       )}
-      {(isDefinitions || isDefinitionCreate) && <nav className="rw-breadcrumb"><button onClick={() => onNavigate("reports")}>报告展示</button><ChevronRight size={14} /><span>{isDefinitions ? "报表定义" : "新增定义"}</span></nav>}
       {(errorSchedules || notice) && (
         <div
           className={`iw-alert ${errorSchedules ? "iw-error" : "iw-success"}`}
@@ -531,10 +520,6 @@ export default function ReportsWorkbench({
             </form>
           </section>
         )
-      ) : isDefinitionCreate ? (
-        <section className="iw-card rw-boundary-card"><div className="iw-card-head"><div><h2>自定义定义尚未开放</h2><p>当前服务端没有报表定义的新增、保存或版本管理接口，因此此页不会提交或保存任何内容。</p></div></div><div className="iw-alert">此页面未接入定义保存服务。这里的新增定义入口不代表功能已实现；新增发送计划只安排固定报告的发送时间，不会新增报表定义。</div><h3>开放前需先确认</h3><ul><li><b>指标：</b>可选指标、公式、单位及空值/异常处理规则。</li><li><b>数据范围：</b>账套、组织、时间范围和数据更新时间/快照口径。</li><li><b>权限：</b>谁可查看、创建、编辑、发布及发送，是否需要审批。</li><li><b>版本：</b>定义变更、历史计划绑定、回滚及审计记录如何处理。</li></ul><p>运维下一步：产品/业务确认上述口径与权限，再由服务端实现并验证定义存储、授权、版本和审计 API；完成前请继续使用固定内置报告。</p><button className="iw-button iw-secondary" onClick={() => onNavigate("report-definitions")}>返回报表定义</button></section>
-      ) : isDefinitions ? (
-        <section className="iw-card"><div className="iw-card-head"><div><h2>内置定义（只读）</h2><p>来自当前服务端实现，不是可配置的用户定义。</p></div><button className="iw-button iw-approve" onClick={() => onNavigate("report-definitions-new")}><Plus size={15}/>新增定义</button></div><div className="rw-definition-list">{builtinDefinitions.map(definition => <article key={definition.id}><div><BookOpen size={18}/><div><h3>{definition.name}</h3><p>{definition.summary}</p><small>固定内置 · 只读</small></div></div><button className="iw-button iw-secondary" onClick={() => setSelectedDefinition(definition)}>查看详情</button></article>)}</div><div className="iw-alert">待核验：服务端当前只实现固定报告生成，没有自定义定义持久化接口。以上内容是对现有实现的说明，不代表定义管理已经完成。</div></section>
       ) : page === "report-schedules" ? (
         <section className="iw-card">
           <div className="iw-card-head">
@@ -662,7 +647,7 @@ export default function ReportsWorkbench({
             </div>
           ) : (
             <div className="iw-empty">
-              暂无计划。请先确认已有报表定义及渠道配置后再创建发送计划。
+              暂无计划。请先确认固定内置工作区报告及渠道配置；发送计划尚不绑定新增日报定义。
             </div>
           )}
         </section>
@@ -675,7 +660,18 @@ export default function ReportsWorkbench({
                 <p>{preview?.title || "摘要与文本内容"}</p>
               </div>
               <div className="rw-report-actions">
-                <button className="iw-button iw-secondary iw-small" onClick={() => onNavigate("report-definitions")}>报表定义</button>{" "}<button className="iw-button iw-secondary iw-small" onClick={() => onNavigate("report-definitions-new")}>新增定义</button>{" "}
+                <button
+                  className="iw-button iw-secondary iw-small"
+                  onClick={() => onNavigate("report-definitions")}
+                >
+                  报表定义
+                </button>{" "}
+                <button
+                  className="iw-button iw-secondary iw-small"
+                  onClick={() => onNavigate("report-definitions-new")}
+                >
+                  新增定义
+                </button>{" "}
                 {canManage && (
                   <button
                     className="iw-button iw-approve iw-small"
