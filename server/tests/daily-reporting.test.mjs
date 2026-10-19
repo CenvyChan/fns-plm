@@ -317,7 +317,7 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
     assert.equal(memberLogin.response.status, 200, JSON.stringify(memberLogin.data))
     const memberToken = memberLogin.data.accessToken
     scopes.set(memberToken, memberLogin.data.user)
-    assert.equal((await api(`/api/daily-reports/summary?date=${reportDay}`, { token: memberToken })).response.status, 200, 'member retains the permitted reporting view')
+    assert.equal((await api(`/api/daily-reports/summary?date=${reportDay}`, { token: memberToken })).response.status, 403, 'member without a party assignment cannot view sales reporting')
     const memberMasterData = await api('/api/k3cloud/master-data', { token: memberToken })
     assert.equal(memberMasterData.response.status, 403, JSON.stringify(memberMasterData.data))
     assert.equal(memberMasterData.data.error, 'forbidden')

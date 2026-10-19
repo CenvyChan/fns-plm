@@ -45,8 +45,8 @@ export interface DailyReportingAdminState {
 
 const PREFIX = 'daily-reporting-admin'
 const MANAGERS = ['admin', 'plm_manager'] as const
-const EMPTY: DailyReportingAdminState = {
-  masterDataConfigured: false, parties: [], exchangeRates: [], assignments: [], partyMappings: [], legacyMemberships: [], importBatches: [],
+function emptyState(): DailyReportingAdminState {
+  return { masterDataConfigured: false, parties: [], exchangeRates: [], assignments: [], partyMappings: [], legacyMemberships: [], importBatches: [] }
 }
 const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const text = (value: unknown, max: number): string => typeof value === 'string' ? value.trim().slice(0, max) : ''
@@ -64,7 +64,7 @@ function stateKey(scope: Pick<WorkspaceScope, 'tenantId' | 'organizationId' | 'a
   return `${PREFIX}:${scope.tenantId}:${scope.organizationId}:${scope.accountId}`
 }
 function normalized(value: unknown): DailyReportingAdminState {
-  const state = { ...EMPTY, ...asRecord(value) } as DailyReportingAdminState
+  const state = { ...emptyState(), ...asRecord(value) } as DailyReportingAdminState
   for (const key of ['parties', 'exchangeRates', 'assignments', 'partyMappings', 'legacyMemberships', 'importBatches'] as const) {
     if (!Array.isArray(state[key])) state[key] = [] as never
   }
@@ -136,13 +136,14 @@ export function hasDailyPartyAssignment(scope: WorkspaceScope, userId: string, k
 export function isDailyReportingMember(scope: WorkspaceScope, userId: string): boolean { return isMemberInScope(scope, userId) }
 export function getDailyReportingAccess(scope: WorkspaceScope, userId: string, role: string) {
   const state = readDailyReportingAdminState(scope), manager = role === 'admin' || role === 'plm_manager'
-  if (manager || role === 'reviewer' || !state.masterDataConfigured) return { sales: true, purchase: true, canManage: manager, canWrite: role === 'member' || manager }
+  if (manager) return { sales: true, purchase: true, canManage: true, canWrite: true }
+  if (role === 'reviewer') return { sales: true, purchase: true, canManage: false, canWrite: false }
   const assigned = (kind: DailyPartyKind) => state.assignments.some(item => item.kind === kind && item.userId === userId && item.status === 'mapped' && state.parties.some(party => party.id === item.partyId && party.kind === kind && party.active))
   return { sales: assigned('customer'), purchase: assigned('supplier'), canManage: false, canWrite: role === 'member' }
 }
 export function listDailyPartyOptions(scope: WorkspaceScope, userId: string, role: string, kind: DailyPartyKind): DailyParty[] {
   const state = readDailyReportingAdminState(scope), manager = role === 'admin' || role === 'plm_manager'
-  return state.parties.filter(item => item.kind === kind && item.active && (manager || !state.masterDataConfigured || hasDailyPartyAssignment(scope, userId, kind, item.id)))
+  return state.parties.filter(item => item.kind === kind && item.active && (manager || hasDailyPartyAssignment(scope, userId, kind, item.id)))
     .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
 }
 export function recordDailyReportingMigrationBatch(scope: WorkspaceScope, req: Request, category: string, companyCode: string, rowCount: number, digest: string, counters: { inserted: number; skipped: number; conflicts: number }): DailyManagementImportBatch {

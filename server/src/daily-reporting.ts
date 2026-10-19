@@ -276,10 +276,10 @@ function partyForReport(scope: WorkspaceScope, req: Request, type: unknown, valu
   if (!kind) return {}
   const partyId = typeof value === 'string' ? value.trim() : ''
   const configured = readDailyReportingAdminState(scope).masterDataConfigured
-  if (!partyId) return configured ? { error: '请从当前账套客户/供应商主档中选择客商。', status: 400 } : {}
+  const role = req.authUser?.role
+  if (!partyId) return !configured && (role === 'admin' || role === 'plm_manager') ? {} : { error: '请从当前账套客户/供应商主档中选择客商。', status: 400 }
   const party = findDailyParty(scope, partyId, kind)
   if (!party) return { error: '所选客商不存在、已停用或与销售/采购类型不匹配。', status: 400 }
-  const role = req.authUser?.role
   if (role !== 'admin' && role !== 'plm_manager' && !hasDailyPartyAssignment(scope, req.authUser?.id ?? '', kind, party.id)) return { error: '当前成员未被分配到该客商，不能录入或修改该客商日报。', status: 403 }
   return { party }
 }
@@ -884,7 +884,7 @@ export function createDailyReportRouter(): Router {
     } catch (error) { return res.status(error instanceof StateConflictError ? 409 : 500).json({ error: error instanceof StateConflictError ? 'workspace_conflict' : 'mock_refresh_failed', message: error instanceof Error ? error.message : '本地快照刷新失败。' }) }
   })
 
-  router.post('/daily-reports/import/preview', requireRole(...WRITERS), receiveImportFile, async (req, res) => {
+  router.post('/daily-reports/import/preview', requireRole(...MIGRATION_MANAGERS), receiveImportFile, async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'daily_report_import_file_required', message: '请选择一个 CSV 或 XLSX 文件。' })
     const defaultType = typeof req.body?.type === 'string' ? req.body.type : ''
     if (defaultType && !validKind(defaultType)) return res.status(400).json({ error: 'invalid_daily_report_type', message: '默认日报类型必须是 sales 或 purchase。' })
@@ -922,7 +922,7 @@ export function createDailyReportRouter(): Router {
     }
   })
 
-  router.post('/daily-reports/import/commit', requireRole(...WRITERS), (req, res) => {
+  router.post('/daily-reports/import/commit', requireRole(...MIGRATION_MANAGERS), (req, res) => {
     const previewId = typeof req.body?.previewId === 'string' ? req.body.previewId : ''
     const preview = pendingImportPreviews.get(previewId)
     if (!preview || preview.expiresAt <= Date.now()) {
