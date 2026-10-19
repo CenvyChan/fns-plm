@@ -36,11 +36,11 @@ test('production accepts only exact approved Flowable HTTP endpoint (optional te
 test('production saveConnectorConfig permits only approved Flowable HTTP and rejects other providers despite override flag', () => {
   assert.doesNotThrow(() => saveConnectorConfig(scope, 'flowable', { baseUrl: 'http://100.83.138.26:18080/flowable-rest/service', ...credentials }, 'policy-user'))
   const k3 = { accountId: 'erp-account', username: 'erp-user', organization: 'org', appId: 'app', appSecret: 'fake-secret' }
-  assert.throws(() => saveConnectorConfig(scope, 'k3cloud', { ...k3, baseUrl: 'http://100.83.138.26:18080/flowable-rest/service' }, 'test'))
-  assert.throws(() => saveConnectorConfig(scope, 'k3cloud', { ...k3, baseUrl: 'http://localhost:8080/flowable-rest/service' }, 'test'))
-  assert.throws(() => saveConnectorConfig(scope, 'k3cloud', { ...k3, baseUrl: 'http://other.example/erp' }, 'test'))
-  assert.throws(() => saveConnectorConfig(scope, 'dingtalk', { webhookUrl: 'http://oapi.dingtalk.com/robot/send?access_token=fake' }, 'test'))
-  assert.throws(() => saveConnectorConfig(scope, 'dingtalk', { webhookUrl: 'https://oapi.dingtalk.com/robot/send?access_token=fake', publicAppUrl: 'http://localhost:8080/app' }, 'test'))
+  assert.throws(() => saveConnectorConfig(scope, 'k3cloud', { ...k3, baseUrl: 'http://100.83.138.26:18080/flowable-rest/service' }, 'policy-user'), /HTTPS/)
+  assert.throws(() => saveConnectorConfig(scope, 'k3cloud', { ...k3, baseUrl: 'http://localhost:8080/flowable-rest/service' }, 'policy-user'), /HTTPS/)
+  assert.throws(() => saveConnectorConfig(scope, 'k3cloud', { ...k3, baseUrl: 'http://other.example/erp' }, 'policy-user'), /HTTPS/)
+  assert.throws(() => saveConnectorConfig(scope, 'dingtalk', { webhookUrl: 'http://oapi.dingtalk.com/robot/send?access_token=fake' }, 'policy-user'), /HTTPS/)
+  assert.throws(() => saveConnectorConfig(scope, 'dingtalk', { webhookUrl: 'https://oapi.dingtalk.com/robot/send?access_token=fake', publicAppUrl: 'http://localhost:8080/app' }, 'policy-user'), /HTTPS/)
 })
 
 test('non-production connector configuration continues to allow loopback HTTP', () => {
