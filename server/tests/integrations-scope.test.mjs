@@ -12,6 +12,8 @@ const serverDir = resolve(import.meta.dirname, '..')
 let tempDir = ''
 let databaseFile = ''
 let apiProcess
+let apiEnv
+let apiPort
 let mockServer
 let origin = ''
 let mockOrigin = ''
@@ -59,6 +61,18 @@ async function waitForServer() {
     await new Promise(resolveSleep => setTimeout(resolveSleep, 100))
   }
   throw new Error('Isolated integration-test API did not become healthy.')
+}
+
+async function startApiProcess() {
+  apiProcess = spawn(process.execPath, ['dist/index.js'], { cwd: serverDir, env: apiEnv, stdio: ['ignore', 'ignore', 'ignore'] })
+  await waitForServer()
+}
+
+async function stopApiProcess() {
+  if (!apiProcess || apiProcess.exitCode !== null) return
+  apiProcess.kill('SIGTERM')
+  await Promise.race([new Promise(resolveExit => apiProcess.once('exit', resolveExit)), new Promise(resolveDelay => setTimeout(resolveDelay, 4000))])
+  if (apiProcess.exitCode === null) apiProcess.kill('SIGKILL')
 }
 
 async function api(path, { method = 'GET', body, token = accessToken, headers = {} } = {}) {
@@ -203,9 +217,9 @@ before(async () => {
   })
   mockOrigin = await listenLoopback(mockServer)
 
-  const apiPort = await unusedPort()
+  apiPort = await unusedPort()
   origin = `http://127.0.0.1:${apiPort}`
-  const env = {
+  apiEnv = {
     ...process.env,
     NODE_ENV: 'test', HOST: '127.0.0.1', PORT: String(apiPort),
     NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${resolve(serverDir, 'tests/dingtalk-fetch-mock.mjs')}`.trim(),
@@ -221,16 +235,11 @@ before(async () => {
     DINGTALK_SSO_CLIENT_ID: '', DINGTALK_SSO_CLIENT_SECRET: '', DINGTALK_SSO_CORP_ID: '', DINGTALK_SSO_TENANT_ID: '', DINGTALK_SSO_ORGANIZATION_ID: '', DINGTALK_SSO_ACCOUNT_ID: '',
     CONNECTOR_DEFAULT_TENANT_ID: '', CONNECTOR_DEFAULT_ORGANIZATION_ID: '', CONNECTOR_DEFAULT_ACCOUNT_ID: '',
   }
-  apiProcess = spawn(process.execPath, ['dist/index.js'], { cwd: serverDir, env, stdio: ['ignore', 'ignore', 'ignore'] })
-  await waitForServer()
+  await startApiProcess()
 })
 
 after(async () => {
-  if (apiProcess && apiProcess.exitCode === null) {
-    apiProcess.kill('SIGTERM')
-    await Promise.race([new Promise(resolveExit => apiProcess.once('exit', resolveExit)), new Promise(resolveDelay => setTimeout(resolveDelay, 4000))])
-    if (apiProcess.exitCode === null) apiProcess.kill('SIGKILL')
-  }
+  await stopApiProcess()
   if (mockServer?.listening) await new Promise(resolveClose => mockServer.close(resolveClose))
   if (tempDir) rmSync(tempDir, { recursive: true, force: true })
 })
@@ -282,6 +291,8 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
   assert.equal(editedPlan.data.time, '10:30')
   assert.equal(editedPlan.data.enabled, false)
 
+  const scheduleDefinition = await api('/api/report-definitions', { method: 'POST', body: { name: 'Schedule pinned v1', template: 'daily-sales', filters: {} } })
+  assertStatus(scheduleDefinition, 201, 'create schedule-bound report definition v1')
   await startScope(scopeBRecord.accountId)
   const previewB = await api('/api/reports/preview')
   assertStatus(previewB, 200, 'scope B report preview')
@@ -293,6 +304,8 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
   const planB = await api('/api/reports/schedules', { method: 'POST', body: { name: 'Mock weekly report', cadence: 'daily', time: '23:59', timezone: 'Asia/Tokyo', enabled: false } })
   assertStatus(planB, 201, 'create independent scope B plan with same display name')
   assert.notEqual(planB.data.id, createdPlan.data.id)
+  const crossScopeDefinitionBinding = await api(`/api/reports/schedules/${planB.data.id}`, { method: 'PATCH', body: { definitionId: scheduleDefinition.data.id, definitionVersion: 1 } })
+  assertStatus(crossScopeDefinitionBinding, 404, 'schedule cannot bind a definition from another complete workspace scope')
 
   await startScope(scopeA.accountId)
   const mockWebhook = 'https://oapi.dingtalk.com/robot/send?access_token=mock-only'
@@ -321,6 +334,128 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
   assert.equal(retryRun.data.ok, true)
   assert.equal(dingtalkMockCalls.length, 2)
 
+  // A schedule pins an immutable definition revision: preview is read-only, while
+  // only actual sends create schedule snapshots.  The existing K3 and DingTalk
+  // services above are local mocks, so this exercises the real delivery path safely.
+  const anonymousSnapshots = await api(`/api/reports/schedules/${createdPlan.data.id}/snapshots`, { token: '' })
+  assertStatus(anonymousSnapshots, 401, 'schedule snapshots require authentication')
+  const memberEmail = `schedule-reader-${random}@example.test`, memberPassword = `member-${randomBytes(12).toString('hex')}`
+  const memberCreated = await api('/api/auth/users', { method: 'POST', body: { displayName: 'Schedule Reader', email: memberEmail, role: 'member' } })
+  assertStatus(memberCreated, 201, 'create a member to exercise schedule authorization')
+  const memberActivated = await api('/api/auth/activate', { method: 'POST', token: '', body: { token: memberCreated.data.activationToken, password: memberPassword } })
+  assertStatus(memberActivated, 200, 'activate schedule reader')
+  const memberLogin = await api('/api/auth/mobile/login', { method: 'POST', token: '', body: { email: memberEmail, password: memberPassword } })
+  assertStatus(memberLogin, 200, 'log in as schedule reader')
+  tokenScopes.set(memberLogin.data.accessToken, memberLogin.data.user)
+  const businesslineSnapshots = await api(`/api/reports/schedules/${createdPlan.data.id}/snapshots`, { token: memberLogin.data.accessToken })
+  assertStatus(businesslineSnapshots, 403, 'schedule snapshots are admin-only')
+  const businesslinePreview = await api(`/api/reports/schedules/${createdPlan.data.id}/preview`, { token: memberLogin.data.accessToken })
+  assertStatus(businesslinePreview, 200, 'existing businessline read permissions allow schedule preview')
+  const memberCreatePlan = await api('/api/reports/schedules', { method: 'POST', token: memberLogin.data.accessToken, body: { name: 'Denied schedule', cadence: 'daily', time: '23:59', timezone: 'UTC', enabled: false } })
+  assertStatus(memberCreatePlan, 403, 'member cannot write report schedules')
+  for (const invalidRefs of [
+    { definitionId: scheduleDefinition.data.id },
+    { definitionVersion: 1 },
+    { definitionId: scheduleDefinition.data.id, definitionVersion: 0 },
+    { definitionId: scheduleDefinition.data.id, definitionVersion: 1.5 },
+    { definitionId: scheduleDefinition.data.id, definitionVersion: '1' },
+    { definitionId: 'missing-definition', definitionVersion: 1 },
+  ]) {
+    const invalidSchedule = await api('/api/reports/schedules', { method: 'POST', body: { name: 'Invalid definition binding', cadence: 'daily', time: '23:59', timezone: 'UTC', ...invalidRefs } })
+    assertStatus(invalidSchedule, invalidRefs.definitionId === 'missing-definition' ? 404 : 400, `reject invalid schedule definition refs ${JSON.stringify(invalidRefs)}`)
+  }
+  const bindDefinition = await api(`/api/reports/schedules/${createdPlan.data.id}`, { method: 'PATCH', body: { definitionId: scheduleDefinition.data.id, definitionVersion: 1 } })
+  assertStatus(bindDefinition, 200, 'bind schedule to exact definition revision')
+  assert.equal(bindDefinition.data.definitionId, scheduleDefinition.data.id)
+  assert.equal(bindDefinition.data.definitionVersion, 1)
+  const omittedBindingPatch = await api(`/api/reports/schedules/${createdPlan.data.id}`, { method: 'PATCH', body: { name: 'Edited weekly report' } })
+  assertStatus(omittedBindingPatch, 200, 'omitting refs in PATCH preserves the binding')
+  assert.equal(omittedBindingPatch.data.definitionId, scheduleDefinition.data.id)
+  assert.equal(omittedBindingPatch.data.definitionVersion, 1)
+  for (const invalidRefs of [{ definitionId: scheduleDefinition.data.id }, { definitionVersion: 1 }, { definitionId: scheduleDefinition.data.id, definitionVersion: 0 }, { definitionId: scheduleDefinition.data.id, definitionVersion: 999 }]) {
+    const invalidBinding = await api(`/api/reports/schedules/${createdPlan.data.id}`, { method: 'PATCH', body: invalidRefs })
+    assertStatus(invalidBinding, invalidRefs.definitionVersion === 999 ? 404 : 400, `reject invalid binding patch ${JSON.stringify(invalidRefs)}`)
+  }
+  const schedulePreview = await api(`/api/reports/schedules/${createdPlan.data.id}/preview`)
+  assertStatus(schedulePreview, 200, 'preview pinned schedule definition')
+  assert.equal(schedulePreview.data.previewOnly, true)
+  assert.equal(schedulePreview.data.definitionId, scheduleDefinition.data.id)
+  assert.equal(schedulePreview.data.definitionVersion, 1)
+  assert.equal(schedulePreview.data.definition.name, 'Schedule pinned v1')
+  for (const key of ['title', 'text', 'rows', 'summary', 'generatedAt', 'source', 'notice', 'amountBasis']) assert.ok(Object.hasOwn(schedulePreview.data, key), `schedule preview includes ${key}`)
+  const snapshotsBeforePreview = await api(`/api/reports/schedules/${createdPlan.data.id}/snapshots`)
+  assertStatus(snapshotsBeforePreview, 200, 'read schedule run snapshots')
+  assert.equal(snapshotsBeforePreview.data.snapshots.length, 0, 'preview does not archive a run')
+
+  const reviseDefinition = await api(`/api/report-definitions/${scheduleDefinition.data.id}`, { method: 'PATCH', body: { name: 'Schedule pinned v2', template: 'daily-sales', filters: {}, expectedVersion: 1 } })
+  assertStatus(reviseDefinition, 200, 'create immutable definition revision v2')
+  assert.equal(reviseDefinition.data.version, 2)
+  const pinnedPreviewAfterEdit = await api(`/api/reports/schedules/${createdPlan.data.id}/preview`)
+  assert.equal(pinnedPreviewAfterEdit.data.definitionVersion, 1, 'editing a definition does not silently move its schedule')
+  assert.equal(pinnedPreviewAfterEdit.data.definition.name, 'Schedule pinned v1')
+  const pinnedRun = await api(`/api/reports/schedules/${createdPlan.data.id}/run`, { method: 'POST' })
+  assertStatus(pinnedRun, 200, 'send schedule using its pinned v1 definition after v2 exists')
+  assert.equal(dingtalkMockCalls.length, 3)
+  assert.match(JSON.stringify(dingtalkMockCalls.at(-1)), /Schedule pinned v1/)
+  const snapshotsAfterRun = await api(`/api/reports/schedules/${createdPlan.data.id}/snapshots`)
+  assertStatus(snapshotsAfterRun, 200, 'read archived schedule run')
+  assert.equal(snapshotsAfterRun.data.snapshots.length, 1)
+  const archivedV1 = snapshotsAfterRun.data.snapshots[0]
+  assert.equal(archivedV1.scheduleId, createdPlan.data.id)
+  assert.equal(archivedV1.definitionId, scheduleDefinition.data.id)
+  assert.equal(archivedV1.definitionVersion, 1)
+  assert.equal(archivedV1.report.definition.name, 'Schedule pinned v1')
+  for (const key of ['title', 'text', 'generatedAt', 'rows', 'summary']) assert.ok(Object.hasOwn(archivedV1.report, key), `snapshot report includes ${key}`)
+  const rebindLatest = await api(`/api/reports/schedules/${createdPlan.data.id}`, { method: 'PATCH', body: { definitionId: scheduleDefinition.data.id, definitionVersion: 2 } })
+  assertStatus(rebindLatest, 200, 'explicitly rebind schedule to v2')
+  const v2Preview = await api(`/api/reports/schedules/${createdPlan.data.id}/preview`)
+  assert.equal(v2Preview.data.definitionVersion, 2)
+  assert.equal(v2Preview.data.definition.name, 'Schedule pinned v2')
+  const v2Run = await api(`/api/reports/schedules/${createdPlan.data.id}/run`, { method: 'POST' })
+  assertStatus(v2Run, 200, 'send explicitly rebound v2 definition')
+  assert.equal(dingtalkMockCalls.length, 4)
+  assert.match(JSON.stringify(dingtalkMockCalls.at(-1)), /Schedule pinned v2/)
+  const snapshotsAfterV2 = await api(`/api/reports/schedules/${createdPlan.data.id}/snapshots`)
+  assert.equal(snapshotsAfterV2.data.snapshots.length, 2)
+  const archivedOld = snapshotsAfterV2.data.snapshots.find(item => item.definitionVersion === 1)
+  assert.equal(archivedOld.report.definition.name, 'Schedule pinned v1', 'later definition changes do not mutate archived content')
+  assert.equal(snapshotsAfterV2.data.snapshots.find(item => item.definitionVersion === 2).report.definition.name, 'Schedule pinned v2')
+  const dailyArchive = await api('/api/daily-reports/snapshots', { method: 'POST', body: { reportDate: '2026-10-19', scope: 'both' } })
+  assertStatus(dailyArchive, 201, 'create a daily report archive before definition edits')
+  const dailySnapshotsBeforeDefinitionEdit = await api('/api/daily-reports/snapshots')
+  assertStatus(dailySnapshotsBeforeDefinitionEdit, 200, 'read daily report archives before definition edit')
+  assert.ok(dailySnapshotsBeforeDefinitionEdit.data.snapshots.length > 0, 'daily archive baseline is nonempty')
+  const currentBinding = { definitionId: rebindLatest.data.definitionId, definitionVersion: rebindLatest.data.definitionVersion }
+  const archivedBeforeFurtherEdit = structuredClone(snapshotsAfterV2.data.snapshots)
+  const furtherRevision = await api(`/api/report-definitions/${scheduleDefinition.data.id}`, { method: 'PATCH', body: { name: 'Schedule pinned v3', template: 'daily-sales', filters: {}, expectedVersion: 2 } })
+  assertStatus(furtherRevision, 200, 'create another immutable revision while schedule remains pinned to v2')
+  const snapshotsAfterFurtherEdit = await api(`/api/reports/schedules/${createdPlan.data.id}/snapshots`)
+  assert.deepEqual(snapshotsAfterFurtherEdit.data.snapshots, archivedBeforeFurtherEdit, 'definition edits leave archived snapshots deeply unchanged')
+  const dailySnapshotsAfterDefinitionEdit = await api('/api/daily-reports/snapshots')
+  assert.deepEqual(dailySnapshotsAfterDefinitionEdit.data, dailySnapshotsBeforeDefinitionEdit.data, 'definition edits leave daily report snapshots unchanged')
+  const bindingBeforeRestart = await api('/api/reports/schedules')
+  const persistedBeforeRestart = bindingBeforeRestart.data.schedules.find(item => item.id === createdPlan.data.id)
+  assert.deepEqual({ definitionId: persistedBeforeRestart.definitionId, definitionVersion: persistedBeforeRestart.definitionVersion }, currentBinding)
+  await stopApiProcess()
+  await startApiProcess()
+  const bindingAfterRestart = await api('/api/reports/schedules')
+  const persistedAfterRestart = bindingAfterRestart.data.schedules.find(item => item.id === createdPlan.data.id)
+  assert.deepEqual({ definitionId: persistedAfterRestart.definitionId, definitionVersion: persistedAfterRestart.definitionVersion }, currentBinding, 'schedule revision binding persists across API process restart')
+  const snapshotsAfterRestart = await api(`/api/reports/schedules/${createdPlan.data.id}/snapshots`)
+  assert.deepEqual(snapshotsAfterRestart.data.snapshots, archivedBeforeFurtherEdit, 'immutable archived snapshot persists unchanged across restart')
+  const previewAfterRestart = await api(`/api/reports/schedules/${createdPlan.data.id}/preview`)
+  assert.equal(previewAfterRestart.data.definitionVersion, 2)
+  assert.equal(previewAfterRestart.data.definition.name, 'Schedule pinned v2', 'preview stays on pinned revision after restart and later definition edit')
+  const detach = await api(`/api/reports/schedules/${createdPlan.data.id}`, { method: 'PATCH', body: { definitionId: null, definitionVersion: null } })
+  assertStatus(detach, 200, 'explicitly detach both revision references')
+  assert.equal(detach.data.definitionId ?? null, null)
+  assert.equal(detach.data.definitionVersion ?? null, null)
+  const detachedPreview = await api(`/api/reports/schedules/${createdPlan.data.id}/preview`)
+  assertStatus(detachedPreview, 200, 'detached schedule preserves legacy fixed workspace preview')
+  const rebindOld = await api(`/api/reports/schedules/${createdPlan.data.id}`, { method: 'PATCH', body: { definitionId: scheduleDefinition.data.id, definitionVersion: 1 } })
+  assertStatus(rebindOld, 200, 'explicitly rebind old historical revision')
+  assert.equal(rebindOld.data.definitionVersion, 1)
+
   dingtalkMockDelayMs = 250
   const overlappingRuns = await Promise.all([
     api(`/api/reports/schedules/${createdPlan.data.id}/run`, { method: 'POST' }),
@@ -328,7 +463,7 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
   ])
   dingtalkMockDelayMs = 0
   assert.deepEqual(overlappingRuns.map(item => item.response.status).sort(), [200, 409], 'a scoped plan only permits one in-flight manual send')
-  assert.equal(dingtalkMockCalls.length, 3, 'the overlapping request must not reach even the local DingTalk mock')
+  assert.equal(dingtalkMockCalls.length, 5, 'the overlapping request must not reach even the local DingTalk mock')
 
   const disablePlan = await api(`/api/reports/schedules/${createdPlan.data.id}`, { method: 'PATCH', body: { enabled: false } })
   assertStatus(disablePlan, 200, 'disable a report plan')

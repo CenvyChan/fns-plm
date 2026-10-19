@@ -48,6 +48,20 @@ function validate(body: Record<string, unknown>): Pick<ReportDefinition, 'name' 
   return { name: body.name.trim(), template: body.template, filters }
 }
 
+/** Resolve a saved revision only; never silently upgrade a pinned schedule. */
+export function getReportDefinitionVersion(scope: WorkspaceScope, id: string, version: number): ReportDefinition | undefined {
+  return read(scope).value.audit.find(item => item.definitionId === id && item.version === version)?.definition
+}
+export function canReadReportDefinition(req: Request, definition: ReportDefinition): boolean { return allowed(req, definition) }
+export function buildDefinitionPreview(scope: WorkspaceScope, definition: ReportDefinition) {
+  const state = readDailyReportState(scope), type = definition.template === 'daily-sales' ? 'sales' : 'purchase', filters = definition.filters
+  const rows = state.reports.filter(row => !row.deletedAt && row.type === type && (!filters.from || row.date >= filters.from) && (!filters.to || row.date <= filters.to) && (!filters.partyName || row.partyName === filters.partyName))
+    .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id))
+    .map(({ id, date, partyName, documentNo, quantity, amountCny, currency, originalAmount }) => ({ id, date, partyName, documentNo, quantity, amountCny, currency, originalAmount }))
+  const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
+  return { definition, rows, summary: { count: rows.length, quantity: rows.reduce((total, row) => total + row.quantity, 0), amountCny: round(rows.reduce((total, row) => total + row.amountCny, 0)) }, generatedAt: new Date().toISOString(), source: state.mockEnabled ? 'local-mock' as const : 'workspace' as const, notice: state.mockEnabled ? '隔离演示数据，非真实业务数据。' : '读取当前已保存日报；不触发 ERP 同步。', amountBasis: '按日报行内人民币金额汇总；历史汇率不重算。数量可能包含不同单位，不作为统一计量。' }
+}
+
 export function createReportDefinitionsRouter(): Router {
   const router = Router()
   router.use('/report-definitions', (_req, res, next) => { res.setHeader('Cache-Control', 'private, no-store'); next() })
@@ -100,12 +114,7 @@ export function createReportDefinitionsRouter(): Router {
   router.get('/report-definitions/:id/preview', (req, res) => {
     const scope = scopeFor(req), definition = read(scope).value.definitions.find(item => item.id === req.params.id)
     if (!definition || !allowed(req, definition)) return res.status(404).json({ error: '报表定义不存在或无权查看。' })
-    const state = readDailyReportState(scope), type = definition.template === 'daily-sales' ? 'sales' : 'purchase', filters = definition.filters
-    const rows = state.reports.filter(row => !row.deletedAt && row.type === type && (!filters.from || row.date >= filters.from) && (!filters.to || row.date <= filters.to) && (!filters.partyName || row.partyName === filters.partyName))
-      .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id))
-      .map(({ id, date, partyName, documentNo, quantity, amountCny, currency, originalAmount }) => ({ id, date, partyName, documentNo, quantity, amountCny, currency, originalAmount }))
-    const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
-    return res.json({ definition, rows, summary: { count: rows.length, quantity: rows.reduce((total, row) => total + row.quantity, 0), amountCny: round(rows.reduce((total, row) => total + row.amountCny, 0)) }, generatedAt: new Date().toISOString(), source: state.mockEnabled ? 'local-mock' : 'workspace', notice: state.mockEnabled ? '隔离演示数据，非真实业务数据。' : '读取当前已保存日报；不触发 ERP 同步。', amountBasis: '按日报行内人民币金额汇总；历史汇率不重算。数量可能包含不同单位，不作为统一计量。' })
+    return res.json(buildDefinitionPreview(scope, definition))
   })
   return router
 }

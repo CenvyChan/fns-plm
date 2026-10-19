@@ -30,7 +30,12 @@ type Schedule = {
   schedulerState?: string;
   lastRunAt?: string;
   lastResult?: string;
+  definitionId?: string | null;
+  definitionVersion?: number | null;
 };
+type Definition = { id: string; name: string; template: string; version: number };
+type SchedulePreview = { title?: string; text?: string; summary?: unknown; generatedAt?: string };
+type Snapshot = { id: string; createdAt: string; definitionId?: string; definitionVersion?: number; report: SchedulePreview };
 type ReportPreview = {
   [key: string]: unknown;
   title?: string;
@@ -67,6 +72,9 @@ export default function ReportsWorkbench({
 }: Props) {
   const [preview, setPreview] = useState<ReportPreview | null>(null);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [definitions, setDefinitions] = useState<Definition[]>([]);
+  const [binding, setBinding] = useState("legacy");
+  const [scheduleDetails, setScheduleDetails] = useState<Record<string, { preview?: SchedulePreview; snapshots?: Snapshot[]; error?: string; historyError?: string }>>({});
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [loadingSchedules, setLoadingSchedules] = useState(false);
   const [errorPreview, setErrorPreview] = useState("");
@@ -107,6 +115,9 @@ export default function ReportsWorkbench({
       setLoadingPreview(false);
     }
   }, []);
+  const loadDefinitions = useCallback(async () => {
+    try { const r = await apiFetch("/api/report-definitions"); if (r.ok) { const b = await r.json() as {definitions?: Definition[]}; setDefinitions(b.definitions ?? []); } } catch { /* definitions remain optional for legacy schedules */ }
+  }, []);
   const loadSchedules = useCallback(async () => {
     setLoadingSchedules(true);
     setErrorSchedules("");
@@ -128,7 +139,8 @@ export default function ReportsWorkbench({
   useEffect(() => {
     void loadPreview();
     void loadSchedules();
-  }, [loadPreview, loadSchedules]);
+    void loadDefinitions();
+  }, [loadPreview, loadSchedules, loadDefinitions]);
   const channelStatus = preview?.channelStatus as
     { configured?: boolean; connected?: boolean; message?: string } | undefined;
   const channelReady = Boolean(channelStatus?.configured);
@@ -139,8 +151,31 @@ export default function ReportsWorkbench({
     () => schedules.find((item) => item.id === editingScheduleId),
     [schedules, editingScheduleId],
   );
+  const loadScheduleDetails = async (schedule: Schedule) => {
+    const base = `/api/reports/schedules/${encodeURIComponent(schedule.id)}`;
+    try {
+      const previewResponse = await apiFetch(`${base}/preview`);
+      if (!previewResponse.ok) throw new Error(await responseError(previewResponse, "预览加载失败"));
+      const schedulePreview = await previewResponse.json() as SchedulePreview;
+      if (!canManage) {
+        setScheduleDetails(current => ({ ...current, [schedule.id]: { preview: schedulePreview } }));
+        return;
+      }
+      const historyResponse = await apiFetch(`${base}/snapshots`);
+      if (!historyResponse.ok) {
+        const message = await responseError(historyResponse, "归档快照加载失败");
+        setScheduleDetails(current => ({ ...current, [schedule.id]: { preview: schedulePreview, historyError: message } }));
+        return;
+      }
+      const history = await historyResponse.json() as { snapshots?: Snapshot[] };
+      setScheduleDetails(current => ({ ...current, [schedule.id]: { preview: schedulePreview, snapshots: history.snapshots ?? [] } }));
+    } catch (error) {
+      setScheduleDetails(current => ({ ...current, [schedule.id]: { error: error instanceof Error ? error.message : "加载失败" } }));
+    }
+  };
   const clearEditor = () => {
     setEditingScheduleId(null);
+    setBinding("legacy");
     setName("经营日报");
     setCadence("daily");
     setTime("09:00");
@@ -164,6 +199,7 @@ export default function ReportsWorkbench({
     setTime(schedule.time);
     setDayOfWeek(String(schedule.dayOfWeek ?? 1));
     setTimezone(schedule.timezone);
+    setBinding(schedule.definitionId && schedule.definitionVersion ? `${schedule.definitionId}:${schedule.definitionVersion}` : "legacy");
     setNotice("");
     setErrorSchedules("");
     onNavigate("report-schedules-edit");
@@ -182,6 +218,7 @@ export default function ReportsWorkbench({
       ...(cadence === "weekly" ? { dayOfWeek: Number(dayOfWeek) } : {}),
       timezone,
       ...(!id ? { enabled: channelReady } : {}),
+      ...(binding === "legacy" ? { definitionId: null, definitionVersion: null } : (() => { const [definitionId, version] = binding.split(":"); return { definitionId, definitionVersion: Number(version) }; })()),
     };
     try {
       const response = await apiFetch(
@@ -379,7 +416,7 @@ export default function ReportsWorkbench({
           </h1>
           <p>
             {isForm
-              ? "配置固定内置工作区报告的发送时间与周期；尚不绑定新增的销售/采购日报定义。"
+              ? "配置报告发送时间、周期及使用的报告定义版本；默认使用工作区报告。"
               : page === "report-schedules"
                 ? "查看和管理现有日报、周报发送计划。"
                 : "查看固定内置报告生成的内容，并管理推送；推送由已配置渠道及计划决定。"}
@@ -433,7 +470,7 @@ export default function ReportsWorkbench({
                     ? `编辑：${selectedSchedule?.name ?? name}`
                     : "计划设置"}
                 </h2>
-                <p>仅调整报告发送计划，不会生成或修改报表定义。</p>
+                <p>报告定义按保存的版本固定绑定；编辑时默认保留原版本，不会自动升级。</p>
               </div>
             </div>
             <form className="rw-form" onSubmit={save}>
@@ -446,6 +483,15 @@ export default function ReportsWorkbench({
                   onChange={(event) => setName(event.target.value)}
                 />
               </label>
+              <label>
+                报告来源
+                <select value={binding} onChange={(event) => setBinding(event.target.value)}>
+                  <option value="legacy">工作区报告（传统报告）</option>
+                  {editing && selectedSchedule?.definitionId && selectedSchedule.definitionVersion && !definitions.some(definition => definition.id === selectedSchedule.definitionId && definition.version === selectedSchedule.definitionVersion) && <option value={`${selectedSchedule.definitionId}:${selectedSchedule.definitionVersion}`}>保留已绑定版本 · {selectedSchedule.definitionId} v{selectedSchedule.definitionVersion}</option>}
+                  {definitions.map((definition) => <option key={`${definition.id}:${definition.version}`} value={`${definition.id}:${definition.version}`}>{definition.name} · v{definition.version}{editing && definition.id === selectedSchedule?.definitionId && definition.version === selectedSchedule.definitionVersion ? "（当前绑定）" : ""}</option>)}
+                </select>
+              </label>
+              <div className="rw-form-note">保存定义后固定到所选版本；新定义版本不会自动改变现有计划。</div>
               <label>
                 发送周期
                 <select
@@ -546,7 +592,7 @@ export default function ReportsWorkbench({
               <table>
                 <thead>
                   <tr>
-                    <th>计划</th>
+                    <th>计划 / 报告来源</th>
                     <th>周期</th>
                     <th>时间</th>
                     <th>时区</th>
@@ -560,6 +606,22 @@ export default function ReportsWorkbench({
                     <tr key={item.id}>
                       <td>
                         <b>{item.name}</b>
+                        <small>{item.definitionId ? `定义 ${item.definitionId} · v${item.definitionVersion}` : "工作区报告（传统）"}</small>
+                        <div><button className="iw-link-button" onClick={() => void loadScheduleDetails(item)}>预览 / 生成归档</button></div>
+                        {scheduleDetails[item.id] && <div className="rw-schedule-detail">
+                          {scheduleDetails[item.id].error ? <div className="iw-alert iw-error">{scheduleDetails[item.id].error}</div> : <>
+                            <b>{scheduleDetails[item.id].preview?.title}</b>
+                            <pre>{scheduleDetails[item.id].preview?.text}</pre>
+                            {canManage && <>
+                              <small>生成归档：{scheduleDetails[item.id].snapshots?.length ?? 0} 条（生成内容存档，不代表已成功送达；存档在发送前生成，发送失败也可能留存。）</small>
+                              {scheduleDetails[item.id].historyError && <div className="iw-alert iw-error">{scheduleDetails[item.id].historyError}</div>}
+                              {scheduleDetails[item.id].snapshots?.map(snapshot => <details key={snapshot.id}>
+                                <summary>{new Date(snapshot.createdAt).toLocaleString("zh-CN")} · {snapshot.definitionId ? `${snapshot.definitionId} v${snapshot.definitionVersion}` : "传统报告"}</summary>
+                                <pre>{snapshot.report.text}</pre>
+                              </details>)}
+                            </>}
+                          </>}
+                        </div>}
                       </td>
                       <td>
                         {item.cadence === "weekly"
@@ -647,7 +709,7 @@ export default function ReportsWorkbench({
             </div>
           ) : (
             <div className="iw-empty">
-              暂无计划。请先确认固定内置工作区报告及渠道配置；发送计划尚不绑定新增日报定义。
+              暂无计划。可创建使用工作区报告或固定版本定义的发送计划。
             </div>
           )}
         </section>

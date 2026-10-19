@@ -182,6 +182,31 @@ test('report definitions are scoped, role-safe, validated, versioned and preview
   assert.deepEqual((await api('/api/reports/schedules')).data.schedules, beforeSchedules.data.schedules, 'definitions do not create or modify send schedules')
   assert.deepEqual((await api('/api/daily-reports/snapshots')).data.snapshots, beforeSnapshots.data.snapshots, 'definitions do not create historical snapshots')
 
+  const planInput = { name: '固定历史业务线', cadence: 'daily', time: '09:00', timezone: 'UTC', enabled: false }
+  const purchasePlan = await api('/api/reports/schedules', { method: 'POST', body: { ...planInput, definitionId: purchaseDef.data.id, definitionVersion: 1 } })
+  assert.equal(purchasePlan.response.status, 201, JSON.stringify(purchasePlan.data))
+  const planPath = `/api/reports/schedules/${purchasePlan.data.id}`
+  assert.equal((await api(`${planPath}/preview`, { token: memberToken })).response.status, 404, 'sales-only member cannot preview pinned purchase version')
+  const changedTemplate = await api(`/api/report-definitions/${purchaseDef.data.id}`, { method: 'PATCH', body: { name: '新版销售定义', template: 'daily-sales', filters: {}, expectedVersion: 1 } })
+  assert.equal(changedTemplate.response.status, 200)
+  assert.equal((await api(`/api/report-definitions/${purchaseDef.data.id}`, { token: memberToken })).response.status, 200, 'latest template is now sales-readable')
+  assert.equal((await api(`${planPath}/preview`, { token: memberToken })).response.status, 404, 'permission uses pinned purchase template, not latest sales template')
+  const pinnedPurchase = await api(`${planPath}/preview`, { token: reviewer })
+  assert.equal(pinnedPurchase.response.status, 200)
+  assert.equal(pinnedPurchase.data.definition.template, 'daily-purchase')
+  assert.equal(pinnedPurchase.data.definitionVersion, 1)
+  for (const token of [memberToken, reviewer, manager]) {
+    assert.equal((await api(`${planPath}/snapshots`, { token })).response.status, 403, 'generated archive access remains admin-only')
+    assert.equal((await api(planPath, { method: 'PATCH', token, body: { definitionId: created.data.id, definitionVersion: 2 } })).response.status, 403, 'only admin may rebind a schedule')
+  }
+  const salesPlan = await api('/api/reports/schedules', { method: 'POST', body: { ...planInput, definitionId: created.data.id, definitionVersion: 2 } })
+  assert.equal(salesPlan.response.status, 201)
+  const salesPinnedPreview = await api(`/api/reports/schedules/${salesPlan.data.id}/preview`, { token: memberToken })
+  assert.equal(salesPinnedPreview.response.status, 200)
+  assert.equal(salesPinnedPreview.data.rows.length, 1)
+  assert.equal(salesPinnedPreview.data.rows[0].id, kept.data.id, 'bound preview reuses exact saved date/party filters')
+  assert.equal(salesPinnedPreview.data.summary.amountCny, kept.data.amountCny)
+
   const siblingAccount = await api('/api/auth/accounts', { method: 'POST', body: { accountName: '同组织其他账套' } })
   assert.equal(siblingAccount.response.status, 201, JSON.stringify(siblingAccount.data))
   const siblingOrganization = await api('/api/auth/organizations', { method: 'POST', body: { organizationName: '同租户其他组织', accountName: '其他组织账套' } })
@@ -194,6 +219,9 @@ test('report definitions are scoped, role-safe, validated, versioned and preview
     assert.equal((await api('/api/report-definitions')).data.definitions.length, 0, label)
     assert.equal((await api(`/api/report-definitions/${created.data.id}`)).response.status, 404, label)
     assert.equal((await api(`/api/report-definitions/${created.data.id}/preview`)).response.status, 404, label)
+    assert.equal((await api(`${planPath}/preview`)).response.status, 404, `${label}: schedule preview is isolated`)
+    assert.equal((await api(`${planPath}/snapshots`)).response.status, 404, `${label}: schedule archives are isolated`)
+    assert.equal((await api('/api/reports/schedules', { method: 'POST', body: { ...planInput, definitionId: created.data.id, definitionVersion: 2 } })).response.status, 404, `${label}: cannot bind another workspace revision`)
     assert.equal((await api(`/api/report-definitions/${created.data.id}`, { method: 'PATCH', body: { ...base, expectedVersion: 2 } })).response.status, 404, label)
     const own = await api('/api/report-definitions', { method: 'POST', body: base })
     assert.equal(own.response.status, 201, `${label}: same name is allowed in isolated scopes`)
