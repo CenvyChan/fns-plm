@@ -58,7 +58,7 @@ export function buildDefinitionPreview(scope: WorkspaceScope, definition: Report
   const rows = state.reports.filter(row => !row.deletedAt && row.type === type && (!filters.from || row.date >= filters.from) && (!filters.to || row.date <= filters.to) && (!filters.partyName || row.partyName === filters.partyName))
     .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id))
     .map(({ id, date, partyName, documentNo, quantity, amountCny, currency, originalAmount }) => ({ id, date, partyName, documentNo, quantity, amountCny, currency, originalAmount }))
-  const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
+  const round = (value: number) => Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000
   return { definition, rows, summary: { count: rows.length, quantity: rows.reduce((total, row) => total + row.quantity, 0), amountCny: round(rows.reduce((total, row) => total + row.amountCny, 0)) }, generatedAt: new Date().toISOString(), source: state.mockEnabled ? 'local-mock' as const : 'workspace' as const, notice: state.mockEnabled ? '隔离演示数据，非真实业务数据。' : '读取当前已保存日报；不触发 ERP 同步。', amountBasis: '按日报行内人民币金额汇总；历史汇率不重算。数量可能包含不同单位，不作为统一计量。' }
 }
 

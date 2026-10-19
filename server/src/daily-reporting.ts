@@ -616,7 +616,7 @@ function validateReportPayload(body: Record<string, unknown>, existing?: DailyRe
 }
 
 type ImportPreviewRow = { line: number; value?: Omit<DailyReport, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'createdByName' | 'updatedBy'>; errors: string[]; duplicateReason?: 'existing' | 'same_batch' }
-type PendingImportPreview = { token: string; actorId: string; scopeKey: string; expiresAt: number; rows: ImportPreviewRow[]; fileName: string; migration: boolean; sourceCompanyCode?: string }
+type PendingImportPreview = { token: string; actorId: string; scopeKey: string; expiresAt: number; rows: ImportPreviewRow[]; fileName: string; digest: string; migration: boolean; sourceCompanyCode?: string }
 const pendingImportPreviews = new BoundedPreviewCache<PendingImportPreview>(MAX_PENDING_IMPORT_PREVIEWS, MAX_PENDING_IMPORT_PREVIEW_MEMORY_BYTES)
 const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 1, parts: 2 } }).single('file')
 const importPreviewTtlMs = 15 * 60 * 1000
@@ -781,7 +781,7 @@ export function createDailyReportRouter(): Router {
     const scope = scopeFromRequest(req), actor = actorFromRequest(req)
     try {
       const parsed = await parseDailyReportImportFile(req.file.originalname, req.file.buffer, defaultType)
-      if (parsed.mappedFields.includes('legacyCompanyCode')) return next()
+      if (parsed.mappedFields.includes('legacyCompanyCode') || parsed.mappedFields.includes('sourceIdempotencyKey') || !readDailyReportingAdminState(scopeFromRequest(req)).masterDataConfigured) return next()
       const state = readDailyReportState(scope), masters = readDailyReportingAdminState(scope)
       const valid: ImportPreview['rows'] = []
       const rows = parsed.rows.map(row => {
@@ -791,14 +791,15 @@ export function createDailyReportRouter(): Router {
         const matches = masters.parties.filter(party => party.active && party.kind === (kind === 'sales' ? 'customer' : 'supplier') && (party.name === partyText || party.aliases.includes(partyText)))
         const party = validKind(kind) && matches.length === 1 ? matches[0] : undefined
         if (!party) errors.push('客商未匹配当前账套中唯一且启用的同业务主档，请先维护主档。')
-        const validation = validateReportPayload({ ...row.values, ...(party ? { partyId: party.id, partyName: party.name } : {}) })
+        const validation = validateReportPayload({ ...row.values, ...(party ? { partyId: party.id, partyName: party.name } : {}) }, undefined, { preserveCnySnapshot: true })
         if (validation.error) errors.push(validation.error)
         const value = validation.value
         if (value && !Number.isFinite(value.amountCny)) errors.push('换算金额超出有效数值范围。')
         let duplicateReason: 'existing' | 'same_batch' | undefined
         if (value && !errors.length) {
           value.source = 'history-import'
-          const existing = liveReports(state).filter(report => sameImportBusinessRecord(report, value))
+          value.sourceIdempotencyKey = makeImportSourceKey(value)
+          const existing = state.reports.filter(report => !report.deletedAt || report.sourceIdempotencyKey === value.sourceIdempotencyKey).filter(report => sameImportBusinessRecord(report, value))
           const previous = valid.filter(item => sameImportBusinessRecord(item.payload, value))
           if ([...existing, ...previous.map(item => item.payload)].some(item => !sameImportValues(item, value))) errors.push('相同业务日期和单号已存在不同内容，需人工核对；不会覆盖或静默跳过。')
           else {
@@ -906,12 +907,13 @@ export function createDailyReportRouter(): Router {
       if (!/^[A-Z]{3}$/.test(currency)) addError('currency', '币种必须为三位大写代码。')
       if (!Number.isFinite(rawRate) || rawRate <= 0 || (currency === 'CNY' && rawRate !== 1)) addError('exchangeRate', currency === 'CNY' ? '人民币汇率须为 1；可留空由系统填入。' : '外币汇率必须为正数。')
       if (String(get(3) ?? '').trim().length > 100) addError('documentNo', '单据编号最多 100 字。')
-      const payload = validateReportPayload({ type: kind, date, partyName: party?.name ?? partyText, partyId: party?.id, documentNo: String(get(3) ?? '').trim(), quantity, currency, originalAmount, exchangeRate: rawRate, note: String(get(8) ?? '') })
+      const payload = validateReportPayload({ type: kind, date, partyName: party?.name ?? partyText, partyId: party?.id, documentNo: String(get(3) ?? '').trim(), quantity, currency, originalAmount, originalAmountExact: String(get(6) ?? '').trim(), exchangeRate: rawRate, exchangeRateExact: String(get(7) || 1).trim(), note: String(get(8) ?? '') })
       if (!payload.value) addError('row', payload.error ?? '数据无效。')
       else if (!Number.isFinite(payload.value.amountCny)) addError('amountCny', '换算金额超出有效数值范围。')
       if (!party || !payload.value || errors.length !== errorsBefore) continue
       payload.value.source = 'history-import'
-      const candidates = [...state.reports.filter(report => !report.deletedAt), ...valid.map(row => row.payload)]
+      payload.value.sourceIdempotencyKey = makeImportSourceKey(payload.value)
+      const candidates = [...state.reports.filter(report => !report.deletedAt || report.sourceIdempotencyKey === payload.value!.sourceIdempotencyKey), ...valid.map(row => row.payload)]
       const matches = candidates.filter(report => sameImportBusinessRecord(report, payload.value!))
       if (matches.some(report => !sameImportValues(report, payload.value!))) { addError('documentNo', '相同业务日期、客商和单号已存在不同内容，需人工核对；不会覆盖原记录。'); continue }
       valid.push({ rowNumber, payload: payload.value, duplicate: matches.some(report => sameImportValues(report, payload.value!)) })
@@ -949,7 +951,7 @@ export function createDailyReportRouter(): Router {
         for (const row of preview.rows) {
           const party = findDailyParty(scope, row.payload.partyId ?? '', row.payload.type === 'sales' ? 'customer' : 'supplier')
           if (!party || !party.active || party.name !== row.payload.partyName) return { invalid: true as const }
-          const candidates = [...state.reports.filter(report => !report.deletedAt), ...insert.map(item => item.payload)]
+          const candidates = [...state.reports.filter(report => !report.deletedAt || report.sourceIdempotencyKey === row.payload.sourceIdempotencyKey), ...insert.map(item => item.payload)]
           const matches = candidates.filter(report => sameImportBusinessRecord(report, row.payload))
           if (matches.some(report => !sameImportValues(report, row.payload))) return { conflict: true as const }
           if (matches.some(report => sameImportValues(report, row.payload))) skipped++
@@ -958,7 +960,7 @@ export function createDailyReportRouter(): Router {
         const now = new Date().toISOString()
         const imported: Array<Pick<DailyReport, 'id' | 'type' | 'date' | 'documentNo' | 'amountCny'>> = []
         for (const row of insert) {
-          const item: DailyReport = { ...row.payload, importBatchId: preview.id, source: 'history-import', id: randomUUID(), createdAt: now, updatedAt: now, createdBy: actor.id, createdByName: actor.name, updatedBy: actor.id }
+          const item: DailyReport = { ...row.payload, importBatchId: preview.id, sourceFileName: preview.fileName, sourceRow: row.rowNumber, source: 'history-import', id: randomUUID(), createdAt: now, updatedAt: now, createdBy: actor.id, createdByName: actor.name, updatedBy: actor.id }
           state.reports.unshift(item)
           imported.push({ id: item.id, type: item.type, date: item.date, documentNo: item.documentNo, amountCny: item.amountCny })
           noteCorrection(state, { originalDate: item.date, type: '日报补录', affectedReport: item.type, referenceId: item.id, originalValue: archivedReportAmount(state, item.id, item.date), newValue: item.amountCny, diffAmount: item.amountCny, reason: '已归档日期新增导入日报记录。' })
@@ -1182,7 +1184,7 @@ export function createDailyReportRouter(): Router {
       const actor = actorFromRequest(req)
       const now = Date.now()
       pendingImportPreviews.prune(now)
-      const preview: PendingImportPreview = { token: randomUUID(), actorId: actor.id, scopeKey: stateKey(scope), expiresAt: now + importPreviewTtlMs, rows, fileName: req.file.originalname.slice(0, 160), migration, ...(sourceCompanyCode ? { sourceCompanyCode } : {}) }
+      const preview: PendingImportPreview = { token: randomUUID(), actorId: actor.id, scopeKey: stateKey(scope), expiresAt: now + importPreviewTtlMs, rows, fileName: req.file.originalname.slice(0, 160), digest: createHash('sha256').update(req.file.buffer).digest('hex'), migration, ...(sourceCompanyCode ? { sourceCompanyCode } : {}) }
       if (!pendingImportPreviews.set(preview, now)) return res.status(413).json({ error: 'daily_report_import_preview_too_large', message: '该预览超过服务器缓存容量，无法安全保留；请减少文件行数或备注长度后重试。' })
       return res.status(200).json(importPreviewResponse(preview, parsed.headers, parsed.mappedFields))
     } catch (error) {
@@ -1240,7 +1242,10 @@ export function createDailyReportRouter(): Router {
           const digest = createHash('sha256').update(JSON.stringify(item.digestRows)).digest('hex')
           recordDailyReportingMigrationBatch(scope, req, type === 'sales' ? 'M01-sales-reports' : 'M02-purchase-reports', preview.sourceCompanyCode, item.rowCount, digest, { inserted: item.inserted, skipped: item.skipped, conflicts: 0 })
         }
-        return { importedCount: imported.length, skippedDuplicates, imported: imported.map(item => ({ id: item.id, type: item.type, date: item.date, documentNo: item.documentNo, amountCny: item.amountCny, amountCnyExact: item.amountCnyExact, sourceIdempotencyKey: item.sourceIdempotencyKey })) }
+        const dates = preview.rows.map(row => row.value!.date).sort()
+        const types = [...new Set(preview.rows.map(row => row.value!.type))]
+        state.importBatches = [...(state.importBatches ?? []), { id: preview.token, actorId: actor.id, actorName: actor.name, scopeKey: stateKey(scope), type: types.length === 1 ? types[0]! : 'mixed', fileName: preview.fileName, digest: preview.digest, completedAt: new Date().toISOString(), inserted: imported.length, skipped: skippedDuplicates, dateFrom: dates[0] ?? null, dateTo: dates.at(-1) ?? null }]
+        return { batchId: preview.token, inserted: imported.length, skipped: skippedDuplicates, importedCount: imported.length, skippedDuplicates, imported: imported.map(item => ({ id: item.id, type: item.type, date: item.date, documentNo: item.documentNo, amountCny: item.amountCny, amountCnyExact: item.amountCnyExact, sourceIdempotencyKey: item.sourceIdempotencyKey })) }
       }))()
       const result = transactionResult
       pendingImportPreviews.delete(previewId)
