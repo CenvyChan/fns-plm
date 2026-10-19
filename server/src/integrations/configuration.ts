@@ -45,7 +45,10 @@ function validateBaseUrl(value: unknown, provider: ConnectorProvider): void {
   let url: URL
   try { url = new URL(value) } catch { throw new Error(`${provider} baseUrl must be a valid URL.`) }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error(`${provider} baseUrl must use HTTP(S) without embedded credentials, query or fragment.`)
-  if (url.protocol !== 'https:' && process.env.NODE_ENV === 'production' && !['localhost', '127.0.0.1', '::1'].includes(url.hostname) && process.env.ALLOW_INSECURE_CONNECTOR_HTTP !== 'true') throw new Error('External connector URLs must use HTTPS in production; local loopback services are allowed over HTTP.')
+  if (url.protocol === 'http:' && process.env.NODE_ENV === 'production') {
+    const approvedFlowable = provider === 'flowable' && url.hostname === '100.83.138.26' && url.port === '18080' && (url.pathname === '/flowable-rest/service' || url.pathname === '/flowable-rest/service/')
+    if (!approvedFlowable) throw new Error('Connector URLs must use HTTPS in production; only the approved Flowable endpoint may use HTTP.')
+  }
 }
 function validateConfig(provider: ConnectorProvider, config: ConnectorConfig): void {
   if (provider === 'flowable' || provider === 'k3cloud') validateBaseUrl(config.baseUrl, provider)

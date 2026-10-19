@@ -19,6 +19,10 @@ function normalizeConfig(input?: FlowableConfig): FlowableConfig | null {
   let parsed: URL
   try { parsed = new URL(baseUrl) } catch { throw new Error('Flowable baseUrl is invalid.') }
   if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error('Flowable baseUrl must be a clean HTTP(S) URL without embedded credentials, query or fragment.')
+  if (parsed.protocol === 'http:' && process.env.NODE_ENV === 'production') {
+    const approved = parsed.hostname === '100.83.138.26' && parsed.port === '18080' && (parsed.pathname === '/flowable-rest/service' || parsed.pathname === '/flowable-rest/service/')
+    if (!approved) throw new Error('Flowable HTTP is allowed in production only for the approved endpoint.')
+  }
   const username = input?.username
   const password = input?.password
   if (!username || !password) throw new Error('Flowable Basic Auth username and password must both be configured.')
@@ -58,7 +62,7 @@ async function request(cfg: FlowableConfig, method: string, path: string, body?:
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), cfg.timeoutMs ?? 10000)
   const headers = authHeaders(cfg)
   if (body !== undefined) headers['Content-Type'] = 'application/json'
-  try { return await responseData(await fetch(`${cfg.baseUrl}${apiPath(path)}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: controller.signal })) }
+  try { return await responseData(await fetch(`${cfg.baseUrl}${apiPath(path)}`, { method, headers, redirect: 'error', ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: controller.signal })) }
   catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw new Error('Flowable request timed out.')
     if (error instanceof Error && /Flowable/.test(error.message)) throw error
@@ -83,7 +87,7 @@ async function deployTenantDefinitions(cfg: FlowableConfig, tenantId: string): P
     form.append('tenantId', tenantId)
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), cfg.timeoutMs ?? 10000)
     try {
-      const response = await fetch(`${cfg.baseUrl}/repository/deployments`, { method: 'POST', headers: authHeaders(cfg), body: form, signal: controller.signal })
+      const response = await fetch(`${cfg.baseUrl}/repository/deployments`, { method: 'POST', headers: authHeaders(cfg), body: form, redirect: 'error', signal: controller.signal })
       await responseData(response)
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') throw new Error('Flowable BPMN tenant deployment timed out.')
