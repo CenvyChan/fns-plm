@@ -26,6 +26,19 @@ async function responseError(response: Response, fallback: string): Promise<stri
 }
 
 export default function ReportsWorkbench() {
+  const readView = () => new URLSearchParams(window.location.search).get('reportView') === 'delivery' ? 'delivery' : 'daily'
+  const [view, setView] = useState(readView)
+  useEffect(() => {
+    const restore = () => setView(readView())
+    window.addEventListener('popstate', restore)
+    return () => window.removeEventListener('popstate', restore)
+  }, [])
+  const viewUrl = (next: string) => {
+    const url = new URL(window.location.href)
+    url.searchParams.set('page', 'reports'); url.searchParams.set('reportView', next)
+    return `${url.pathname}${url.search}${url.hash}`
+  }
+
   const [preview, setPreview] = useState<ReportPreview | null>(null)
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [loadingPreview, setLoadingPreview] = useState(false)
@@ -212,7 +225,14 @@ export default function ReportsWorkbench() {
       <div><div className="iw-eyebrow">经营分析 / REPORTING</div><h1>报告中心</h1><p>预览报告内容并管理日报、周报计划；推送由已配置渠道及计划决定。</p></div>
       <button className="iw-button iw-secondary" onClick={() => { void loadPreview(); void loadSchedules() }} disabled={loadingPreview || loadingSchedules}><RefreshCw size={15}/>刷新</button>
     </header>
-    <DailyReportingWorkbench />
+    <nav className="report-section-navigation" aria-label="经营报表二级导航">
+      {([{ id: 'daily', label: '经营日报' }, { id: 'delivery', label: '报表推送与计划' }] as const).map(item => <a key={item.id} href={viewUrl(item.id)} aria-current={view === item.id ? 'page' : undefined} onClick={event => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+        event.preventDefault(); window.history.pushState(null, '', viewUrl(item.id)); setView(item.id)
+      }}>{item.label}</a>)}
+    </nav>
+    <div className="report-section-panel" hidden={view !== 'daily'}><DailyReportingWorkbench /></div>
+    <div className="report-section-panel" hidden={view !== 'delivery'}>
     <div className="iw-columns iw-report-columns">
       <section className="iw-card">
         <div className="iw-card-head"><div><h2>报告预览</h2><p>{preview?.title || '摘要与文本内容'}</p></div><div><button className="iw-button iw-approve iw-small" onClick={() => void sendNow()} disabled={sending || loadingPreview || !channelReady} title={!channelReady ? '请先配置钉钉机器人' : undefined}>{sending ? '推送中…' : '立即推送'}</button> <button className="iw-button iw-secondary iw-small" onClick={() => void loadPreview()} disabled={loadingPreview}><RefreshCw size={14}/>刷新预览</button></div></div>
@@ -245,5 +265,6 @@ export default function ReportsWorkbench() {
         <td><button className="iw-icon-action" aria-label={`编辑 ${item.name}`} title="编辑计划" onClick={() => startEdit(item)}><Pencil size={14}/></button><button className="iw-icon-action" aria-label={`立即运行 ${item.name}`} title={!channelReady ? '请先配置钉钉机器人' : '立即运行此计划'} disabled={Boolean(runningScheduleId) || !channelReady} onClick={() => void runScheduleNow(item)}><Play size={14}/></button><button className="iw-icon-action" aria-label={`删除 ${item.name}`} title="删除计划" onClick={() => void remove(item)}><Trash2 size={15}/></button></td>
       </tr>)}</tbody></table></div> : <div className="iw-empty">暂无计划，请创建日报或周报计划。</div>}
     </section>
+    </div>
   </main>
 }

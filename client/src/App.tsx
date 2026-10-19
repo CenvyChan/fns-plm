@@ -8,6 +8,8 @@ import {
 import { createId, loadLocalWorkspace, requestWorkspace, saveLocalWorkspace, syncMutation } from './data'
 import { apiJson, getApiBaseUrl, isNativeApp, jsonRequest, setApiScope, setApiToken, type AuthUser, type UserScope } from './api'
 import Plm from './Plm'
+import BusinessNavigation from './BusinessNavigation'
+import { navigationEntry, navigationUrl, pageFromSearch, resolveNavigationPage } from './navigation'
 import WorkflowWorkbench from './WorkflowWorkbench'
 import ReportsWorkbench from './ReportsWorkbench'
 import LoginScreen from './LoginScreen'
@@ -42,35 +44,12 @@ function Logo() {
   return <div className="brand-lockup"><div className="brand-symbol"><i/><i/><i/></div><span>momentum<span className="brand-dot">.</span></span></div>
 }
 
-function Sidebar({ page, setPage, onAddTask, onCreateProject, onOpenProject, open, projects, pendingCount, user, isAdmin, scopes, onSwitchScope, weekCompleted, weekTotal, onViewWeek, onLogout }: { page: string; setPage: (p: string) => void; onAddTask: () => void; onCreateProject: () => void; onOpenProject: (id: string) => void; open: boolean; projects: Project[]; pendingCount: number; user: AuthUser; isAdmin: boolean; scopes: UserScope[]; onSwitchScope: (id: string) => void; weekCompleted: number; weekTotal: number; onViewWeek: () => void; onLogout: () => void }) {
+function Sidebar({ page, setPage, onAddTask, onCreateProject, onOpenProject, open, onClose, projects, pendingCount, user, isAdmin, scopes, onSwitchScope, weekCompleted, weekTotal, onViewWeek, onLogout }: { page: string; setPage: (p: string) => void; onAddTask: () => void; onCreateProject: () => void; onOpenProject: (id: string) => void; open: boolean; onClose: () => void; projects: Project[]; pendingCount: number; user: AuthUser; isAdmin: boolean; scopes: UserScope[]; onSwitchScope: (id: string) => void; weekCompleted: number; weekTotal: number; onViewWeek: () => void; onLogout: () => void }) {
   const [scopeOpen, setScopeOpen] = useState(false)
-  const nav = [
-    { id: 'overview', label: '总览', icon: LayoutDashboard },
-    { id: 'tasks', label: '我的待办', icon: ListTodo },
-    { id: 'projects', label: '项目进度', icon: FolderKanban },
-    { id: 'timeline', label: '时间线', icon: CalendarDays },
-  ]
-  const plmNav = [
-    { id: 'kpi', label: 'KPI 与绩效', icon: BarChart3 },
-    { id: 'materials', label: '物料主数据', icon: Boxes },
-    { id: 'boms', label: '多视图 BOM', icon: GitBranch },
-    { id: 'documents', label: '图文档中心', icon: FileText },
-    { id: 'workflow', label: '流程审批', icon: CheckCircle2 },
-    { id: 'reports', label: '报表推送', icon: Activity },
-      ...(isAdmin ? [{ id: 'users', label: '成员与权限', icon: Users }, { id: 'settings', label: '系统集成', icon: Settings }] : []),
-      ...(user.isPlatformAdmin ? [{ id: 'tenants', label: '租户与账套', icon: Building2 }] : []),
-  ]
-  return <aside className={`sidebar ${open ? 'sidebar-open' : ''}`}>
-    <Logo />
+  return <aside id="application-sidebar" className={`sidebar ${open ? 'sidebar-open' : ''}`}>
+    <Logo /><button type="button" className="sidebar-close icon-button" onClick={onClose} aria-label="关闭导航"><X size={18}/></button>
     <div className="workspace-picker"><button className="workspace-switch" aria-expanded={scopeOpen} onClick={() => setScopeOpen(value => !value)} title="切换已授权的组织或账套"><span className="workspace-avatar">{user.tenantName.slice(0, 1)}</span><span className="workspace-label"><b>{user.accountName}</b><small>{user.tenantName} · {user.organizationName}</small></span><ChevronDown size={15}/></button>{scopeOpen && <div className="workspace-scope-menu" role="menu" aria-label="已授权工作区">{scopes.map(scope => <button type="button" role="menuitem" key={scope.membershipId} className={scope.accountId === user.accountId ? 'is-current' : ''} onClick={() => { setScopeOpen(false); if (scope.accountId !== user.accountId) onSwitchScope(scope.accountId) }}><span>{scope.tenantName} · {scope.organizationName}</span><b>{scope.accountName}</b><small>{scope.role === 'admin' ? '管理员' : scope.role === 'plm_manager' ? 'PLM 管理员' : scope.role === 'reviewer' ? '审批人' : '成员'}{scope.accountId === user.accountId ? ' · 当前' : ''}</small></button>)}{user.isPlatformAdmin && <button type="button" role="menuitem" className="scope-admin-link" onClick={() => { setScopeOpen(false); setPage('tenants') }}><Building2 size={14}/>管理租户与账套</button>}</div>}</div>
-    <div className="nav-caption">工作区</div>
-    <nav className="side-nav">
-      {nav.map(item => <button key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => setPage(item.id)}><item.icon size={18}/><span>{item.label}</span>{item.id === 'tasks' && <span className="nav-count">{pendingCount}</span>}</button>)}
-    </nav>
-    <div className="nav-caption plm-nav-caption">企业 PLM</div>
-    <nav className="side-nav side-nav-plm">
-      {plmNav.map(item => <button key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => setPage(item.id)}><item.icon size={18}/><span>{item.label}</span></button>)}
-    </nav>
+    <BusinessNavigation page={page} user={user} pendingCount={pendingCount} onNavigate={setPage}/>
     <div className="sidebar-project-label"><span>置顶项目</span><button type="button" aria-label="新增项目" onClick={onCreateProject}><Plus size={15}/></button></div>
     {projects.slice(0, 5).map(project => <button key={project.id} className="mini-project" onClick={() => onOpenProject(project.id)}><i className="project-dot" style={{ background: project.color }}/>{project.name}</button>)}
     <div className="sidebar-bottom">
@@ -80,12 +59,12 @@ function Sidebar({ page, setPage, onAddTask, onCreateProject, onOpenProject, ope
   </aside>
 }
 
-function Header({ page, query, setQuery, onAddTask, onMenu, user, scopes, onSwitchScope, onLogout, tasks, onOpenTasks }: { page: string; query: string; setQuery: (v: string) => void; onAddTask: () => void; onMenu: () => void; user: AuthUser; scopes: UserScope[]; onSwitchScope: (id: string) => void; onLogout: () => void; tasks: Task[]; onOpenTasks: () => void }) {
+function Header({ page, query, setQuery, onAddTask, onMenu, navigationOpen, user, scopes, onSwitchScope, onLogout, tasks, onOpenTasks }: { page: string; query: string; setQuery: (v: string) => void; onAddTask: () => void; onMenu: () => void; navigationOpen: boolean; user: AuthUser; scopes: UserScope[]; onSwitchScope: (id: string) => void; onLogout: () => void; tasks: Task[]; onOpenTasks: () => void }) {
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const reminders = useMemo(() => tasks.filter(task => task.status !== 'done' && task.dueDate <= addDays(2)).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 6), [tasks])
-  const labels: Record<string, string> = { overview: '今天', tasks: '我的待办', projects: '项目进度', timeline: '时间线', kpi: 'KPI 与绩效', materials: '物料主数据', boms: '多视图 BOM', documents: '图文档中心', workflow: '流程审批', reports: '报表推送', users: '成员与权限', settings: '系统集成', tenants: '租户与账套' }
-  const plm = ['kpi', 'materials', 'boms', 'documents', 'workflow', 'reports', 'users', 'settings', 'tenants'].includes(page)
-  return <header className="topbar"><button className="mobile-menu icon-button" onClick={onMenu} aria-label="打开导航"><Menu size={19}/></button><div className="breadcrumbs"><span>{plm ? '企业 PLM' : '个人工作台'}</span><ChevronRight size={14}/><b>{labels[page] ?? '工作区'}</b></div><div className="topbar-actions">{['overview', 'tasks'].includes(page) && <label className="searchbox"><Search size={16}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索任务或项目…"/><kbd><Command size={11}/> K</kbd></label>}<label className="account-scope-wrap" title="切换当前组织与账套"><span>{user.tenantName}</span><select aria-label="切换账套" value={user.accountId} disabled={scopes.length < 2} onChange={event => onSwitchScope(event.target.value)}>{scopes.map(scope => <option key={scope.accountId} value={scope.accountId}>{scope.tenantName} · {scope.organizationName} · {scope.accountName}</option>)}</select></label><div className="notification-wrap"><button className="icon-button notification-button" aria-label={`待办提醒，${reminders.length} 项即将到期`} aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(value => !value)}><Bell size={18}/>{reminders.length > 0 && <i/>}</button>{notificationsOpen && <section className="notification-popover" aria-label="待办提醒"><div className="notification-head"><b>待办提醒</b><span>{reminders.length} 项临期</span></div>{reminders.length ? reminders.map(task => <button type="button" key={task.id} className="notification-item" onClick={() => { setNotificationsOpen(false); onOpenTasks() }}><b>{task.title}</b><small>{task.dueDate < todayISO() ? '已逾期' : task.dueDate === todayISO() ? '今天截止' : `截止 ${dateLabel(task.dueDate)}`}</small></button>) : <div className="notification-empty">当前没有逾期或未来两天内到期的待办。</div>}<button type="button" className="notification-all" onClick={() => { setNotificationsOpen(false); onOpenTasks() }}>查看全部待办<ArrowRight size={14}/></button><small className="notification-footnote">按当前工作区截止日期生成；不是钉钉推送。</small></section>}</div><div className="top-avatar" title={user.email}>{user.displayName.slice(0, 1)}</div><button className="icon-button" aria-label="退出登录" title="退出登录" onClick={onLogout}><LogOut size={17}/></button>{!plm && <button className="top-add" onClick={onAddTask}><Plus size={16}/><span>新建任务</span></button>}</div></header>
+  const { group, item } = navigationEntry(page)
+  const plm = group?.id !== 'personal'
+  return <header className="topbar"><button className="mobile-menu icon-button" onClick={onMenu} aria-label="打开导航" aria-controls="application-sidebar" aria-expanded={navigationOpen}><Menu size={19}/></button><div className="breadcrumbs">{plm && <><span className="breadcrumb-root">企业 PLM</span><ChevronRight size={14} className="breadcrumb-root"/></>}<span>{group?.label ?? '个人工作台'}</span><ChevronRight size={14}/><b>{item?.label ?? '总览'}</b></div><div className="topbar-actions">{['overview', 'tasks'].includes(page) && <label className="searchbox"><Search size={16}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索任务或项目…"/><kbd><Command size={11}/> K</kbd></label>}<label className="account-scope-wrap" title="切换当前组织与账套"><span>{user.tenantName}</span><select aria-label="切换账套" value={user.accountId} disabled={scopes.length < 2} onChange={event => onSwitchScope(event.target.value)}>{scopes.map(scope => <option key={scope.accountId} value={scope.accountId}>{scope.tenantName} · {scope.organizationName} · {scope.accountName}</option>)}</select></label><div className="notification-wrap"><button className="icon-button notification-button" aria-label={`待办提醒，${reminders.length} 项即将到期`} aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(value => !value)}><Bell size={18}/>{reminders.length > 0 && <i/>}</button>{notificationsOpen && <section className="notification-popover" aria-label="待办提醒"><div className="notification-head"><b>待办提醒</b><span>{reminders.length} 项临期</span></div>{reminders.length ? reminders.map(task => <button type="button" key={task.id} className="notification-item" onClick={() => { setNotificationsOpen(false); onOpenTasks() }}><b>{task.title}</b><small>{task.dueDate < todayISO() ? '已逾期' : task.dueDate === todayISO() ? '今天截止' : `截止 ${dateLabel(task.dueDate)}`}</small></button>) : <div className="notification-empty">当前没有逾期或未来两天内到期的待办。</div>}<button type="button" className="notification-all" onClick={() => { setNotificationsOpen(false); onOpenTasks() }}>查看全部待办<ArrowRight size={14}/></button><small className="notification-footnote">按当前工作区截止日期生成；不是钉钉推送。</small></section>}</div><div className="top-avatar" title={user.email}>{user.displayName.slice(0, 1)}</div><button className="icon-button" aria-label="退出登录" title="退出登录" onClick={onLogout}><LogOut size={17}/></button>{!plm && <button className="top-add" onClick={onAddTask}><Plus size={16}/><span>新建任务</span></button>}</div></header>
 }
 
 function StatCard({ label, value, detail, icon: Icon, accent, trend }: { label: string; value: string | number; detail: string; icon: typeof Target; accent: string; trend?: string }) {
@@ -137,7 +116,14 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true)
   const [setupRequired, setSetupRequired] = useState(false)
   const [authError, setAuthError] = useState('')
-  const [page, setPage] = useState('overview')
+  const [requestedPage, setRequestedPage] = useState(() => pageFromSearch(window.location.search))
+  const page = resolveNavigationPage(requestedPage, authUser)
+  const setPage = (next: string) => {
+    const allowed = resolveNavigationPage(next, authUser)
+    const url = navigationUrl(window.location.href, allowed)
+    if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== url) window.history.pushState(null, '', url)
+    setRequestedPage(allowed)
+  }
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'todo' | 'done'>('all')
   const [taskModal, setTaskModal] = useState(false)
@@ -173,9 +159,40 @@ function App() {
   }
   useEffect(() => { void bootstrap() }, [])
   useEffect(() => {
-    const requestedPage = new URLSearchParams(window.location.search).get('page')
-    if (requestedPage === 'workflow' || requestedPage === 'reports' || requestedPage === 'tenants') setPage(requestedPage)
+    const restore = () => { setRequestedPage(pageFromSearch(window.location.search)); setSelectedProject(null); setMobileNav(false) }
+    window.addEventListener('popstate', restore)
+    return () => window.removeEventListener('popstate', restore)
   }, [])
+  useEffect(() => {
+    if (!authUser) return
+    const allowed = resolveNavigationPage(requestedPage, authUser)
+    window.history.replaceState(null, '', navigationUrl(window.location.href, allowed))
+    if (allowed !== requestedPage) setRequestedPage(allowed)
+  }, [authUser, requestedPage])
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 900px)')
+    const closeOnDesktop = () => { if (!media.matches) setMobileNav(false) }
+    media.addEventListener('change', closeOnDesktop)
+    return () => media.removeEventListener('change', closeOnDesktop)
+  }, [])
+  useEffect(() => {
+    if (!mobileNav) return
+    const menuButton = document.querySelector<HTMLButtonElement>('.mobile-menu')
+    document.querySelector<HTMLButtonElement>('.sidebar-close')?.focus()
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileNav(false)
+      if (event.key === 'Tab') {
+        const targets = [...document.querySelectorAll<HTMLElement>('#application-sidebar button, #application-sidebar a, #application-sidebar select')].filter(element => element.getClientRects().length > 0 && !element.hasAttribute('disabled'))
+        const first = targets[0], last = targets[targets.length - 1]
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+      }
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => { document.body.style.overflow = previousOverflow; window.removeEventListener('keydown', closeOnEscape); menuButton?.focus() }
+  }, [mobileNav])
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 2400); return () => clearTimeout(timer) }, [toast])
   const commit = (next: WorkspaceData) => { setWorkspace(next); saveLocalWorkspace(next) }
   const handleAuthenticated = async (result: { user: AuthUser; scopes: UserScope[] }) => {
@@ -184,8 +201,7 @@ function App() {
       setApiScope(result.user)
       const data = await requestWorkspace()
       setWorkspace(data); setAuthUser(result.user); setUserScopes(result.scopes); setSetupRequired(false)
-      const requested = new URLSearchParams(window.location.search).get('page')
-      setPage(['workflow', 'reports', 'settings', 'users'].includes(requested ?? '') ? requested! : 'overview')
+      setRequestedPage(pageFromSearch(window.location.search, result.user))
     } catch (value) { setAuthError(value instanceof Error ? value.message : '工作区加载失败。') }
     finally { setAuthLoading(false) }
   }
@@ -194,7 +210,7 @@ function App() {
       const result = await apiJson<{ user: AuthUser; scopes: UserScope[] }>('/api/auth/switch-scope', jsonRequest('POST', { accountId }))
       setApiScope(result.user)
       const data = await requestWorkspace()
-      setAuthUser(result.user); setUserScopes(result.scopes); setWorkspace(data); setSelectedProject(null); setToast(`已切换至 ${result.user.accountName}`)
+      setAuthUser(result.user); setUserScopes(result.scopes); setWorkspace(data); setSelectedProject(null); setMobileNav(false); setToast(`已切换至 ${result.user.accountName}`)
     } catch (value) { setToast(value instanceof Error ? value.message : '切换工作区失败。') }
   }
   const logout = async () => {
@@ -263,13 +279,13 @@ function App() {
   const weekTasks = workspace.tasks.filter(task => weekDateSet.has(task.dueDate))
   const weekCompleted = weekTasks.filter(task => task.status === 'done').length
   const weekTaskCounts = weekDates.map(date => workspace.tasks.filter(task => task.dueDate === date).length)
-  const headerTitle = page === 'tasks' ? '我的待办' : page === 'projects' ? '项目进度' : page === 'timeline' ? '时间线' : page === 'kpi' ? 'KPI 与绩效' : page === 'materials' ? '物料主数据' : page === 'boms' ? '多视图 BOM' : page === 'documents' ? '图文档中心' : page === 'workflow' ? '流程审批' : page === 'reports' ? '报表推送' : page === 'users' ? '成员与权限' : page === 'settings' ? '系统集成' : page === 'tenants' ? '租户与账套' : '总览'
+  const headerTitle = page === 'tasks' ? '我的待办' : page === 'projects' ? '项目进度' : page === 'timeline' ? '时间线' : page === 'kpi' ? 'KPI 与绩效' : page === 'materials' ? '物料主数据' : page === 'boms' ? '多视图 BOM' : page === 'documents' ? '图文档中心' : page === 'workflow' ? '流程审批' : page === 'reports' ? '经营日报与报表' : page === 'users' ? '成员与权限' : page === 'settings' ? '系统集成' : page === 'tenants' ? '租户与账套' : '总览'
   const isPersonalPage = ['overview', 'tasks', 'projects', 'timeline'].includes(page)
 
   if (authLoading) return <main className="session-loading"><span className="status-dot"/> 正在验证安全会话…</main>
   if (!authUser) return <LoginScreen setupRequired={setupRequired} apiError={authError} onAuthenticated={handleAuthenticated} onRetry={() => { void bootstrap() }}/>
 
-  return <div className="app-shell"><Sidebar page={page} setPage={p => { setPage(p); setSelectedProject(null); setMobileNav(false) }} onAddTask={openNewTask} onCreateProject={openNewProject} onOpenProject={id => { setPage('projects'); setSelectedProject(id); setMobileNav(false) }} open={mobileNav} projects={workspace.projects} pendingCount={pendingCount} user={authUser} isAdmin={authUser.role === 'admin'} scopes={userScopes} onSwitchScope={id => { void switchScope(id) }} weekCompleted={weekCompleted} weekTotal={weekTasks.length} onViewWeek={() => { setPage('timeline'); setMobileNav(false) }} onLogout={() => { void logout() }}/><div className="app-main"><Header page={page} query={query} setQuery={setQuery} onAddTask={openNewTask} onMenu={() => setMobileNav(!mobileNav)} user={authUser} scopes={userScopes} onSwitchScope={id => { void switchScope(id) }} onLogout={() => { void logout() }} tasks={workspace.tasks} onOpenTasks={() => setPage('tasks')}/><main className="content-area">
+  return <div className="app-shell"><Sidebar page={page} setPage={p => { setPage(p); setSelectedProject(null); setMobileNav(false) }} onAddTask={openNewTask} onCreateProject={openNewProject} onOpenProject={id => { setPage('projects'); setSelectedProject(id); setMobileNav(false) }} open={mobileNav} onClose={() => setMobileNav(false)} projects={workspace.projects} pendingCount={pendingCount} user={authUser} isAdmin={authUser.role === 'admin'} scopes={userScopes} onSwitchScope={id => { void switchScope(id) }} weekCompleted={weekCompleted} weekTotal={weekTasks.length} onViewWeek={() => { setPage('timeline'); setMobileNav(false) }} onLogout={() => { void logout() }}/><div className="app-main" inert={mobileNav}><Header page={page} query={query} setQuery={setQuery} onAddTask={openNewTask} onMenu={() => setMobileNav(!mobileNav)} navigationOpen={mobileNav} user={authUser} scopes={userScopes} onSwitchScope={id => { void switchScope(id) }} onLogout={() => { void logout() }} tasks={workspace.tasks} onOpenTasks={() => setPage('tasks')}/><main className="content-area" key={`${authUser.tenantId}:${authUser.organizationId}:${authUser.accountId}`}>
     {isPersonalPage && <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line"/>{fullDateLabel}</div><h1>{page === 'overview' ? <>早上好，<em>{authUser.displayName}</em></> : headerTitle}</h1><p>{page === 'overview' ? '把注意力留给真正重要的事。今天也会是稳稳向前的一天。' : page === 'tasks' ? '把大事拆小，按自己的节奏一件件完成。' : page === 'projects' ? '看见每个目标的进展，也看见自己走过的路。' : '把接下来的安排放进视野，心里就有了余裕。'}</p></div><button className="primary-button heading-add" onClick={() => page === 'projects' ? openNewProject() : openNewTask()}><Plus size={16}/>{page === 'projects' ? '新建项目' : '新建任务'}</button></div>}
 
     {page === 'overview' && <>
