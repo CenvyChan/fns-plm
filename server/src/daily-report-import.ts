@@ -15,7 +15,7 @@ export interface ParsedDailyImport {
 const aliases: Record<string, string[]> = {
   type: ['type', '类型', '业务类型', '日报类型', '销售采购类型'],
   date: ['date', 'reportdate', '日期', '业务日期', '报表日期'],
-  partyName: ['partyname', '客户供应商', '客户/供应商', '客户名称', '供应商名称', '客商', '往来单位', '客户或供应商'],
+  partyName: ['partyname', '客户供应商', '客户/供应商', '客户', '供应商', '客户名称', '供应商名称', '客商', '往来单位', '客户或供应商'],
   documentNo: ['documentno', 'billno', '单据编号', '单据号', '单号', '日报编号'],
   quantity: ['quantity', '数量', '业务数量'],
   currency: ['currency', '币种', '原币币种'],
@@ -107,8 +107,9 @@ function numberValue(value: unknown): unknown {
   if (typeof value === 'number') return value
   const raw = displayValue(value).replace(/[￥¥$,，\s]/g, '')
   if (!raw) return undefined
-  if (/^\(.*\)$/.test(raw)) return -Number(raw.slice(1, -1))
-  const parsed = Number(raw)
+  const numeric = /^\(.*\)$/.test(raw) ? `-${raw.slice(1, -1)}` : raw
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(numeric)) return raw
+  const parsed = Number(numeric)
   return Number.isFinite(parsed) ? parsed : raw
 }
 function normalizedNumericText(value: unknown): string | undefined {
@@ -166,6 +167,7 @@ function parseGrid(headers: string[], rows: Array<{ line: number; values: unknow
         else if (field === 'originalAmount' || field === 'exchangeRate' || field === 'amountCny') {
           values[field] = numberValue(raw)
           values[`${field}Exact`] = normalizedNumericText(raw)
+          if (typeof values[field] === 'string' || (typeof values[field] === 'number' && !Number.isFinite(values[field]))) errors.push(`${field}：必须为有限的十进制数字。`)
         }
         else if (field === 'currency') values.currency = displayValue(raw).toUpperCase()
         else values[field] = displayValue(raw)
@@ -209,10 +211,11 @@ export async function parseDailyReportImportFile(fileName: string, buffer: Buffe
   sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
     if (rowNumber === 1) return
     const values: unknown[] = [], errors: string[] = []
-    row.eachCell({ includeEmpty: true }, cell => {
-      try { values.push(cell.value instanceof Date ? cell.value : displayValue(cell.value)) }
+    for (let column = 1; column <= Math.max(headers.length, row.cellCount); column++) {
+      const cell = row.getCell(column)
+      try { values.push(cell.value instanceof Date || typeof cell.value === 'number' ? cell.value : displayValue(cell.value)) }
       catch (error) { values.push(''); errors.push(error instanceof Error ? error.message : '单元格格式无效。') }
-    })
+    }
     if (values.some(value => String(value ?? '').trim() !== '')) rows.push({ line: rowNumber, values, errors })
   })
   if (!rows.length) throw new Error('工作簿没有日报数据行。')

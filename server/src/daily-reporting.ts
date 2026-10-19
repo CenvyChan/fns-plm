@@ -71,8 +71,10 @@ export interface DailyDelivery {
   id: string; snapshotId: string; channel: 'email' | 'dingtalk'; targetDisplay: string; status: 'simulated'
   message: string; createdAt: string; createdBy: string
 }
+type ImportBatchAudit = { id: string; actorId: string; actorName?: string; scopeKey: string; type: DailyKind | 'mixed'; fileName?: string; digest: string; completedAt: string; inserted: number; skipped: number; dateFrom: string | null; dateTo: string | null }
+type ImportPreview = { id: string; actorId: string; scopeKey: string; type: DailyKind | 'mixed'; fileName?: string; digest: string; expiresAt: string; blocked: boolean; rows: Array<{ rowNumber: number; payload: Omit<DailyReport, 'id'|'createdAt'|'updatedAt'|'createdBy'|'createdByName'|'updatedBy'>; duplicate: boolean }> }
 export interface DailyReportState {
-  reports: DailyReport[]; k3Rows: K3SnapshotRow[]; links: DailyReportLink[]; snapshots: DailySnapshot[]
+  importPreviews?: ImportPreview[]; importBatches?: ImportBatchAudit[]; reports: DailyReport[]; k3Rows: K3SnapshotRow[]; links: DailyReportLink[]; snapshots: DailySnapshot[]
   corrections: DailyCorrection[]; deliveries: DailyDelivery[]; mockSnapshotAt: string | null; mockEnabled: boolean; k3Sync: DailyK3SyncMetadata | null
   k3HistoricalHeaders: LegacyK3SnapshotHeader[]; k3MigrationStage?: DailyK3MigrationStage; k3MigrationSummary?: DailyK3MigrationSummary
 }
@@ -134,11 +136,11 @@ function stateKey(scope: Pick<WorkspaceScope, 'tenantId' | 'organizationId' | 'a
   return `${STATE_PREFIX}:${scope.tenantId}:${scope.organizationId}:${scope.accountId}`
 }
 function emptyState(): DailyReportState {
-  return { reports: [], k3Rows: [], links: [], snapshots: [], corrections: [], deliveries: [], mockSnapshotAt: null, mockEnabled: false, k3Sync: null, k3HistoricalHeaders: [] }
+  return { importPreviews: [], importBatches: [], reports: [], k3Rows: [], links: [], snapshots: [], corrections: [], deliveries: [], mockSnapshotAt: null, mockEnabled: false, k3Sync: null, k3HistoricalHeaders: [] }
 }
 function normalizedState(value: unknown): DailyReportState {
   const state = { ...emptyState(), ...asRecord(value) } as DailyReportState
-  for (const key of ['reports', 'k3Rows', 'links', 'snapshots', 'corrections', 'deliveries', 'k3HistoricalHeaders'] as const) if (!Array.isArray(state[key])) state[key] = [] as never
+  for (const key of ['reports', 'k3Rows', 'links', 'snapshots', 'corrections', 'deliveries', 'k3HistoricalHeaders', 'importPreviews', 'importBatches'] as const) if (!Array.isArray(state[key])) state[key] = [] as never
   state.mockEnabled = Boolean(state.mockEnabled)
   state.mockSnapshotAt = typeof state.mockSnapshotAt === 'string' ? state.mockSnapshotAt : null
   state.k3Sync = state.k3Sync && typeof state.k3Sync.lastSyncedAt === 'string' ? state.k3Sync : null
@@ -706,9 +708,275 @@ function renderSnapshotHtml(snapshot: DailySnapshot): string {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>经营日报 ${escapeHtml(snapshot.reportDate)}</title><style>body{font:14px system-ui,sans-serif;color:#243047;max-width:1100px;margin:32px auto;padding:0 20px}h1,h2{color:#1d3353}.warn{background:#fff8e8;border:1px solid #ead7a7;padding:12px;border-radius:8px}table{width:100%;border-collapse:collapse;margin:10px 0 24px}th,td{border:1px solid #dce2eb;padding:7px;text-align:left}th{background:#f2f5f9}.meta{color:#718096}</style></head><body><h1>销售 / 采购经营日报</h1><p class="meta">报表日期 ${escapeHtml(snapshot.reportDate)} · 归档版本 ${snapshot.version} · ${escapeHtml(snapshot.createdAt)} · ${escapeHtml(sourceLabel)}</p><section class="warn"><b>数据说明</b><ul>${warnings || '<li>无额外警告</li>'}</ul></section><h2>经营摘要</h2><p>销售日报：${amount(sales.daily, 'count')} 笔，金额 ¥${amount(sales.daily, 'amountCny')}；采购日报：${amount(purchase.daily, 'count')} 笔，金额 ¥${amount(purchase.daily, 'amountCny')}。</p><p>销售订单：${amount(asRecord(orders).sales, 'count')} 笔，¥${amount(asRecord(orders).sales, 'amountCny')}；采购订单：${amount(asRecord(orders).purchase, 'count')} 笔，¥${amount(asRecord(orders).purchase, 'amountCny')}。</p><p>应收未收 ¥${amount(asRecord(balances).receivables, 'outstandingAmountCny')}；应付未付 ¥${amount(asRecord(balances).payables, 'outstandingAmountCny')}。</p><h2>日报明细</h2><table><thead><tr><th>类型</th><th>日期</th><th>编号</th><th>客户 / 供应商</th><th>数量</th><th>币种</th><th>原币金额</th><th>汇率</th><th>人民币金额</th></tr></thead><tbody>${rows || '<tr><td colspan="9">暂无日报记录</td></tr>'}</tbody></table><h2>K3Cloud / 演示快照行</h2><table><thead><tr><th>单据类型</th><th>单号</th><th>日期</th><th>客商</th><th>物料 / 科目</th><th>金额(人民币)</th></tr></thead><tbody>${k3 || '<tr><td colspan="6">暂无快照行</td></tr>'}</tbody></table></body></html>`
 }
 
+type ImportComparable = Pick<DailyReport, 'type' | 'date' | 'partyId' | 'partyName' | 'documentNo' | 'quantity' | 'currency' | 'originalAmount' | 'exchangeRate' | 'note'>
+function sameImportValues(left: ImportComparable, right: ImportComparable): boolean {
+  const sameParty = left.partyId && right.partyId ? left.partyId === right.partyId : left.partyName.trim().toLocaleLowerCase() === right.partyName.trim().toLocaleLowerCase()
+  return Boolean(sameParty && left.quantity === right.quantity && left.currency === right.currency && left.originalAmount === right.originalAmount && left.exchangeRate === right.exchangeRate && left.note === right.note)
+}
+function sameImportBusinessRecord(left: ImportComparable, right: ImportComparable): boolean {
+  const sameParty = left.partyId && right.partyId ? left.partyId === right.partyId : left.partyName === right.partyName
+  const documentNo = left.documentNo.trim().toLocaleLowerCase()
+  return Boolean(left.type === right.type && left.date === right.date && documentNo === right.documentNo.trim().toLocaleLowerCase() && (documentNo || (sameParty && sameImportValues(left, right))))
+}
+
+function parseImportCsv(text: string): unknown[][] {
+  const rows: string[][] = [], source = text.replace(/^\uFEFF/, '')
+  let row: string[] = [], cell = '', quoted = false, afterQuote = false, rowNum = 1
+  const pushRow = () => { row.push(cell); if (row.some(value => value.trim() !== '')) rows.push(row); row = []; cell = ''; afterQuote = false; rowNum++; if (rows.length > 5001) throw new Error('CSV 最多允许 5000 行数据。') }
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i]!
+    if (quoted) {
+      if (c === '"' && source[i + 1] === '"') { cell += '"'; i++ }
+      else if (c === '"') { quoted = false; afterQuote = true }
+      else cell += c
+    } else if (afterQuote) {
+      if (c === ',') { row.push(cell); cell = ''; afterQuote = false }
+      else if (c === '\n' || c === '\r') { if (c === '\r' && source[i + 1] === '\n') i++; pushRow() }
+      else throw new Error(`CSV 第 ${rowNum} 行闭合引号后只能出现逗号或换行。`)
+    } else if (c === '"') {
+      if (cell.length !== 0) throw new Error(`CSV 第 ${rowNum} 行引号必须位于字段开头。`)
+      quoted = true
+    } else if (c === ',') { row.push(cell); cell = '' }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && source[i + 1] === '\n') i++; pushRow() }
+    else cell += c
+  }
+  if (quoted) throw new Error('CSV 引号未闭合。')
+  if (cell.length || row.length || afterQuote) pushRow()
+  const width = rows[0]?.length ?? 0
+  for (let index = 1; index < rows.length; index++) if (rows[index]!.length !== width) throw new Error(`CSV 第 ${index + 1} 行列数与表头不一致。`)
+  return rows
+}
 export function createDailyReportRouter(): Router {
   const router = Router()
-  const receiveImportFile = (req: Request, res: import('express').Response, next: import('express').NextFunction) => importUpload(req, res, error => {
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024, files: 1, fields: 0 } })
+  router.get('/daily-reports/imports', requireRole('admin', 'plm_manager'), (req, res) => {
+    const scope = scopeFromRequest(req)
+    const batches = readDailyReportState(scope).importBatches ?? []
+    if (req.query.type !== undefined && !validKind(req.query.type)) return res.status(400).json({ error: 'type 必须是 sales 或 purchase。' })
+    const scoped = batches.filter(batch => batch.scopeKey === stateKey(scope) && (!req.query.type || batch.type === req.query.type || batch.type === 'mixed')).slice().reverse()
+    const limit = Math.min(500, Math.max(1, Number.parseInt(String(req.query.limit ?? '100'), 10) || 100))
+    const offset = Math.max(0, Number.parseInt(String(req.query.offset ?? '0'), 10) || 0)
+    return res.json({ batches: scoped.slice(offset, offset + limit), total: scoped.length, limit, offset, hasMore: offset + limit < scoped.length })
+  })
+  router.get('/daily-reports/imports/:type/template', requireRole('admin', 'plm_manager'), async (req, res) => {
+    if (!validKind(req.params.type)) return res.status(400).json({ error: 'type 必须是 sales 或 purchase。' })
+    const workbook = new ExcelJS.Workbook(), sheet = workbook.addWorksheet('日报导入')
+    sheet.addRow(['业务类型', '日期', '客户/供应商', '单据编号', '数量', '币种', '原币金额', '汇率', '备注'])
+    sheet.addRow([req.params.type, '2026-01-31', '请填写当前账套主档名称', 'DOC-001', 1, 'CNY', 100, 1, ''])
+    sheet.columns.forEach(column => { column.width = 22 })
+    const bytes = await workbook.xlsx.writeBuffer()
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition', `attachment; filename="daily-report-${req.params.type}-template.xlsx"`)
+    return res.send(Buffer.from(bytes))
+  })
+  // Compatibility adapter for 840e34a. Keep today's scope/master-data guards;
+  // never restore its weaker 'same bill number => silently skip changed content' behavior.
+  const legacyUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 1, parts: 2 } })
+  router.post('/daily-reports/import/preview', requireRole('admin', 'plm_manager'), (req, res, next) => {
+    legacyUpload.single('file')(req, res, error => error ? res.status(error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: 'daily_report_import_upload_rejected', message: '请选择单个不超过 10 MiB 的 XLSX 或 CSV 文件；可附带 type。' }) : next())
+  }, async (req, res, next) => {
+    if (!req.file) return res.status(400).json({ error: 'daily_report_import_file_required', message: '请选择一个 CSV 或 XLSX 文件。' })
+    const defaultType = typeof req.body?.type === 'string' ? req.body.type : ''
+    if (defaultType && !validKind(defaultType)) return res.status(400).json({ error: 'invalid_daily_report_type', message: '默认日报类型必须是 sales 或 purchase。' })
+    const scope = scopeFromRequest(req), actor = actorFromRequest(req)
+    try {
+      const parsed = await parseDailyReportImportFile(req.file.originalname, req.file.buffer, defaultType)
+      if (parsed.mappedFields.includes('legacyCompanyCode')) return next()
+      const state = readDailyReportState(scope), masters = readDailyReportingAdminState(scope)
+      const valid: ImportPreview['rows'] = []
+      const rows = parsed.rows.map(row => {
+        const errors = [...row.errors]
+        const kind = row.values.type
+        const partyText = String(row.values.partyName ?? '').trim()
+        const matches = masters.parties.filter(party => party.active && party.kind === (kind === 'sales' ? 'customer' : 'supplier') && (party.name === partyText || party.aliases.includes(partyText)))
+        const party = validKind(kind) && matches.length === 1 ? matches[0] : undefined
+        if (!party) errors.push('客商未匹配当前账套中唯一且启用的同业务主档，请先维护主档。')
+        const validation = validateReportPayload({ ...row.values, ...(party ? { partyId: party.id, partyName: party.name } : {}) })
+        if (validation.error) errors.push(validation.error)
+        const value = validation.value
+        if (value && !Number.isFinite(value.amountCny)) errors.push('换算金额超出有效数值范围。')
+        let duplicateReason: 'existing' | 'same_batch' | undefined
+        if (value && !errors.length) {
+          value.source = 'history-import'
+          const existing = liveReports(state).filter(report => sameImportBusinessRecord(report, value))
+          const previous = valid.filter(item => sameImportBusinessRecord(item.payload, value))
+          if ([...existing, ...previous.map(item => item.payload)].some(item => !sameImportValues(item, value))) errors.push('相同业务日期和单号已存在不同内容，需人工核对；不会覆盖或静默跳过。')
+          else {
+            duplicateReason = existing.length ? 'existing' : previous.length ? 'same_batch' : undefined
+            valid.push({ rowNumber: row.line, payload: value, duplicate: Boolean(duplicateReason) })
+          }
+        }
+        return { line: row.line, status: errors.length ? 'invalid' : duplicateReason ? 'duplicate' : 'ready', data: value, errors, duplicateReason }
+      })
+      const errorRows = rows.filter(row => row.errors.length).length
+      const duplicateRows = rows.filter(row => row.duplicateReason).length
+      const types = [...new Set(valid.map(row => row.payload.type))]
+      const id = randomUUID(), expiresAt = new Date(Date.now() + 15 * 60_000).toISOString()
+      const preview: ImportPreview = { id, actorId: actor.id, scopeKey: stateKey(scope), type: types.length === 1 ? types[0]! : 'mixed', fileName: req.file.originalname.slice(0, 160), digest: createHash('sha256').update(req.file.buffer).digest('hex'), expiresAt, blocked: errorRows > 0 || !valid.length, rows: valid }
+      if (Buffer.byteLength(JSON.stringify(preview), 'utf8') * 4 > 32 * 1024 * 1024) return res.status(413).json({ error: 'daily_report_import_preview_too_large', message: '预览超过安全容量，请减少行数或备注长度。' })
+      mutateState(scope, current => {
+        current.importPreviews = (current.importPreviews ?? []).filter(item => Date.parse(item.expiresAt) > Date.now()).slice(-7)
+        while (current.importPreviews.length && Buffer.byteLength(JSON.stringify([...current.importPreviews, preview]), 'utf8') * 4 > 32 * 1024 * 1024) current.importPreviews.shift()
+        current.importPreviews.push(preview)
+      })
+      return res.json({ previewId: id, fileName: preview.fileName, expiresAt, headers: parsed.headers, mappedFields: parsed.mappedFields, totalRows: rows.length, validRows: rows.length - errorRows, duplicateRows, importableRows: rows.length - errorRows - duplicateRows, errorRows, rows })
+    } catch (error) {
+      return res.status(error instanceof StateConflictError ? 409 : 400).json({ error: 'daily_report_import_parse_failed', message: error instanceof Error ? error.message : '文件解析失败。' })
+    }
+  })
+  router.post('/daily-reports/imports/:type/preview', requireRole('admin', 'plm_manager'), (req, res, next) => {
+    if (!validKind(req.params.type)) return res.status(400).json({ error: 'type 必须是 sales 或 purchase。' })
+    upload.single('file')(req, res, error => error ? res.status(400).json({ error: 'invalid_import_upload', message: '请选择单个不超过 12 MiB 的 XLSX 或 CSV 文件。' }) : next())
+  }, async (req, res) => {
+    if (!validKind(req.params.type) || !req.file) return res.status(400).json({ error: '请上传 file 文件。' })
+    const scope = scopeFromRequest(req), actor = actorFromRequest(req), kind = req.params.type
+    let grid: unknown[][]
+    try {
+      if (/\.csv$/i.test(req.file.originalname)) {
+        grid = parseImportCsv(new TextDecoder('utf-8', { fatal: true }).decode(req.file.buffer).replace(/^\uFEFF/, ''))
+      } else if (/\.xlsx$/i.test(req.file.originalname)) {
+        const workbook = new ExcelJS.Workbook()
+        await workbook.xlsx.load(req.file.buffer)
+        const sheet = workbook.worksheets[0]
+        if (!sheet || sheet.rowCount > 5001 || sheet.columnCount > 64) throw new Error('首个工作表需包含表头、最多 5000 行数据及 64 列。')
+        grid = []
+        sheet.eachRow({ includeEmpty: true }, row => {
+          const cells: unknown[] = []
+          for (let column = 1; column <= row.cellCount; column++) {
+            const value = row.getCell(column).value
+            if (value && typeof value === 'object' && !(value instanceof Date)) {
+              if ('formula' in value || 'sharedFormula' in value) throw new Error(`第 ${row.number} 行包含公式，请粘贴为纯值后导入。`)
+              if ('text' in value) cells.push(value.text)
+              else if ('richText' in value) cells.push(value.richText.map(part => part.text).join(''))
+              else throw new Error(`第 ${row.number} 行含有不支持的单元格类型。`)
+            } else cells.push(value)
+          }
+          grid.push(cells)
+        })
+      } else throw new Error('仅支持 .xlsx 或 UTF-8 .csv 文件。')
+    } catch (error) {
+      return res.status(400).json({ error: 'invalid_import_file', message: error instanceof Error ? error.message : '文件格式无效。' })
+    }
+    if (grid.length < 2 || grid.length > 5001) return res.status(400).json({ error: '文件需包含表头及最多 5000 行数据。' })
+    const headers = grid[0]!.map(value => String(value ?? '').trim())
+    const aliases = [['业务类型', 'type', '类型'], ['日期', 'date'], ['客户/供应商', '客户', '供应商', '客商', 'partyName', 'partyId'], ['单据编号', '单据号', 'documentNo'], ['数量', 'quantity'], ['币种', 'currency'], ['原币金额', 'originalAmount'], ['汇率', 'exchangeRate'], ['备注', 'note']]
+    const indexes = aliases.map(names => headers.findIndex(header => names.includes(header)))
+    const errors: Array<{ rowNumber: number; field: string; message: string }> = []
+    for (const index of [1, 2, 4, 6]) if (indexes[index] === -1) errors.push({ rowNumber: 1, field: aliases[index]![0]!, message: '缺少必填列，请使用当前业务的导入模板。' })
+    for (const names of aliases) if (headers.filter(header => names.includes(header)).length > 1) errors.push({ rowNumber: 1, field: names[0]!, message: '同一字段出现多列，无法确定应使用哪一列。' })
+    const state = readDailyReportState(scope), admin = readDailyReportingAdminState(scope)
+    const parties = admin.parties.filter(party => party.kind === (kind === 'sales' ? 'customer' : 'supplier') && party.active)
+    const valid: ImportPreview['rows'] = []
+    let totalRows = 0
+    for (let index = 1; index < grid.length; index++) {
+      const cells = grid[index]!
+      if (cells.every(value => value == null || (typeof value === 'string' && !value.trim()))) continue
+      totalRows++
+      const rowNumber = index + 1, errorsBefore = errors.length
+      const get = (column: number) => indexes[column]! < 0 ? '' : cells[indexes[column]!]
+      const addError = (field: string, message: string) => errors.push({ rowNumber, field, message })
+      const fileType = String(get(0) ?? '').trim()
+      if (fileType && fileType !== kind) addError('type', '文件业务类型与所选导入入口不一致。')
+      const rawDate = get(1)
+      let date = ''
+      if (rawDate instanceof Date && Number.isFinite(rawDate.getTime())) date = rawDate.toISOString().slice(0, 10)
+      else if (typeof rawDate === 'number' && Number.isInteger(rawDate) && rawDate > 0 && rawDate <= 2958465) date = new Date(Date.UTC(1899, 11, 30) + rawDate * 86400000).toISOString().slice(0, 10)
+      else if (typeof rawDate === 'string') date = rawDate.trim().replaceAll('/', '-')
+      if (!validDay(date)) addError('date', '必须是完整有效的 YYYY-MM-DD 日期，不能含时间或其他后缀。')
+      const partyText = String(get(2) ?? '').trim()
+      const matching = parties.filter(party => party.id === partyText || party.name === partyText)
+      const party = matching.length === 1 ? matching[0] : undefined
+      if (!party) addError('partyName', '客商未匹配当前账套中唯一且启用的同业务主档，请先维护主档。')
+      const number = (column: number, field: string, required = true, fallback = 1): number => {
+        const value = get(column)
+        if (value == null || (typeof value === 'string' && !value.trim())) {
+          if (required) addError(field, '此数字字段必填。')
+          return required ? NaN : fallback
+        }
+        if (typeof value !== 'number' && (typeof value !== 'string' || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim()))) {
+          addError(field, '必须为有效十进制数字。'); return NaN
+        }
+        const result = Number(value)
+        if (!Number.isFinite(result)) addError(field, '必须为有限数字。')
+        return result
+      }
+      const currency = String(get(5) || 'CNY').trim().toUpperCase()
+      const quantity = number(4, 'quantity'), originalAmount = number(6, 'originalAmount')
+      const rawRate = number(7, 'exchangeRate', currency !== 'CNY')
+      if (!/^[A-Z]{3}$/.test(currency)) addError('currency', '币种必须为三位大写代码。')
+      if (!Number.isFinite(rawRate) || rawRate <= 0 || (currency === 'CNY' && rawRate !== 1)) addError('exchangeRate', currency === 'CNY' ? '人民币汇率须为 1；可留空由系统填入。' : '外币汇率必须为正数。')
+      if (String(get(3) ?? '').trim().length > 100) addError('documentNo', '单据编号最多 100 字。')
+      const payload = validateReportPayload({ type: kind, date, partyName: party?.name ?? partyText, partyId: party?.id, documentNo: String(get(3) ?? '').trim(), quantity, currency, originalAmount, exchangeRate: rawRate, note: String(get(8) ?? '') })
+      if (!payload.value) addError('row', payload.error ?? '数据无效。')
+      else if (!Number.isFinite(payload.value.amountCny)) addError('amountCny', '换算金额超出有效数值范围。')
+      if (!party || !payload.value || errors.length !== errorsBefore) continue
+      payload.value.source = 'history-import'
+      const candidates = [...state.reports.filter(report => !report.deletedAt), ...valid.map(row => row.payload)]
+      const matches = candidates.filter(report => sameImportBusinessRecord(report, payload.value!))
+      if (matches.some(report => !sameImportValues(report, payload.value!))) { addError('documentNo', '相同业务日期、客商和单号已存在不同内容，需人工核对；不会覆盖原记录。'); continue }
+      valid.push({ rowNumber, payload: payload.value, duplicate: matches.some(report => sameImportValues(report, payload.value!)) })
+    }
+    if (!totalRows) errors.push({ rowNumber: 1, field: 'file', message: '文件没有非空数据行。' })
+    const id = randomUUID(), expiresAt = new Date(Date.now() + 15 * 60_000).toISOString(), digest = createHash('sha256').update(req.file.buffer).digest('hex')
+    const canCommit = errors.length === 0 && valid.length > 0
+    try {
+      const preview: ImportPreview = { id, actorId: actor.id, scopeKey: stateKey(scope), type: kind, fileName: req.file.originalname.slice(0, 160), digest, expiresAt, blocked: !canCommit, rows: valid }
+      if (Buffer.byteLength(JSON.stringify(preview), 'utf8') * 4 > 32 * 1024 * 1024) return res.status(413).json({ error: 'daily_report_import_preview_too_large', message: '预览超过安全容量，请减少行数或备注长度。' })
+      mutateState(scope, current => {
+        current.importPreviews = (current.importPreviews ?? []).filter(item => Date.parse(item.expiresAt) > Date.now()).slice(-7)
+        while (current.importPreviews.length && Buffer.byteLength(JSON.stringify([...current.importPreviews, preview]), 'utf8') * 4 > 32 * 1024 * 1024) current.importPreviews.shift()
+        current.importPreviews.push(preview)
+      })
+    } catch (error) { return res.status(409).json({ error: 'preview_save_failed', message: error instanceof Error ? error.message : '预览保存失败。' }) }
+    const rows = valid.map(row => ({ rowNumber: row.rowNumber, ...row.payload, duplicate: row.duplicate }))
+    const dates = rows.map(row => row.date).sort()
+    return res.json({ previewId: id, kind, rows, errors, totalRows, validRows: valid.length, duplicateRows: valid.filter(row => row.duplicate).length, canCommit, dateFrom: dates[0] ?? null, dateTo: dates.at(-1) ?? null, expiresAt })
+  })
+  router.post(['/daily-reports/imports/:type/commit', '/daily-reports/import/commit'], requireRole('admin', 'plm_manager'), (req, res, next) => {
+    const legacy = req.path === '/daily-reports/import/commit'
+    if (!legacy && !validKind(req.params.type)) return res.status(400).json({ error: 'type 必须是 sales 或 purchase。' })
+    const scope = scopeFromRequest(req), actor = actorFromRequest(req)
+    const previewId = typeof req.body?.previewId === 'string' ? req.body.previewId : ''
+    if (!previewId) return res.status(400).json({ error: 'previewId 必填。' })
+    if (legacy && pendingImportPreviews.get(previewId)) return next()
+    try {
+      const result = mutateState(scope, state => {
+        const preview = state.importPreviews?.find(item => item.id === previewId && item.actorId === actor.id && item.scopeKey === stateKey(scope) && (legacy || item.type === req.params.type))
+        if (!preview || Date.parse(preview.expiresAt) <= Date.now()) return { invalid: true as const }
+        if (preview.blocked) return { blocked: true as const }
+        const insert: ImportPreview['rows'] = []
+        let skipped = 0
+        for (const row of preview.rows) {
+          const party = findDailyParty(scope, row.payload.partyId ?? '', row.payload.type === 'sales' ? 'customer' : 'supplier')
+          if (!party || !party.active || party.name !== row.payload.partyName) return { invalid: true as const }
+          const candidates = [...state.reports.filter(report => !report.deletedAt), ...insert.map(item => item.payload)]
+          const matches = candidates.filter(report => sameImportBusinessRecord(report, row.payload))
+          if (matches.some(report => !sameImportValues(report, row.payload))) return { conflict: true as const }
+          if (matches.some(report => sameImportValues(report, row.payload))) skipped++
+          else insert.push(row)
+        }
+        const now = new Date().toISOString()
+        const imported: Array<Pick<DailyReport, 'id' | 'type' | 'date' | 'documentNo' | 'amountCny'>> = []
+        for (const row of insert) {
+          const item: DailyReport = { ...row.payload, importBatchId: preview.id, source: 'history-import', id: randomUUID(), createdAt: now, updatedAt: now, createdBy: actor.id, createdByName: actor.name, updatedBy: actor.id }
+          state.reports.unshift(item)
+          imported.push({ id: item.id, type: item.type, date: item.date, documentNo: item.documentNo, amountCny: item.amountCny })
+          noteCorrection(state, { originalDate: item.date, type: '日报补录', affectedReport: item.type, referenceId: item.id, originalValue: archivedReportAmount(state, item.id, item.date), newValue: item.amountCny, diffAmount: item.amountCny, reason: '已归档日期新增导入日报记录。' })
+        }
+        state.importPreviews = state.importPreviews?.filter(item => item.id !== previewId)
+        const dates = preview.rows.map(row => row.payload.date).sort()
+        const result = { inserted: insert.length, skipped, dateFrom: dates[0] ?? null, dateTo: dates.at(-1) ?? null }
+        state.importBatches = [...(state.importBatches ?? []), { id: preview.id, actorId: actor.id, actorName: actor.name, scopeKey: stateKey(scope), type: preview.type, fileName: preview.fileName, digest: preview.digest, completedAt: now, ...result }]
+        return { ...result, batchId: preview.id, imported }
+      })
+      if ('invalid' in result) return res.status(legacy ? 404 : 409).json({ error: 'preview_invalid', message: '预览不存在、已过期、非当前操作人/账套，或客商主档已变更。请重新预览。' })
+      if ('blocked' in result) return res.status(legacy ? 422 : 409).json({ error: 'daily_report_import_validation_failed', message: '存在字段错误行，未写入任何日报。请修正文件并重新预览。' })
+      if ('conflict' in result) return res.status(409).json({ error: 'import_conflict', message: '预览后出现相同单号但内容不同的记录，请重新预览并人工核对。未写入任何日报。' })
+      return res.json(legacy ? { ...result, importedCount: result.inserted, skippedDuplicates: result.skipped, message: `已导入 ${result.inserted} 条，跳过重复 ${result.skipped} 条。` } : result)
+    } catch (error) { return res.status(error instanceof StateConflictError ? 409 : 500).json({ error: error instanceof StateConflictError ? 'workspace_conflict' : 'import_commit_failed', message: error instanceof Error ? error.message : '导入提交失败。' }) }
+  })
+
+  const receiveImportFile = (req: Request, res: import('express').Response, next: import('express').NextFunction) => req.file ? next() : importUpload(req, res, error => {
     if (!error) return next()
     if (error instanceof multer.MulterError) {
       const tooLarge = error.code === 'LIMIT_FILE_SIZE'

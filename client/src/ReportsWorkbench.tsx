@@ -1,270 +1,754 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { CalendarClock, Pencil, Play, RefreshCw, Trash2 } from 'lucide-react'
-import { apiFetch } from './api'
-import DailyReportingWorkbench from './DailyReportingWorkbench'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
+import {
+  CalendarClock,
+  BookOpen,
+  Plus,
+  ChevronRight,
+  Pencil,
+  Play,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
+import { apiFetch } from "./api";
+import ConfirmDialog from "./ConfirmDialog";
+import DetailDrawer from "./DetailDrawer";
+import "./reports-workbench.css";
 
 type Schedule = {
-  id: string
-  name: string
-  cadence: 'daily' | 'weekly'
-  time: string
-  dayOfWeek?: number | string
-  timezone: string
-  enabled: boolean
-  deliveryConfigured?: boolean
-  schedulerState?: string
-  lastRunAt?: string
-  lastResult?: string
+  id: string;
+  name: string;
+  cadence: "daily" | "weekly";
+  time: string;
+  dayOfWeek?: number | string;
+  timezone: string;
+  enabled: boolean;
+  deliveryConfigured?: boolean;
+  schedulerState?: string;
+  lastRunAt?: string;
+  lastResult?: string;
+};
+type ReportPreview = {
+  [key: string]: unknown;
+  title?: string;
+  summary?: string;
+  text?: string;
+  content?: string;
+  channelStatus?: unknown;
+  channels?: unknown;
+};
+type BuiltinDefinition = { id: string; name: string; summary: string; metrics: string[]; source: string; status: string };
+const builtinDefinitions: BuiltinDefinition[] = [{ id: "workspace-overview", name: "PLM 工作区报告", summary: "由服务端 buildWorkspaceReport 固定生成的工作区汇总；预览和推送均使用此固定内容。", metrics: ["任务总数、进行中、已完成、逾期", "项目总数及各项目任务进度", "KPI 规则数、待审查数", "物料、BOM、图文档总数及已发布数", "流程待办、已批准、已驳回数", "可用时包含销售/采购日报摘要、订单与往来余额"], source: "服务端当前工作区数据及可选日报摘要；不是用户自定义定义。具体范围受当前账套及可用数据影响。", status: "固定内置，只读；无定义列表/详情持久化接口。" }];
+type Props = {
+  page: string;
+  onNavigate: (page: string) => void;
+  canManage: boolean;
+};
+const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+const render = (value: unknown) =>
+  typeof value === "string" ? value : JSON.stringify(value, null, 2);
+async function responseError(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  const body = (await response.json().catch(() => null)) as {
+    message?: string;
+    error?: string;
+  } | null;
+  return (
+    body?.message || body?.error || `${fallback}（HTTP ${response.status}）`
+  );
 }
-type ReportPreview = { [key: string]: unknown; title?: string; summary?: string; text?: string; content?: string; channelStatus?: unknown; channels?: unknown }
-const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-const render = (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-
-async function responseError(response: Response, fallback: string): Promise<string> {
-  const body = await response.json().catch(() => null) as { message?: string; error?: string } | null
-  return body?.message || body?.error || `${fallback}（HTTP ${response.status}）`
-}
-
-export default function ReportsWorkbench() {
-  const readView = () => new URLSearchParams(window.location.search).get('reportView') === 'delivery' ? 'delivery' : 'daily'
-  const [view, setView] = useState(readView)
-  useEffect(() => {
-    const restore = () => setView(readView())
-    window.addEventListener('popstate', restore)
-    return () => window.removeEventListener('popstate', restore)
-  }, [])
-  const viewUrl = (next: string) => {
-    const url = new URL(window.location.href)
-    url.searchParams.set('page', 'reports'); url.searchParams.set('reportView', next)
-    return `${url.pathname}${url.search}${url.hash}`
-  }
-
-  const [preview, setPreview] = useState<ReportPreview | null>(null)
-  const [schedules, setSchedules] = useState<Schedule[]>([])
-  const [loadingPreview, setLoadingPreview] = useState(false)
-  const [loadingSchedules, setLoadingSchedules] = useState(false)
-  const [errorPreview, setErrorPreview] = useState('')
-  const [errorSchedules, setErrorSchedules] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [sending, setSending] = useState(false)
-  const [runningScheduleId, setRunningScheduleId] = useState<string | null>(null)
-  const [sendNotice, setSendNotice] = useState('')
-  const [sendError, setSendError] = useState('')
-  const [notice, setNotice] = useState('')
-  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null)
-  const [cadence, setCadence] = useState<'daily' | 'weekly'>('daily')
-  const [name, setName] = useState('经营日报')
-  const [time, setTime] = useState('09:00')
-  const [dayOfWeek, setDayOfWeek] = useState('1')
-  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai')
-
+export default function ReportsWorkbench({
+  page,
+  onNavigate,
+  canManage,
+}: Props) {
+  const [selectedDefinition, setSelectedDefinition] = useState<BuiltinDefinition | null>(null);
+  const [preview, setPreview] = useState<ReportPreview | null>(null);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [loadingSchedules, setLoadingSchedules] = useState(false);
+  const [errorPreview, setErrorPreview] = useState("");
+  const [errorSchedules, setErrorSchedules] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Schedule | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [runningScheduleId, setRunningScheduleId] = useState<string | null>(
+    null,
+  );
+  const [sendNotice, setSendNotice] = useState("");
+  const [sendError, setSendError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(
+    null,
+  );
+  const [cadence, setCadence] = useState<"daily" | "weekly">("daily");
+  const [name, setName] = useState("经营日报");
+  const [time, setTime] = useState("09:00");
+  const [dayOfWeek, setDayOfWeek] = useState("1");
+  const [timezone, setTimezone] = useState(
+    Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai",
+  );
   const loadPreview = useCallback(async () => {
-    setLoadingPreview(true)
-    setErrorPreview('')
+    setLoadingPreview(true);
+    setErrorPreview("");
     try {
-      const response = await apiFetch('/api/reports/preview')
-      if (!response.ok) throw new Error(await responseError(response, '预览加载失败'))
-      setPreview(await response.json() as ReportPreview)
+      const response = await apiFetch("/api/reports/preview");
+      if (!response.ok)
+        throw new Error(await responseError(response, "预览加载失败"));
+      setPreview((await response.json()) as ReportPreview);
     } catch (error) {
-      setErrorPreview(error instanceof Error ? error.message : '无法加载报告预览')
+      setErrorPreview(
+        error instanceof Error ? error.message : "无法加载报告预览",
+      );
     } finally {
-      setLoadingPreview(false)
+      setLoadingPreview(false);
     }
-  }, [])
-
+  }, []);
   const loadSchedules = useCallback(async () => {
-    setLoadingSchedules(true)
-    setErrorSchedules('')
+    setLoadingSchedules(true);
+    setErrorSchedules("");
     try {
-      const response = await apiFetch('/api/reports/schedules')
-      if (!response.ok) throw new Error(await responseError(response, '计划加载失败'))
-      const result = await response.json() as Schedule[] | { schedules?: Schedule[] }
-      setSchedules(Array.isArray(result) ? result : result.schedules ?? [])
+      const response = await apiFetch("/api/reports/schedules");
+      if (!response.ok)
+        throw new Error(await responseError(response, "计划加载失败"));
+      const result = (await response.json()) as
+        | Schedule[]
+        | { schedules?: Schedule[] };
+      setSchedules(Array.isArray(result) ? result : (result.schedules ?? []));
     } catch (error) {
-      setErrorSchedules(error instanceof Error ? error.message : '无法加载发送计划')
+      setErrorSchedules(
+        error instanceof Error ? error.message : "无法加载发送计划",
+      );
     } finally {
-      setLoadingSchedules(false)
+      setLoadingSchedules(false);
     }
-  }, [])
-
-  useEffect(() => { void loadPreview(); void loadSchedules() }, [loadPreview, loadSchedules])
-
-  const channel = preview?.channelStatus ?? preview?.channels
-  const channelStatus = preview?.channelStatus as { configured?: boolean; connected?: boolean; message?: string } | undefined
-  const channelReady = Boolean(channelStatus?.configured)
-
+  }, []);
+  useEffect(() => {
+    void loadPreview();
+    void loadSchedules();
+  }, [loadPreview, loadSchedules]);
+  const channelStatus = preview?.channelStatus as
+    | { configured?: boolean; connected?: boolean; message?: string }
+    | undefined;
+  const channelReady = Boolean(channelStatus?.configured);
+  const isDefinitions = page === "report-definitions";
+  const isDefinitionCreate = page === "report-definitions-new";
+  const isForm =
+    page === "report-schedules-new" || page === "report-schedules-edit";
+  const editing = page === "report-schedules-edit";
+  const selectedSchedule = useMemo(
+    () => schedules.find((item) => item.id === editingScheduleId),
+    [schedules, editingScheduleId],
+  );
   const clearEditor = () => {
-    setEditingScheduleId(null)
-    setName('经营日报')
-    setCadence('daily')
-    setTime('09:00')
-    setDayOfWeek('1')
-    setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai')
-  }
-
+    setEditingScheduleId(null);
+    setName("经营日报");
+    setCadence("daily");
+    setTime("09:00");
+    setDayOfWeek("1");
+    setTimezone(
+      Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai",
+    );
+  };
+  useEffect(() => {
+    if (page === "report-schedules-new") clearEditor();
+  }, [page]);
+  const goList = () => {
+    if (saving) return;
+    clearEditor();
+    onNavigate("report-schedules");
+  };
   const startEdit = (schedule: Schedule) => {
-    setEditingScheduleId(schedule.id)
-    setName(schedule.name)
-    setCadence(schedule.cadence)
-    setTime(schedule.time)
-    setDayOfWeek(String(schedule.dayOfWeek ?? 1))
-    setTimezone(schedule.timezone)
-    setNotice(`正在编辑“${schedule.name}”`)
-    setErrorSchedules('')
-  }
-
+    setEditingScheduleId(schedule.id);
+    setName(schedule.name);
+    setCadence(schedule.cadence);
+    setTime(schedule.time);
+    setDayOfWeek(String(schedule.dayOfWeek ?? 1));
+    setTimezone(schedule.timezone);
+    setNotice("");
+    setErrorSchedules("");
+    onNavigate("report-schedules-edit");
+  };
   const save = async (event: FormEvent) => {
-    event.preventDefault()
-    if (saving) return
-    setSaving(true)
-    setNotice('')
-    setErrorSchedules('')
-    const editing = editingScheduleId
+    event.preventDefault();
+    if (!canManage || saving || (editing && !selectedSchedule)) return;
+    setSaving(true);
+    setNotice("");
+    setErrorSchedules("");
+    const id = editing ? editingScheduleId : null;
     const body = {
-      name: name.trim(), cadence, time,
-      ...(cadence === 'weekly' ? { dayOfWeek: Number(dayOfWeek) } : {}),
+      name: name.trim(),
+      cadence,
+      time,
+      ...(cadence === "weekly" ? { dayOfWeek: Number(dayOfWeek) } : {}),
       timezone,
-      ...(!editing ? { enabled: channelReady } : {}),
-    }
+      ...(!id ? { enabled: channelReady } : {}),
+    };
     try {
-      const response = await apiFetch(editing ? `/api/reports/schedules/${encodeURIComponent(editing)}` : '/api/reports/schedules', {
-        method: editing ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!response.ok) throw new Error(await responseError(response, editing ? '更新计划失败' : '保存计划失败'))
-      setNotice(editing ? '计划已更新' : channelReady ? '发送计划已保存并启用' : '已保存为停用计划；配置钉钉机器人后可启用')
-      clearEditor()
-      await loadSchedules()
+      const response = await apiFetch(
+        id
+          ? `/api/reports/schedules/${encodeURIComponent(id)}`
+          : "/api/reports/schedules",
+        {
+          method: id ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      if (!response.ok)
+        throw new Error(
+          await responseError(response, id ? "更新计划失败" : "保存计划失败"),
+        );
+      setNotice(
+        id
+          ? "计划已更新"
+          : channelReady
+            ? "发送计划已保存并启用"
+            : "已保存为停用计划；配置钉钉机器人后可启用",
+      );
+      clearEditor();
+      await loadSchedules();
+      onNavigate("report-schedules");
     } catch (error) {
-      setErrorSchedules(error instanceof Error ? error.message : '保存计划失败')
+      setErrorSchedules(
+        error instanceof Error ? error.message : "保存计划失败",
+      );
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
-
+  };
   const sendNow = async () => {
-    if (sending || !channelReady) return
-    setSending(true)
-    setSendNotice('')
-    setSendError('')
+    if (!canManage || sending || !channelReady) return;
+    setSending(true);
+    setSendNotice("");
+    setSendError("");
     try {
-      const response = await apiFetch('/api/reports/send', { method: 'POST' })
-      const result = await response.json().catch(() => ({})) as { message?: string; error?: string; ok?: boolean; status?: string; sentAt?: string; generatedAt?: string }
-      if (!response.ok) throw new Error(result.message || result.error || `推送失败（HTTP ${response.status}）`)
-      if (result.ok === false) throw new Error(result.message || '服务端未确认发送成功')
-      const sentStatus = result.status || (result.ok ? '已发送' : '已发送')
-      setSendNotice(`推送成功 · 状态：${sentStatus}${result.sentAt ? ` · 时间：${result.sentAt}` : result.generatedAt ? ` · 报告生成时间：${result.generatedAt}` : ''}`)
-      await Promise.all([loadPreview(), loadSchedules()])
+      const response = await apiFetch("/api/reports/send", { method: "POST" });
+      const result = (await response.json().catch(() => ({}))) as {
+        message?: string;
+        error?: string;
+        ok?: boolean;
+        status?: string;
+        sentAt?: string;
+        generatedAt?: string;
+      };
+      if (!response.ok)
+        throw new Error(
+          result.message ||
+            result.error ||
+            `推送失败（HTTP ${response.status}）`,
+        );
+      if (result.ok === false)
+        throw new Error(result.message || "服务端未确认发送成功");
+      setSendNotice(
+        `推送成功 · 状态：${result.status || "已发送"}${result.sentAt ? ` · 时间：${result.sentAt}` : result.generatedAt ? ` · 报告生成时间：${result.generatedAt}` : ""}`,
+      );
+      await Promise.all([loadPreview(), loadSchedules()]);
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : '报告推送失败')
+      setSendError(error instanceof Error ? error.message : "报告推送失败");
     } finally {
-      setSending(false)
+      setSending(false);
     }
-  }
-
+  };
   const runScheduleNow = async (schedule: Schedule) => {
-    if (runningScheduleId || !channelReady) return
-    setRunningScheduleId(schedule.id)
-    setNotice('')
-    setErrorSchedules('')
+    if (!canManage || runningScheduleId || !channelReady) return;
+    setRunningScheduleId(schedule.id);
+    setNotice("");
+    setErrorSchedules("");
     try {
-      const response = await apiFetch(`/api/reports/schedules/${encodeURIComponent(schedule.id)}/run`, { method: 'POST' })
-      const result = await response.json().catch(() => ({})) as { message?: string; error?: string; ok?: boolean }
-      if (!response.ok) throw new Error(result.message || result.error || `执行失败（HTTP ${response.status}）`)
-      if (result.ok === false) throw new Error(result.message || '服务端未确认发送成功')
-      setNotice(`“${schedule.name}”已执行并发送到已配置渠道。`)
-      await loadSchedules()
+      const response = await apiFetch(
+        `/api/reports/schedules/${encodeURIComponent(schedule.id)}/run`,
+        { method: "POST" },
+      );
+      const result = (await response.json().catch(() => ({}))) as {
+        message?: string;
+        error?: string;
+        ok?: boolean;
+      };
+      if (!response.ok)
+        throw new Error(
+          result.message ||
+            result.error ||
+            `执行失败（HTTP ${response.status}）`,
+        );
+      if (result.ok === false)
+        throw new Error(result.message || "服务端未确认发送成功");
+      setNotice(`“${schedule.name}”已执行并发送到已配置渠道。`);
+      await loadSchedules();
     } catch (error) {
-      setErrorSchedules(error instanceof Error ? error.message : '计划执行失败')
+      setErrorSchedules(
+        error instanceof Error ? error.message : "计划执行失败",
+      );
     } finally {
-      setRunningScheduleId(null)
+      setRunningScheduleId(null);
     }
-  }
-
+  };
   const update = async (schedule: Schedule, patch: Partial<Schedule>) => {
-    setErrorSchedules('')
-    setNotice('')
+    if (!canManage) return;
+    setErrorSchedules("");
+    setNotice("");
     try {
-      const response = await apiFetch(`/api/reports/schedules/${encodeURIComponent(schedule.id)}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
-      })
-      if (!response.ok) throw new Error(await responseError(response, '更新失败'))
-      setNotice(patch.enabled === undefined ? '计划已更新' : patch.enabled ? '计划已启用' : '计划已停用')
-      await loadSchedules()
+      const response = await apiFetch(
+        `/api/reports/schedules/${encodeURIComponent(schedule.id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        },
+      );
+      if (!response.ok)
+        throw new Error(await responseError(response, "更新失败"));
+      setNotice(
+        patch.enabled === undefined
+          ? "计划已更新"
+          : patch.enabled
+            ? "计划已启用"
+            : "计划已停用",
+      );
+      await loadSchedules();
     } catch (error) {
-      setErrorSchedules(error instanceof Error ? error.message : '更新计划失败')
+      setErrorSchedules(
+        error instanceof Error ? error.message : "更新计划失败",
+      );
     }
-  }
-
+  };
   const remove = async (schedule: Schedule) => {
-    setErrorSchedules('')
-    setNotice('')
+    if (!canManage || deleting) return;
+    setDeleting(true);
+    setErrorSchedules("");
+    setNotice("");
     try {
-      const response = await apiFetch(`/api/reports/schedules/${encodeURIComponent(schedule.id)}`, { method: 'DELETE' })
-      if (!response.ok) throw new Error(await responseError(response, '删除计划失败'))
-      if (editingScheduleId === schedule.id) clearEditor()
-      setNotice(`“${schedule.name}”已删除`)
-      await loadSchedules()
+      const response = await apiFetch(
+        `/api/reports/schedules/${encodeURIComponent(schedule.id)}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok)
+        throw new Error(await responseError(response, "删除计划失败"));
+      if (editingScheduleId === schedule.id) clearEditor();
+      setPendingDelete(null);
+      setNotice(`“${schedule.name}”已删除`);
+      await loadSchedules();
     } catch (error) {
-      setErrorSchedules(error instanceof Error ? error.message : '删除计划失败')
+      setErrorSchedules(
+        error instanceof Error ? error.message : "删除计划失败",
+      );
+      setPendingDelete(null);
+    } finally {
+      setDeleting(false);
     }
-  }
+  };
+  const schedulerLabel = (item: Schedule) =>
+    item.enabled && !channelReady
+      ? "已启用，但缺少机器人配置（阻止发送）"
+      : item.schedulerState === "scheduled"
+        ? "已排程"
+        : item.schedulerState === "blocked-missing-webhook"
+          ? "缺少 Webhook"
+          : item.schedulerState === "inactive"
+            ? "未排程"
+            : "已停用";
+  const lastResultLabel = (result?: string) =>
+    result === "sent"
+      ? "发送成功"
+      : result?.startsWith("failed:")
+        ? `发送失败：${result.slice(7)}`
+        : result || "已运行";
+  return (
+    <section className="iw-page">
+      <DetailDrawer open={Boolean(selectedDefinition)} title={selectedDefinition?.name ?? "报表定义详情"} subtitle="服务端固定实现 · 只读" onClose={() => setSelectedDefinition(null)}>{selectedDefinition && <div className="rw-definition-detail"><p>{selectedDefinition.summary}</p><h3>当前包含指标</h3><ul>{selectedDefinition.metrics.map(metric => <li key={metric}>{metric}</li>)}</ul><h3>数据来源与范围</h3><p>{selectedDefinition.source}</p><h3>状态</h3><p>{selectedDefinition.status}</p><p>需结合实际账套数据核验指标口径与权限；此详情不能编辑或保存。</p></div>}</DetailDrawer>
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title="删除发送计划"
+        description={`确认删除“${pendingDelete?.name ?? ""}”？删除后该计划不再定时执行，不影响已生成的报告。`}
+        busy={deleting}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (pendingDelete) void remove(pendingDelete);
+        }}
+      />
 
-  const schedulerLabel = (item: Schedule) => {
-    if (item.enabled && !channelReady) return '已启用，但缺少机器人配置（阻止发送）'
-    if (item.schedulerState === 'scheduled') return '已排程'
-    if (item.schedulerState === 'blocked-missing-webhook') return '缺少 Webhook'
-    if (item.schedulerState === 'inactive') return '未排程'
-    return '已停用'
-  }
-  const lastResultLabel = (result?: string) => result === 'sent' ? '发送成功' : result?.startsWith('failed:') ? `发送失败：${result.slice(7)}` : result || '已运行'
-
-  return <main className="iw-page">
-    <header className="iw-heading">
-      <div><div className="iw-eyebrow">经营分析 / REPORTING</div><h1>报告中心</h1><p>预览报告内容并管理日报、周报计划；推送由已配置渠道及计划决定。</p></div>
-      <button className="iw-button iw-secondary" onClick={() => { void loadPreview(); void loadSchedules() }} disabled={loadingPreview || loadingSchedules}><RefreshCw size={15}/>刷新</button>
-    </header>
-    <nav className="report-section-navigation" aria-label="经营报表二级导航">
-      {([{ id: 'daily', label: '经营日报' }, { id: 'delivery', label: '报表推送与计划' }] as const).map(item => <a key={item.id} href={viewUrl(item.id)} aria-current={view === item.id ? 'page' : undefined} onClick={event => {
-        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-        event.preventDefault(); window.history.pushState(null, '', viewUrl(item.id)); setView(item.id)
-      }}>{item.label}</a>)}
-    </nav>
-    <div className="report-section-panel" hidden={view !== 'daily'}><DailyReportingWorkbench /></div>
-    <div className="report-section-panel" hidden={view !== 'delivery'}>
-    <div className="iw-columns iw-report-columns">
-      <section className="iw-card">
-        <div className="iw-card-head"><div><h2>报告预览</h2><p>{preview?.title || '摘要与文本内容'}</p></div><div><button className="iw-button iw-approve iw-small" onClick={() => void sendNow()} disabled={sending || loadingPreview || !channelReady} title={!channelReady ? '请先配置钉钉机器人' : undefined}>{sending ? '推送中…' : '立即推送'}</button> <button className="iw-button iw-secondary iw-small" onClick={() => void loadPreview()} disabled={loadingPreview}><RefreshCw size={14}/>刷新预览</button></div></div>
-        {!channelReady && <div className="iw-alert">{channelStatus?.message || '钉钉渠道未配置，无法推送；请先配置机器人。'}</div>}
-        {sendError && <div className="iw-alert iw-error">{sendError}</div>}
-        {sendNotice && <div className="iw-alert iw-success">{sendNotice}</div>}
-        {errorPreview && <div className="iw-alert iw-error">{errorPreview}</div>}
-        {loadingPreview ? <div className="iw-empty">正在生成预览…</div> : preview && <><div className="iw-report-summary"><span>报告摘要</span><p>{preview.summary ? render(preview.summary) : '暂无摘要'}</p></div><div className="iw-report-text"><b>文本预览</b><pre>{render(preview.text ?? preview.content ?? preview)}</pre></div></>}
-      </section>
-      <section className="iw-card">
-        <div className="iw-card-head"><div><h2>计划管理</h2><p>设置日报 / 周报的定时计划</p></div><CalendarClock size={19}/></div>
-        {errorSchedules && <div className="iw-alert iw-error">{errorSchedules}</div>}
-        {notice && !errorSchedules && <div className="iw-alert iw-success" role="status">{notice}</div>}
-        <div className="iw-channel"><b>渠道配置状态</b><span>{channelStatus?.message || (channel ? render(channel) : '未配置渠道状态')}</span><small>未配置前不会推送。此页面不会自动发送报告。</small></div>
-        <form className="iw-schedule-form" onSubmit={save}>
-          <label>计划名称<input value={name} onChange={event => setName(event.target.value)} maxLength={80} required/></label>
-          <div className="iw-form-row"><label>频率<select value={cadence} onChange={event => setCadence(event.target.value as 'daily' | 'weekly')}><option value="daily">日报</option><option value="weekly">周报</option></select></label><label>时间<input type="time" value={time} onChange={event => setTime(event.target.value)} required/></label></div>
-          {cadence === 'weekly' && <label>每周<select value={dayOfWeek} onChange={event => setDayOfWeek(event.target.value)}>{weekdays.map((day, index) => <option key={index} value={index}>{day}</option>)}</select></label>}
-          <label>时区<input value={timezone} onChange={event => setTimezone(event.target.value)} maxLength={64} required/></label>
-          <div className="iw-form-row"><button className="iw-button iw-approve" disabled={saving}>{saving ? '保存中…' : editingScheduleId ? '保存修改' : '保存计划'}</button>{editingScheduleId && <button type="button" className="iw-button iw-secondary" onClick={clearEditor} disabled={saving}>取消编辑</button>}</div>
-        </form>
-      </section>
-    </div>
-    <section className="iw-card iw-schedule-table">
-      <div className="iw-card-head"><div><h2>已有计划</h2><p>{schedules.length} 条计划</p></div></div>
-      {loadingSchedules ? <div className="iw-empty">正在加载计划…</div> : schedules.length ? <div className="iw-table-wrap"><table><thead><tr><th>计划</th><th>频率</th><th>时间</th><th>时区</th><th>调度状态</th><th>最近运行</th><th>操作</th></tr></thead><tbody>{schedules.map(item => <tr key={item.id}>
-        <td><b>{item.name}</b></td><td>{item.cadence === 'weekly' ? `周报 · ${weekdays[Number(item.dayOfWeek)] ?? item.dayOfWeek}` : '日报'}</td><td>{item.time}</td><td>{item.timezone}</td>
-        <td><div>{schedulerLabel(item)}</div><button className={`iw-toggle ${item.enabled ? 'is-on' : ''}`} onClick={() => void update(item, { enabled: !item.enabled })} disabled={!item.enabled && !channelReady} title={!item.enabled && !channelReady ? '请先配置钉钉机器人' : undefined}>{item.enabled ? '已启用（点击停用）' : '已停用（点击启用）'}</button></td>
-        <td>{item.lastRunAt ? <><time>{new Date(item.lastRunAt).toLocaleString('zh-CN')}</time><small>{lastResultLabel(item.lastResult)}</small></> : '从未运行'}</td>
-        <td><button className="iw-icon-action" aria-label={`编辑 ${item.name}`} title="编辑计划" onClick={() => startEdit(item)}><Pencil size={14}/></button><button className="iw-icon-action" aria-label={`立即运行 ${item.name}`} title={!channelReady ? '请先配置钉钉机器人' : '立即运行此计划'} disabled={Boolean(runningScheduleId) || !channelReady} onClick={() => void runScheduleNow(item)}><Play size={14}/></button><button className="iw-icon-action" aria-label={`删除 ${item.name}`} title="删除计划" onClick={() => void remove(item)}><Trash2 size={15}/></button></td>
-      </tr>)}</tbody></table></div> : <div className="iw-empty">暂无计划，请创建日报或周报计划。</div>}
+      <header className="iw-heading">
+        <div>
+          <div className="iw-eyebrow">经营分析 / REPORTING</div>
+          <h1>
+            {isForm
+              ? editing
+                ? "编辑发送计划"
+                : "新增发送计划"
+              : page === "report-schedules"
+                ? "发送计划"
+                : isDefinitions ? "报表定义" : isDefinitionCreate ? "新增定义" : "报告展示"}
+          </h1>
+          <p>
+            {isForm
+              ? "配置已有报告定义的发送时间与周期。此处不创建新的报表定义。"
+              : page === "report-schedules"
+                ? "查看和管理现有日报、周报发送计划。"
+                : isDefinitions ? "这里只展示服务端已实现的固定内置定义；当前没有自定义定义管理服务。" : isDefinitionCreate ? "当前仅说明创建边界，不提供会造成误解的保存表单。" : "查看固定内置报告生成的内容，并管理推送；推送由已配置渠道及计划决定。"}
+          </p>
+        </div>
+        <button
+          className="iw-button iw-secondary"
+          onClick={() => {
+            void loadPreview();
+            void loadSchedules();
+          }}
+          disabled={loadingPreview || loadingSchedules}
+        >
+          <RefreshCw size={15} />
+          刷新
+        </button>
+      </header>
+      {isForm && (
+        <nav className="rw-breadcrumb">
+          <button onClick={goList} disabled={saving}>
+            发送计划
+          </button>
+          <ChevronRight size={14} />
+          <span>{editing ? "编辑计划" : "新增计划"}</span>
+        </nav>
+      )}
+      {(isDefinitions || isDefinitionCreate) && <nav className="rw-breadcrumb"><button onClick={() => onNavigate("reports")}>报告展示</button><ChevronRight size={14} /><span>{isDefinitions ? "报表定义" : "新增定义"}</span></nav>}
+      {(errorSchedules || notice) && (
+        <div
+          className={`iw-alert ${errorSchedules ? "iw-error" : "iw-success"}`}
+        >
+          {errorSchedules || notice}
+        </div>
+      )}
+      {isForm ? (
+        editing && !selectedSchedule ? (
+          <section className="iw-card">
+            <h2>未找到可编辑的计划</h2>
+            <p>
+              该计划可能已删除，或刷新页面后编辑记录无法恢复。请返回计划列表重新选择。
+            </p>
+            <button className="iw-button iw-secondary" onClick={goList}>
+              返回计划列表
+            </button>
+          </section>
+        ) : (
+          <section className="iw-card rw-form-card">
+            <div className="iw-card-head">
+              <div>
+                <h2>
+                  {editing
+                    ? `编辑：${selectedSchedule?.name ?? name}`
+                    : "计划设置"}
+                </h2>
+                <p>仅调整报告发送计划，不会生成或修改报表定义。</p>
+              </div>
+            </div>
+            <form className="rw-form" onSubmit={save}>
+              <label>
+                计划名称
+                <input
+                  required
+                  maxLength={100}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </label>
+              <label>
+                发送周期
+                <select
+                  value={cadence}
+                  onChange={(event) =>
+                    setCadence(event.target.value as "daily" | "weekly")
+                  }
+                >
+                  <option value="daily">每天</option>
+                  <option value="weekly">每周</option>
+                </select>
+              </label>
+              {cadence === "weekly" && (
+                <label>
+                  发送日
+                  <select
+                    value={dayOfWeek}
+                    onChange={(event) => setDayOfWeek(event.target.value)}
+                  >
+                    {weekdays.map((day, index) => (
+                      <option value={index} key={day}>
+                        {day}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label>
+                发送时间
+                <input
+                  type="time"
+                  required
+                  value={time}
+                  onChange={(event) => setTime(event.target.value)}
+                />
+              </label>
+              <label>
+                时区
+                <input
+                  required
+                  value={timezone}
+                  onChange={(event) => setTimezone(event.target.value)}
+                />
+              </label>
+              <div className="rw-form-note">
+                渠道状态：
+                {channelReady
+                  ? "已配置"
+                  : channelStatus?.message ||
+                    "钉钉渠道未配置；新计划将保存为停用状态。"}
+              </div>
+              <div className="rw-form-actions">
+                <button
+                  type="button"
+                  className="iw-button iw-secondary"
+                  onClick={goList}
+                  disabled={saving}
+                >
+                  取消
+                </button>
+                <button
+                  className="iw-button iw-approve"
+                  type="submit"
+                  disabled={!canManage || saving}
+                >
+                  {saving ? "保存中…" : "保存并返回列表"}
+                </button>
+              </div>
+              {!canManage && (
+                <p className="rw-permission">仅管理员可修改发送计划。</p>
+              )}
+            </form>
+          </section>
+        )
+      ) : isDefinitionCreate ? (
+        <section className="iw-card rw-boundary-card"><div className="iw-card-head"><div><h2>自定义定义尚未开放</h2><p>当前服务端没有报表定义的新增、保存或版本管理接口，因此此页不会提交或保存任何内容。</p></div></div><div className="iw-alert">此页面未接入定义保存服务。这里的新增定义入口不代表功能已实现；新增发送计划只安排固定报告的发送时间，不会新增报表定义。</div><h3>开放前需先确认</h3><ul><li><b>指标：</b>可选指标、公式、单位及空值/异常处理规则。</li><li><b>数据范围：</b>账套、组织、时间范围和数据更新时间/快照口径。</li><li><b>权限：</b>谁可查看、创建、编辑、发布及发送，是否需要审批。</li><li><b>版本：</b>定义变更、历史计划绑定、回滚及审计记录如何处理。</li></ul><p>运维下一步：产品/业务确认上述口径与权限，再由服务端实现并验证定义存储、授权、版本和审计 API；完成前请继续使用固定内置报告。</p><button className="iw-button iw-secondary" onClick={() => onNavigate("report-definitions")}>返回报表定义</button></section>
+      ) : isDefinitions ? (
+        <section className="iw-card"><div className="iw-card-head"><div><h2>内置定义（只读）</h2><p>来自当前服务端实现，不是可配置的用户定义。</p></div><button className="iw-button iw-approve" onClick={() => onNavigate("report-definitions-new")}><Plus size={15}/>新增定义</button></div><div className="rw-definition-list">{builtinDefinitions.map(definition => <article key={definition.id}><div><BookOpen size={18}/><div><h3>{definition.name}</h3><p>{definition.summary}</p><small>固定内置 · 只读</small></div></div><button className="iw-button iw-secondary" onClick={() => setSelectedDefinition(definition)}>查看详情</button></article>)}</div><div className="iw-alert">待核验：服务端当前只实现固定报告生成，没有自定义定义持久化接口。以上内容是对现有实现的说明，不代表定义管理已经完成。</div></section>
+      ) : page === "report-schedules" ? (
+        <section className="iw-card">
+          <div className="iw-card-head">
+            <div>
+              <h2>已配置计划</h2>
+              <p>启停、立即运行或编辑现有计划。</p>
+            </div>
+            {canManage && (
+              <button
+                className="iw-button iw-approve"
+                onClick={() => {
+                  clearEditor();
+                  onNavigate("report-schedules-new");
+                }}
+              >
+                新增计划
+              </button>
+            )}
+          </div>
+          {loadingSchedules ? (
+            <div className="iw-empty">正在加载发送计划…</div>
+          ) : schedules.length ? (
+            <div className="iw-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>计划</th>
+                    <th>周期</th>
+                    <th>时间</th>
+                    <th>时区</th>
+                    <th>状态</th>
+                    <th>上次运行</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {schedules.map((item) => (
+                    <tr key={item.id}>
+                      <td>
+                        <b>{item.name}</b>
+                      </td>
+                      <td>
+                        {item.cadence === "weekly"
+                          ? `每周${weekdays[Number(item.dayOfWeek ?? 0)]}`
+                          : "每天"}
+                      </td>
+                      <td>{item.time}</td>
+                      <td>{item.timezone}</td>
+                      <td>
+                        <div>{schedulerLabel(item)}</div>
+                        {canManage && (
+                          <button
+                            className={`iw-toggle ${item.enabled ? "is-on" : ""}`}
+                            onClick={() =>
+                              void update(item, { enabled: !item.enabled })
+                            }
+                            disabled={!item.enabled && !channelReady}
+                            title={
+                              !item.enabled && !channelReady
+                                ? "请先配置钉钉机器人"
+                                : undefined
+                            }
+                          >
+                            {item.enabled
+                              ? "已启用（点击停用）"
+                              : "已停用（点击启用）"}
+                          </button>
+                        )}
+                      </td>
+                      <td>
+                        {item.lastRunAt ? (
+                          <>
+                            <time>
+                              {new Date(item.lastRunAt).toLocaleString("zh-CN")}
+                            </time>
+                            <small>{lastResultLabel(item.lastResult)}</small>
+                          </>
+                        ) : (
+                          "从未运行"
+                        )}
+                      </td>
+                      <td>
+                        {canManage ? (
+                          <>
+                            <button
+                              className="iw-icon-action"
+                              aria-label={`编辑 ${item.name}`}
+                              title="编辑计划"
+                              onClick={() => startEdit(item)}
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              className="iw-icon-action"
+                              aria-label={`立即运行 ${item.name}`}
+                              title={
+                                !channelReady
+                                  ? "请先配置钉钉机器人"
+                                  : "立即运行此计划"
+                              }
+                              disabled={
+                                Boolean(runningScheduleId) || !channelReady
+                              }
+                              onClick={() => void runScheduleNow(item)}
+                            >
+                              <Play size={14} />
+                            </button>
+                            <button
+                              className="iw-icon-action"
+                              aria-label={`删除 ${item.name}`}
+                              title="删除计划"
+                              onClick={() => setPendingDelete(item)}
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="iw-empty">
+              暂无计划。请先确认已有报表定义及渠道配置后再创建发送计划。
+            </div>
+          )}
+        </section>
+      ) : (
+        <div className="iw-columns iw-report-columns">
+          <section className="iw-card">
+            <div className="iw-card-head">
+              <div>
+                <h2>报告展示</h2>
+                <p>{preview?.title || "摘要与文本内容"}</p>
+              </div>
+              <div className="rw-report-actions">
+                <button className="iw-button iw-secondary iw-small" onClick={() => onNavigate("report-definitions")}>报表定义</button>{" "}<button className="iw-button iw-secondary iw-small" onClick={() => onNavigate("report-definitions-new")}>新增定义</button>{" "}
+                {canManage && (
+                  <button
+                    className="iw-button iw-approve iw-small"
+                    onClick={() => void sendNow()}
+                    disabled={sending || loadingPreview || !channelReady}
+                    title={!channelReady ? "请先配置钉钉机器人" : undefined}
+                  >
+                    {sending ? "推送中…" : "立即推送"}
+                  </button>
+                )}{" "}
+                <button
+                  className="iw-button iw-secondary iw-small"
+                  onClick={() => void loadPreview()}
+                  disabled={loadingPreview}
+                >
+                  <RefreshCw size={14} />
+                  刷新预览
+                </button>
+              </div>
+            </div>
+            {!channelReady && (
+              <div className="iw-alert">
+                {channelStatus?.message ||
+                  "钉钉渠道未配置，无法推送；请先配置机器人。"}
+              </div>
+            )}
+            {sendError && <div className="iw-alert iw-error">{sendError}</div>}
+            {sendNotice && (
+              <div className="iw-alert iw-success">{sendNotice}</div>
+            )}
+            {errorPreview && (
+              <div className="iw-alert iw-error">{errorPreview}</div>
+            )}
+            {loadingPreview ? (
+              <div className="iw-empty">正在生成预览…</div>
+            ) : (
+              preview && (
+                <>
+                  <div className="iw-report-summary">
+                    <span>报告摘要</span>
+                    <p>
+                      {preview.summary ? render(preview.summary) : "暂无摘要"}
+                    </p>
+                  </div>
+                  <div className="iw-report-text">
+                    <b>文本预览</b>
+                    <pre>
+                      {render(preview.text ?? preview.content ?? preview)}
+                    </pre>
+                  </div>
+                </>
+              )
+            )}
+          </section>
+          <section className="iw-card rw-schedule-link">
+            <div className="iw-card-head">
+              <div>
+                <h2>
+                  <CalendarClock size={17} /> 发送计划
+                </h2>
+                <p>{schedules.length} 个现有计划</p>
+              </div>
+            </div>
+            <p>计划管理独立于报告预览，可查看状态、运行记录并管理已有计划。</p>
+            <button
+              className="iw-button iw-secondary"
+              onClick={() => onNavigate("report-schedules")}
+            >
+              查看发送计划
+            </button>
+          </section>
+        </div>
+      )}
     </section>
-    </div>
-  </main>
+  );
 }

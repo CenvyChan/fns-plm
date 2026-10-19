@@ -1,44 +1,75 @@
-/* Business hierarchy is scoped to navigation; existing workbench styles stay intact. */
-.business-navigation { margin: 8px 0 12px; }
-.navigation-group { margin: 4px 0 8px; }
-.navigation-group-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 34px; padding: 7px 10px; border: 0; border-radius: 7px; background: transparent; color: #777487; text-align: left; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
-.navigation-group-toggle:hover { background: #f1eef9; color: #554b81; }
-.navigation-group.has-active-page > .navigation-group-toggle { color: #6957be; }
-.navigation-group-toggle svg { transition: transform .15s ease; }
-.navigation-group-toggle .is-collapsed { transform: rotate(-90deg); }
-.navigation-group-items { margin-left: 10px; padding-left: 5px; border-left: 1px solid #e8e4f1; }
-.navigation-group-items[hidden] { display: none; }
-.business-navigation a.nav-item { display: flex; min-height: 38px; height: auto; margin: 2px 0; padding: 9px 10px; gap: 10px; text-decoration: none; font-size: 12px; }
-.business-navigation a.nav-item svg { flex: 0 0 auto; }
-.business-navigation a.nav-item > span:not(.nav-count) { min-width: 0; }
-.navigation-group-toggle:focus-visible, .business-navigation a:focus-visible { outline: 2px solid #7965d2; outline-offset: 2px; }
-.sidebar { overscroll-behavior: contain; }
-.breadcrumbs { min-width: 0; }
-.breadcrumbs > svg { flex: 0 0 auto; }
-.breadcrumbs > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-close { display: none; }
-.report-section-panel[hidden] { display: none; }
-.report-section-navigation { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; padding: 7px; border: 1px solid #e9e5f2; border-radius: 12px; background: #fff; }
-.report-section-navigation a { padding: 10px 15px; border-radius: 8px; color: #686475; text-decoration: none; font-size: 13px; }
-.report-section-navigation a[aria-current="page"] { background: #ede8ff; color: #6651ba; font-weight: 650; }
-.report-section-navigation a:focus-visible { outline: 2px solid #7965d2; }
-@media (max-width: 900px) {
-  .sidebar { width: min(290px, calc(100vw - 44px)); z-index: 30; }
-  .sidebar:not(.sidebar-open) { visibility: hidden; }
-  .sidebar.sidebar-open { visibility: visible; }
-  .sidebar-close { display: grid; position: absolute; right: 12px; top: 12px; }
-  .sidebar .brand-lockup { padding-right: 28px; }
-  .navigation-group-toggle { min-height: 42px; font-size: 12px; }
-  .business-navigation a.nav-item { min-height: 44px; font-size: 13px; }
-  .navigation-group-items { padding-left: 6px; }
-  .mobile-scrim { z-index: 25; }
-  .breadcrumbs { flex: 1 1 auto; gap: 4px; }
-  .breadcrumbs .breadcrumb-root { display: none; }
+.sidebar {
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
-@media (max-width: 600px) {
-  .breadcrumbs { font-size: 10px; }
-  .breadcrumbs > span { white-space: nowrap; }
-  .breadcrumbs > b { max-width: 105px; }
-  .topbar-actions { flex: 0 0 auto; }
-  .report-section-navigation a { flex: 1; text-align: center; padding: 10px 8px; }
+.navigation-groups {
+  flex: 0 0 auto;
+  padding-bottom: 8px;
+}
+.navigation-group + .navigation-group {
+  margin-top: 15px;
+}
+.navigation-group .nav-caption {
+  margin: 0 0 7px;
+  padding-top: 0;
+}
+.navigation-group .side-nav {
+  gap: 3px;
+}
+.navigation-group .nav-item {
+  min-height: 35px;
+  height: auto;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.navigation-group .nav-item span {
+  white-space: normal;
+  text-align: left;
+}
+.navigation-group .nav-item svg {
+  flex-shrink: 0;
+}
+.navigation-group .nav-item[aria-current="page"] {
+  font-weight: 650;
+}
+.sidebar .sidebar-bottom {
+  margin-top: 18px;
+}
+.sidebar .focus-card {
+  display: none;
+}
+.sidebar .sidebar-project-label {
+  margin-top: 14px;
+}
+.content-area > .dr-section {
+  max-width: 100%;
+}
+.content-area > .dr-admin {
+  max-width: 100%;
+}
+.breadcrumbs b {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 900px) {
+  .sidebar {
+    height: 100dvh;
+  }
+  .navigation-group + .navigation-group {
+    margin-top: 11px;
+  }
+}
+@media (max-width: 680px) {
+  .topbar .breadcrumbs {
+    flex: 1;
+    min-width: 0;
+  }
+  .topbar .breadcrumbs > span {
+    display: none;
+  }
+  .topbar .breadcrumbs > svg {
+    display: none;
+  }
+  .topbar-actions {
+    flex-shrink: 0;
+  }
 }

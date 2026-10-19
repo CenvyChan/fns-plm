@@ -289,12 +289,16 @@ export function createDailyReportingAdminRouter(): Router {
   router.post('/daily-reporting/assignments', requireRole(...MANAGERS), (req, res) => {
     const body = asRecord(req.body), kind = body.kind, partyId = text(body.partyId, 100), userIds = Array.isArray(body.userIds) ? [...new Set(body.userIds.map(value => text(value, 100)).filter(Boolean))] : []
     if (!partyKind(kind) || !partyId || userIds.length > 100) return res.status(400).json({ error: '归属类型、客商或用户列表无效。' })
+    if (body.expectedUserIds !== undefined && (!Array.isArray(body.expectedUserIds) || body.expectedUserIds.length > 100 || body.expectedUserIds.some(value => typeof value !== 'string' || !value.trim() || value.length > 100))) return res.status(400).json({ error: 'invalid_assignment_snapshot', message: '预期成员列表无效，请刷新后重新选择客商。' })
+    const expectedUserIds = Array.isArray(body.expectedUserIds) ? [...new Set(body.expectedUserIds.map(value => text(value, 100)))].sort() : undefined
     const scope = scopeFromRequest(req)
     if (!readDailyReportingAdminState(scope).parties.some(item => item.id === partyId && item.kind === kind && item.active)) return res.status(404).json({ error: 'party_not_found' })
     if (userIds.some(id => !isMemberInScope(scope, id))) return res.status(403).json({ error: 'member_out_of_scope', message: '只能分配给当前账套中已启用的成员。' })
     try {
       const state = mutate(scope, current => {
-        current.assignments = current.assignments.filter(item => !(item.kind === kind && item.partyId === partyId && item.userId))
+        const actualUserIds = [...new Set(current.assignments.filter(item => item.kind === kind && item.partyId === partyId && item.userId).map(item => item.userId!))].sort()
+        if (expectedUserIds && JSON.stringify(expectedUserIds) !== JSON.stringify(actualUserIds)) throw new TypeError('该客商归属已被其他操作更新，本次未保存或移除任何成员。请刷新并重新选择客商后核对成员列表。')
+        current.assignments = current.assignments.filter(item => !(item.kind === kind && item.partyId === partyId && item.userId && !userIds.includes(item.userId)))
         for (const userId of userIds) {
           const prior = current.assignments.find(item => item.kind === kind && item.partyId === partyId && item.userId === userId)
           if (prior) continue
@@ -304,7 +308,7 @@ export function createDailyReportingAdminRouter(): Router {
       })
       audit(req, scope, 'daily_reporting_assignments_saved', `${kind}:${partyId}`, { memberCount: userIds.length })
       return res.json({ assignments: state.assignments.filter(item => item.kind === kind && item.partyId === partyId) })
-    } catch (error) { return res.status(error instanceof StateConflictError ? 409 : 500).json({ error: 'assignment_save_failed', message: error instanceof Error ? error.message : '归属保存失败。' }) }
+    } catch (error) { return res.status(error instanceof StateConflictError || error instanceof TypeError ? 409 : 500).json({ error: error instanceof TypeError ? 'assignment_snapshot_conflict' : 'assignment_save_failed', message: error instanceof Error ? error.message : '归属保存失败。' }) }
   })
 
   router.put('/daily-reporting/party-mappings/:id', requireRole(...MANAGERS), (req, res) => {
