@@ -37,6 +37,20 @@ test("accepts a minimal valid generated BPMN document", () => {
   assert.deepEqual(validateGeneratedBpmnXml(minimal), []);
 });
 
+test("parallel gateway XML is allowlisted only as a bare BPMN node", () => {
+  assert.deepEqual(
+    validateGeneratedBpmnXml(envelope('<startEvent id="s"/><parallelGateway id="fork"/><userTask id="u"/><endEvent id="e"/>')),
+    [],
+  );
+  rejected(envelope('<parallelGateway id="fork" flowable:async="true"/>'));
+  rejected(envelope('<userTask id="u" flowable:formKey="https://evil.test"/>'));
+  assert.deepEqual(
+    validateGeneratedBpmnXml(envelope('<startEvent id="s"/><userTask id="u" flowable:formKey="plm-form:approvalForm:v1"/><endEvent id="e"/><sequenceFlow id="f1" sourceRef="s" targetRef="u"></sequenceFlow><sequenceFlow id="f2" sourceRef="u" targetRef="e"></sequenceFlow>')),
+    [],
+  );
+  rejected(envelope('<startEvent id="s"/><userTask id="u" flowable:formKey="plm-form:approvalForm:v0"/><endEvent id="e"/><sequenceFlow id="f1" sourceRef="s" targetRef="u"></sequenceFlow><sequenceFlow id="f2" sourceRef="u" targetRef="e"></sequenceFlow>'));
+});
+
 test("rejects XML declarations, external entities, and external URLs", () => {
   rejected(
     `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE definitions [<!ENTITY x SYSTEM "file:///etc/passwd">]>${envelope("&x;")}`,

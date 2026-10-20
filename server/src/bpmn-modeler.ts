@@ -6,12 +6,13 @@ import { nanoid } from "nanoid";
 import { db, recordSecurityEvent } from "./database.js";
 import { currentWorkspaceScope, type WorkspaceScope } from "./scope.js";
 import { connectorCredentialConfig } from "./integrations/configuration.js";
+import { flowableFormKey } from "./form-binding.js";
 import {
   deployModelDefinition,
   type FlowableConfig,
 } from "./integrations/flowable.js";
 
-type NodeType = "startEvent" | "endEvent" | "userTask" | "exclusiveGateway";
+type NodeType = "startEvent" | "endEvent" | "userTask" | "exclusiveGateway" | "parallelGateway";
 type Graph = {
   key: string;
   name: string;
@@ -111,7 +112,7 @@ function validate(raw: unknown): { graph: Graph; errors: string[] } {
     }
     if (
       Object.keys(n).some(
-        (k) => !["id", "type", "name", "assignment", "x", "y"].includes(k),
+        (k) => !["id", "type", "name", "assignment", "formBinding", "x", "y"].includes(k),
       )
     )
       errors.push("node contains unknown fields");
@@ -123,7 +124,7 @@ function validate(raw: unknown): { graph: Graph; errors: string[] } {
       errors.push("invalid or duplicate node id");
     else ids.add(n.id);
     if (
-      !["startEvent", "endEvent", "userTask", "exclusiveGateway"].includes(
+      !["startEvent", "endEvent", "userTask", "exclusiveGateway", "parallelGateway"].includes(
         String(n.type),
       )
     )
@@ -247,6 +248,7 @@ function validate(raw: unknown): { graph: Graph; errors: string[] } {
     const type = n.type;
     if (
       type !== "exclusiveGateway" &&
+      type !== "parallelGateway" &&
       type !== "endEvent" &&
       (outs.get(n.id)?.length || 0) !== 1
     )
@@ -308,6 +310,32 @@ function validate(raw: unknown): { graph: Graph; errors: string[] } {
         ![...walk(adj, String(n.id))].some((x) => ends.has(x))
       )
         errors.push("every node must reach an endEvent");
+    // Parallel branches must reconverge at one unambiguous parallel join; reject branch paths
+    // that can escape to an end or reach another join first. This is intentionally conservative.
+    for (const split of nodes.filter((x) => x?.type === "parallelGateway" && (outs.get(String(x.id))?.length || 0) >= 2)) {
+      const branchTargets = (outs.get(String(split.id)) || []).map((f) => String(f.target));
+      const candidates = nodes.filter((x) => x?.type === "parallelGateway" && (rev.get(String(x.id))?.length || 0) >= 2).map((x) => String(x.id));
+      const reachable = (start: string) => walk(adj, start);
+      const joins = candidates.filter((join) => branchTargets.every((target) => reachable(target).has(join)));
+      if (joins.length !== 1) errors.push("parallelGateway split requires one common parallel join");
+      else {
+        const join = joins[0]!;
+        for (const target of branchTargets) {
+          const seen = new Set<string>(), todo = [target];
+          let reachedJoin = false;
+          while (todo.length) {
+            const id = todo.pop()!;
+            if (id === join) { reachedJoin = true; continue; }
+            if (seen.has(id)) continue;
+            seen.add(id);
+            if (ends.has(id)) errors.push("parallel branch must reconverge before endEvent");
+            if (candidates.includes(id)) errors.push("nested parallel gateways are not supported");
+            todo.push(...(adj.get(id) || []));
+          }
+          if (!reachedJoin) errors.push("parallel branch cannot reach common join");
+        }
+      }
+    }
     // DAG check
     const state = new Map<string, number>();
     const visit = (id: string): boolean => {
@@ -334,6 +362,10 @@ function xmlFor(g: Graph): string {
     `<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:flowable="http://flowable.org/bpmn" targetNamespace="https://momentum.local/bpmn"><process id="${esc(g.key)}" name="${esc(g.name)}" isExecutable="true">`,
   ];
   for (const n of g.nodes) {
+    if (n.type === "parallelGateway") {
+      lines.push(`<parallelGateway id="${esc(String(n.id))}"/>`);
+      continue;
+    }
     if (n.type === "exclusiveGateway") {
       const d = g.flows.find((f) => f.source === n.id && f.isDefault);
       lines.push(
@@ -344,9 +376,10 @@ function xmlFor(g: Graph): string {
     if (n.type === "userTask") {
       const a = n.assignment as Record<string, unknown>;
       const prop = a.kind === "assignee" ? "assignee" : "candidateUsers";
-      lines.push(
-        `<userTask id="${esc(String(n.id))}" name="${esc(String(n.name))}" flowable:${prop}="${esc((a.userIds as string[]).join(","))}"/>`,
-      );
+      const binding = n.formBinding as { formKey: string; formVersion: number } | undefined;
+      let attrs = `flowable:${prop}="${esc((a.userIds as string[]).join(","))}"`;
+      if (binding) attrs += ` flowable:formKey="${esc(flowableFormKey(binding))}"`;
+      lines.push(`<userTask id="${esc(String(n.id))}" name="${esc(String(n.name))}" ${attrs}/>`);
       continue;
     }
     lines.push(
@@ -375,6 +408,11 @@ function resolveAssignments(scope: WorkspaceScope, graph: Graph): Graph {
   const result = JSON.parse(JSON.stringify(graph)) as Graph;
   for (const n of result.nodes) {
     if (n.type !== "userTask") continue;
+    const binding = n.formBinding as { formKey: string; formVersion: number } | undefined;
+    if (binding) {
+      const form = db.prepare("SELECT 1 FROM form_versions WHERE tenant_id=? AND organization_id=? AND account_id=? AND form_key=? AND version=?").get(scope.tenantId, scope.organizationId, scope.accountId, binding.formKey, binding.formVersion);
+      if (!form) throw new Error("pinned form version is unavailable in this scope");
+    }
     const a = n.assignment as Record<string, unknown>;
     let ids = (a.userIds as string[] | undefined) || [];
     if (a.kind === "candidateRole")
@@ -767,6 +805,15 @@ export function createBpmnModelerRouter() {
       sha256: sha(xml),
       createdAt: now,
     });
+  });
+  r.get("/bpmn-models/:id/history", (req, res) => {
+    const s = scope(req, res);
+    if (!s) return;
+    const m = rowFor(s, req.params.id);
+    if (!m) return res.status(404).json({ error: "not_found" });
+    const publications = db.prepare(`SELECT p.id,p.version_id AS versionId,v.version,p.status,p.deployment_id AS deploymentId,p.definition_id AS processDefinitionId,p.updated_at AS updatedAt FROM bpmn_publish p JOIN bpmn_versions v ON v.id=p.version_id WHERE p.model_id=? AND p.tenant_id=? AND p.organization_id=? AND p.account_id=? ORDER BY v.version DESC`).all(m.id,s.tenantId,s.organizationId,s.accountId);
+    const auditRows = db.prepare(`SELECT id,actor_id AS actorId,event,detail,created_at AS createdAt FROM bpmn_audit WHERE model_id=? AND tenant_id=? AND organization_id=? AND account_id=? ORDER BY created_at DESC,id DESC`).all(m.id,s.tenantId,s.organizationId,s.accountId);
+    return res.json({ publications, audit: auditRows });
   });
   r.get("/bpmn-models/:id/versions", (req, res) => {
     const s = scope(req, res);

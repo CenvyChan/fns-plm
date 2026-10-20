@@ -10,7 +10,8 @@
       "properties": [
         { "name": "assignee", "type": "String", "isAttr": true },
         { "name": "candidateUsers", "type": "String", "isAttr": true },
-        { "name": "candidateGroups", "type": "String", "isAttr": true }
+        { "name": "candidateGroups", "type": "String", "isAttr": true },
+        { "name": "formKey", "type": "String", "isAttr": true }
       ]
     }
   ]

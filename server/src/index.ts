@@ -18,6 +18,7 @@ import { createDailyReportingIsolationRepairRouter } from './daily-reporting-iso
 import { closeCache } from './integrations/cache.js'
 import { createReportDefinitionsRouter } from './report-definitions.js'
 import { createBpmnModelerRouter } from './bpmn-modeler.js'
+import { createFormsRouter } from './forms.js'
 import { currentWorkspaceScope, runWithWorkspaceScope, type WorkspaceScope } from './scope.js'
 import { loadScopedWorkspace, persistScopedWorkspace, type BomKind, type Entity, type Project, type Task, type Workspace } from './workspace-store.js'
 import { builtInProjectTemplates } from './project-templates.js'
@@ -825,6 +826,7 @@ app.use('/api', createDailyReportingIsolationRepairRouter())
 app.use('/api', createIntegrationRouter())
 app.use('/api', createReportDefinitionsRouter())
 app.use('/api', createBpmnModelerRouter())
+app.use('/api', createFormsRouter())
 app.use('/api', (error: unknown, _req: Request, res: Response, _next: (error?: unknown) => void) => {
   if (error instanceof StateConflictError) return res.status(409).json({ error: 'workspace_conflict', message: '工作区刚被其他操作更新，请刷新后重试。' })
   if (error instanceof multer.MulterError) {

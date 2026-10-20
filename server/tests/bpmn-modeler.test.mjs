@@ -157,6 +157,53 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
     token = setup.accessToken;
     scope = setup.user;
     const originalScope = { ...scope };
+    const connector = {
+      baseUrl: `http://127.0.0.1:${mockPort}`,
+      username: "mock-user",
+      password: "mock-password",
+      userMap: { "bpmn-admin@example.test": "engine-admin" },
+    };
+    ok(await api("/integrations/settings/flowable", "PUT", connector));
+    const formDefinition = { dslVersion: 1, fields: [{ id: "title", label: "Title", type: "text" }] };
+    const formV1 = ok(await api("/forms", "POST", { key: "approvalForm", name: "Approval", definition: formDefinition }), 201);
+    const publishedFormV1 = ok(await api("/forms/approvalForm/publish", "POST", { revision: formV1.revision }), 201);
+    assert.equal(publishedFormV1.version, 1);
+    const invalidBindingGraph = {
+      key: "missingFormVersion", name: "Missing form pin",
+      nodes: [
+        { id: "S", type: "startEvent", name: "Start" },
+        { id: "T", type: "userTask", name: "Task", assignment: { kind: "assignee", userIds: [scope.id] }, formBinding: { formKey: "approvalForm", formVersion: 999 } },
+        { id: "E", type: "endEvent", name: "End" },
+      ], flows: [{ id: "a", source: "S", target: "T" }, { id: "b", source: "T", target: "E" }],
+    };
+    const invalidBindingModel = ok(await api("/bpmn-models", "POST", { graph: invalidBindingGraph }), 201);
+    assert.equal((await api(`/bpmn-models/${invalidBindingModel.id}/versions`, "POST", { expectedRevision: 1 })).status, 400,
+      "freezing a binding to a nonexistent form version is rejected");
+    const foreignAccount = ok(await api("/auth/tenants", "POST", {
+      tenantName: "Foreign form tenant", organizationName: "Foreign form org", accountName: "Foreign form account",
+    }), 201);
+    scope = ok(await api("/auth/switch-scope", "POST", { accountId: foreignAccount.scope.accountId })).user;
+    const foreignForm = ok(await api("/forms", "POST", { key: "foreignOnly", name: "Foreign", definition: formDefinition }), 201);
+    ok(await api("/forms/foreignOnly/publish", "POST", { revision: foreignForm.revision }), 201);
+    scope = ok(await api("/auth/switch-scope", "POST", { accountId: originalScope.accountId })).user;
+    const crossScopeGraph = structuredClone(invalidBindingGraph);
+    crossScopeGraph.key = "crossScopeFormPin";
+    crossScopeGraph.nodes[1].formBinding = { formKey: "foreignOnly", formVersion: 1 };
+    const crossScopeModel = ok(await api("/bpmn-models", "POST", { graph: crossScopeGraph }), 201);
+    assert.equal((await api(`/bpmn-models/${crossScopeModel.id}/versions`, "POST", { expectedRevision: 1 })).status, 400,
+      "a form version from another account scope cannot be pinned");
+    const legalBindingGraph = structuredClone(invalidBindingGraph);
+    legalBindingGraph.key = "pinnedApproval";
+    legalBindingGraph.nodes[1].formBinding = { formKey: "approvalForm", formVersion: 1 };
+    const legalBindingModel = ok(await api("/bpmn-models", "POST", { graph: legalBindingGraph }), 201);
+    const pinnedV1 = ok(await api(`/bpmn-models/${legalBindingModel.id}/versions`, "POST", { expectedRevision: 1 }), 201);
+    assert.match(pinnedV1.xml, /flowable:formKey="plm-form:approvalForm:v1"/);
+    const formV2Draft = structuredClone(formDefinition);
+    formV2Draft.fields[0].label = "Title v2";
+    const formEdited = ok(await api("/forms/approvalForm", "PUT", { name: "Approval", definition: formV2Draft, revision: 1 }));
+    assert.equal(ok(await api("/forms/approvalForm/publish", "POST", { revision: formEdited.revision }), 201).version, 2);
+    assert.equal(ok(await api(`/bpmn-models/${legalBindingModel.id}/versions`))[0].sha256, pinnedV1.sha256,
+      "publishing form v2 does not mutate frozen process v1");
     const graph = {
       key: "safeApproval",
       name: "隔离审批",
@@ -269,6 +316,39 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
         userMap: { "bpmn-admin@example.test": "engine-admin" },
       }),
     );
+    const parallelGraph = {
+      key: "closedParallel",
+      name: "闭合并行",
+      nodes: [
+        { id: "S", type: "startEvent", name: "开始" },
+        { id: "Fork", type: "parallelGateway", name: "并行" },
+        { id: "A", type: "userTask", name: "支路A", assignment: { kind: "assignee", userIds: [scope.id] } },
+        { id: "B", type: "userTask", name: "支路B", assignment: { kind: "assignee", userIds: [scope.id] } },
+        { id: "Join", type: "parallelGateway", name: "汇合" },
+        { id: "E", type: "endEvent", name: "结束" },
+      ],
+      flows: [
+        { id: "f0", source: "S", target: "Fork" },
+        { id: "f1", source: "Fork", target: "A" },
+        { id: "f2", source: "Fork", target: "B" },
+        { id: "f3", source: "A", target: "Join" },
+        { id: "f4", source: "B", target: "Join" },
+        { id: "f5", source: "Join", target: "E" },
+      ],
+    };
+    const openParallel = structuredClone(parallelGraph);
+    openParallel.flows = openParallel.flows.filter((flow) => flow.id !== "f4");
+    assert.equal((await api("/bpmn-models", "POST", { graph: openParallel })).status, 400);
+    const parallelModel = ok(await api("/bpmn-models", "POST", { graph: parallelGraph }), 201);
+    const parallelVersion = ok(await api(`/bpmn-models/${parallelModel.id}/versions`, "POST", { expectedRevision: 1 }), 201);
+    assert.match(parallelVersion.xml, /<parallelGateway id="Fork"\/>/);
+    assert.match(parallelVersion.xml, /<parallelGateway id="Join"\/>/);
+    const parallelPreview = ok(await api(`/bpmn-models/${parallelModel.id}/preview`, "POST", { version: 1 }));
+    const parallelPublished = ok(await api(`/bpmn-models/${parallelModel.id}/publish`, "POST", {
+      version: 1, confirmationToken: parallelPreview.confirmationToken, confirm: true,
+    }));
+    assert.ok(parallelPublished);
+    assert.ok(deployments.at(-1).body.includes("closedParallel"), "closed parallel BPMN graph reaches mock deployment");
     const frozen = ok(
       await api(path + "/versions", "POST", { expectedRevision: 2 }),
       201,
@@ -308,15 +388,20 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
         confirm: true,
       }),
     );
-    assert.equal(deployments.length, 1);
+    assert.equal(deployments.length, 2);
+    const history = ok(await api(path + "/history"));
+    assert.equal(history.publications[0].status, "published");
+    assert.ok(history.publications[0].deploymentId);
+    assert.ok(history.audit.some((entry) => entry.event === "published"));
+    assert.equal(JSON.stringify(history).includes("mock-password"), false);
     assert.match(
-      deployments[0].body,
+      deployments[1].body,
       new RegExp(
         `tenant:${scope.tenantId}:organization:${scope.organizationId}:account:${scope.accountId}`,
       ),
     );
-    assert.match(deployments[0].body, /safeApproval/);
-    assert.ok(deployments[0].auth.startsWith("Basic "));
+    assert.match(deployments[1].body, /safeApproval/);
+    assert.ok(deployments[1].auth.startsWith("Basic "));
     assert.equal(
       (
         await api(path + "/publish", "POST", {
@@ -342,16 +427,10 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
     );
     assert.equal(
       deployments.length,
-      1,
+      2,
       "duplicate publication does not increment engine version",
     );
     // A remote address is never contacted, even in test mode; both preview and publish are blocked.
-    const connector = {
-      baseUrl: `http://127.0.0.1:${mockPort}`,
-      username: "mock-user",
-      password: "mock-password",
-      userMap: { "bpmn-admin@example.test": "engine-admin" },
-    };
     ok(
       await api("/integrations/settings/flowable", "PUT", {
         ...connector,
@@ -371,7 +450,7 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
       ).status,
       423,
     );
-    assert.equal(deployments.length, 1);
+    assert.equal(deployments.length, 2);
     ok(await api("/integrations/settings/flowable", "PUT", connector));
     const staleMapping = ok(
       await api(path + "/preview", "POST", { version: 1 }),
@@ -485,7 +564,7 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
     assert.ok(parallel.some((r) => r.status === 200));
     assert.equal(
       deployments.length,
-      2,
+      3,
       "concurrent publication sends only one deployment",
     );
     assert.equal(
@@ -525,7 +604,7 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
     );
     assert.equal(
       deployments.length,
-      3,
+      4,
       "uncertain outcome is never automatically retried",
     );
     ok(
@@ -547,7 +626,7 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
       409,
       "a new version cannot bypass model-level uncertain publication",
     );
-    assert.equal(deployments.length, 3);
+    assert.equal(deployments.length, 4);
     await stop();
     await start();
     assert.equal(

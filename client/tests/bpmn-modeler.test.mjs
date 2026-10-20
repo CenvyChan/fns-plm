@@ -7,25 +7,27 @@ import { renderToString } from "react-dom/server";
 import { BpmnModdle } from "bpmn-moddle";
 import descriptor from "../src/flowable-minimal-moddle.json" with { type: "json" };
 const read = (file) => readFile(new URL(file, import.meta.url), "utf8");
-test("自有最小 Flowable moddle 描述符对三个扩展属性 roundtrip", async () => {
+test("自有最小 Flowable moddle 描述符对分配属性和固定表单版本 roundtrip", async () => {
   assert.equal(descriptor.name, "FlowableMinimal");
   assert.deepEqual(
     descriptor.types[0].properties.map((p) => p.name),
-    ["assignee", "candidateUsers", "candidateGroups"],
+    ["assignee", "candidateUsers", "candidateGroups", "formKey"],
   );
   const moddle = new BpmnModdle({ flowable: descriptor });
   const xml =
-    '<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:flowable="http://flowable.org/bpmn" targetNamespace="test"><bpmn:process id="p"><bpmn:userTask id="task" flowable:assignee="plm-user-1" flowable:candidateUsers="plm-user-1,plm-user-2" flowable:candidateGroups="reviewers"/></bpmn:process></bpmn:definitions>';
+    '<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:flowable="http://flowable.org/bpmn" targetNamespace="test"><bpmn:process id="p"><bpmn:userTask id="task" flowable:assignee="plm-user-1" flowable:candidateUsers="plm-user-1,plm-user-2" flowable:candidateGroups="reviewers" flowable:formKey="plm-form:inspection:v2"/></bpmn:process></bpmn:definitions>';
   const parsed = await moddle.fromXML(xml);
   const task = parsed.rootElement.rootElements[0].flowElements[0];
   assert.equal(task.assignee, "plm-user-1");
   assert.equal(task.candidateUsers, "plm-user-1,plm-user-2");
   assert.equal(task.candidateGroups, "reviewers");
+  assert.equal(task.formKey, "plm-form:inspection:v2");
   const serialized = (await moddle.toXML(parsed.rootElement)).xml;
   for (const [name, value] of [
     ["assignee", "plm-user-1"],
     ["candidateUsers", "plm-user-1,plm-user-2"],
     ["candidateGroups", "reviewers"],
+    ["formKey", "plm-form:inspection:v2"],
   ])
     assert.match(serialized, new RegExp(`flowable:${name}="${value}"`));
 });

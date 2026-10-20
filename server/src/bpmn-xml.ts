@@ -49,6 +49,7 @@ export function validateGeneratedBpmnXml(xml: string): string[] {
     "endEvent",
     "userTask",
     "exclusiveGateway",
+    "parallelGateway",
   ]);
   for (const token of tokens) {
     if (!token.startsWith("<")) {
@@ -95,6 +96,7 @@ export function validateGeneratedBpmnXml(xml: string): string[] {
       endEvent: ["process"],
       userTask: ["process"],
       exclusiveGateway: ["process"],
+      parallelGateway: ["process"],
       sequenceFlow: ["process"],
       conditionExpression: ["sequenceFlow"],
     };
@@ -105,8 +107,9 @@ export function validateGeneratedBpmnXml(xml: string): string[] {
       process: ["id", "name", "isExecutable"],
       startEvent: ["id", "name"],
       endEvent: ["id", "name"],
-      userTask: ["id", "name", "flowable:assignee", "flowable:candidateUsers"],
+      userTask: ["id", "name", "flowable:assignee", "flowable:candidateUsers", "flowable:formKey"],
       exclusiveGateway: ["id", "default"],
+      parallelGateway: ["id"],
       sequenceFlow: ["id", "sourceRef", "targetRef", "name"],
       conditionExpression: ["xsi:type"],
     };
@@ -132,6 +135,10 @@ export function validateGeneratedBpmnXml(xml: string): string[] {
       )
         errors.push("unsafe identity attribute");
     }
+    if (
+      name === "userTask" && attrs["flowable:formKey"] !== undefined &&
+      !/^plm-form:[A-Za-z][A-Za-z0-9_-]{0,63}:v[1-9][0-9]*$/.test(attrs["flowable:formKey"]!)
+    ) errors.push("unsafe identity attribute");
     if (name === "definitions") definitions++;
     if (name === "process") processes++;
     if (name === "startEvent") starts++;

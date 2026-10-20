@@ -1,0 +1,644 @@
+{
+  "isolation": "temporary SQLite + loopback HTTP mock only",
+  "model": {
+    "id": "tOpp1aDFgZ4B9lvw-xuJ6",
+    "revision": 5,
+    "tenant_id": "tSCSqpKzEdL9T6k-55FDh",
+    "organization_id": "wbHBhIcGYmoBVikRRWKGq",
+    "account_id": "2MGJNVoKKuEGI3pYZIsxb"
+  },
+  "versions": [
+    {
+      "version": 1,
+      "sha256": "be9f035116baafff44bddfcad4d54ff06b3359c2f5e148d59bbea28f7bb07b34"
+    },
+    {
+      "version": 2,
+      "sha256": "bee09da7c16fa16fe76350d50a59cdb7cff08cf9745a3d61a1092a70826ddf23"
+    },
+    {
+      "version": 3,
+      "sha256": "f28a6fdbb6ce89c1bec669521cdf6419a9d4730d24e7f95a990d9fdb843657c0"
+    },
+    {
+      "version": 4,
+      "sha256": "86a731367f961b3bcb596a6225a65bc47164419022061236c173e2780c17b83f"
+    }
+  ],
+  "audit": [
+    {
+      "event": "create",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "update",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "version_created",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "preview",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "publish_started",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "published",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "preview",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "preview",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "publish_blocked",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "preview",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "preview",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "update",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "version_created",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "preview",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "preview",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "update",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "version_created",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "preview",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "publish_started",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "published",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "preview",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "publish_started",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "publish_uncertain",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "preview",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "update",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "version_created",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "preview",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    },
+    {
+      "event": "preview",
+      "actor_id": "bVJy_s6zFgnIAwuTxNdbV"
+    }
+  ],
+  "published": [
+    {
+      "status": "published",
+      "deployment_id": "mock-deployment-2"
+    },
+    {
+      "status": "uncertain",
+      "deployment_id": null
+    },
+    {
+      "status": "published",
+      "deployment_id": "mock-deployment-3"
+    }
+  ],
+  "deployments": 4,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/bpmn-models",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/auth/mobile/setup",
+      "status": 201
+    },
+    {
+      "method": "PUT",
+      "path": "/integrations/settings/flowable",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/forms",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/forms/approvalForm/publish",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tfeWGSA8mSyz8yP5jCEzF/versions",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/auth/tenants",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/auth/switch-scope",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/forms",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/forms/foreignOnly/publish",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/auth/switch-scope",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/a2DkL4Myzj3rrin8kZmFY/versions",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/H6h7s-TdbddRn6imduEBL/versions",
+      "status": 201
+    },
+    {
+      "method": "PUT",
+      "path": "/forms/approvalForm",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/forms/approvalForm/publish",
+      "status": 201
+    },
+    {
+      "method": "GET",
+      "path": "/bpmn-models/H6h7s-TdbddRn6imduEBL/versions",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/bpmn-modeler/options",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 201
+    },
+    {
+      "method": "PUT",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6",
+      "status": 409
+    },
+    {
+      "method": "PUT",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/validate",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/integrations/settings/flowable",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/zjxjRZ7N1YdLO7mmaGksT/versions",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/zjxjRZ7N1YdLO7mmaGksT/preview",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/zjxjRZ7N1YdLO7mmaGksT/publish",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/versions",
+      "status": 201
+    },
+    {
+      "method": "GET",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/versions",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/preview",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/publish",
+      "status": 400
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/publish",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/history",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/publish",
+      "status": 409
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/preview",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/publish",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/integrations/settings/flowable",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/preview",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/publish",
+      "status": 423
+    },
+    {
+      "method": "PUT",
+      "path": "/integrations/settings/flowable",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/preview",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/integrations/settings/flowable",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/publish",
+      "status": 409
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/preview",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/integrations/settings/flowable",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/versions",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/preview",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/preview",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/versions",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/preview",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/publish",
+      "status": 409
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/publish",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/publish",
+      "status": 409
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/preview",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/publish",
+      "status": 502
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/preview",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/publish",
+      "status": 409
+    },
+    {
+      "method": "PUT",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/versions",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/preview",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/publish",
+      "status": 409
+    },
+    {
+      "method": "GET",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/versions",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/preview",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/publish",
+      "status": 409
+    },
+    {
+      "method": "POST",
+      "path": "/auth/tenants",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/auth/switch-scope",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/versions",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/bpmn-models",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/bpmn-modeler/options",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/auth/switch-scope",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6",
+      "status": 403
+    },
+    {
+      "method": "POST",
+      "path": "/auth/users",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/auth/activate",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/auth/mobile/login",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models",
+      "status": 403
+    },
+    {
+      "method": "PUT",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6",
+      "status": 403
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/versions",
+      "status": 403
+    },
+    {
+      "method": "POST",
+      "path": "/bpmn-models/tOpp1aDFgZ4B9lvw-xuJ6/publish",
+      "status": 403
+    }
+  ]
+}
