@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.4.1",
+    "bpmn-js": "18.31.0",
+    "bpmn-moddle": "10.3.1",
     "fflate": "^0.8.3",
     "framer-motion": "^12.6.2",
     "lucide-react": "^0.468.0",

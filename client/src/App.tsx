@@ -9,6 +9,7 @@ import { createId, loadLocalWorkspace, requestWorkspace, saveLocalWorkspace, syn
 import { apiJson, getApiBaseUrl, isNativeApp, jsonRequest, setApiScope, setApiToken, type AuthUser, type UserScope } from './api'
 import Plm from './Plm'
 import WorkflowWorkbench from './WorkflowWorkbench'
+import BpmnModelerWorkbench from './BpmnModelerWorkbench'
 import ReportsWorkbench from './ReportsWorkbench'
 import ReportDefinitionsWorkbench from './ReportDefinitionsWorkbench'
 import DailyReportingWorkbench from './DailyReportingWorkbench'
@@ -24,6 +25,11 @@ import ProjectWorkbench from './ProjectWorkbench'
 import './integrations.css'
 import './app-interactions.css'
 import type { Priority, Project, Task, TaskStatus, WorkspaceData } from './types'
+
+function WorkflowEntry({ currentUser }: { currentUser: AuthUser }) {
+  const [mode, setMode] = useState<'tasks' | 'models'>('tasks')
+  return <><div className="workflow-entry-tabs"><button className={mode === 'tasks' ? 'active' : ''} onClick={() => setMode('tasks')}>流程待办</button><button className={mode === 'models' ? 'active' : ''} onClick={() => setMode('models')}>BPMN 模型设计</button></div>{mode === 'tasks' ? <WorkflowWorkbench/> : <BpmnModelerWorkbench key={`${currentUser.tenantId}:${currentUser.organizationId}:${currentUser.accountId}`} currentUser={currentUser}/>}</>
+}
 
 const todayISO = () => {
   const d = new Date()
@@ -306,7 +312,7 @@ function App() {
 
     {page === 'timeline' && <section className="timeline-layout"><div className="panel timeline-panel"><div className="panel-heading"><div><div className="panel-kicker">LOOK AHEAD</div><h2>接下来</h2></div><span className="timeline-month">{new Intl.DateTimeFormat('zh-CN', { month: 'long', year: 'numeric' }).format(new Date())}</span></div><div className="timeline-list">{upcoming.map((task, i) => <div className="timeline-item" key={task.id}><div className="timeline-date"><b>{new Date(`${task.dueDate}T12:00:00`).getDate().toString().padStart(2, '0')}</b><small>{new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(new Date(`${task.dueDate}T12:00:00`))}</small></div><div className="timeline-rail"><i style={{ background: projectsById[task.projectId ?? '']?.color ?? '#aaa' }}/>{i < upcoming.length - 1 && <span/>}</div><button className="timeline-task" onClick={() => toggleTask(task)}><div><b>{task.title}</b><span>{projectsById[task.projectId ?? '']?.name ?? '个人任务'} · {dateLabel(task.dueDate)}</span></div><span className={`priority priority-${task.priority}`}>{task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'}</span><ChevronRight size={16}/></button></div>)}</div>{!upcoming.length && <div className="empty-state"><span className="empty-icon"><CalendarDays size={22}/></span><b>接下来没有待办</b><p>为未来安排一项温柔的提醒。</p></div>}<button className="add-row" onClick={() => setTaskModal(true)}><span><Plus size={16}/></span>安排一项新任务</button></div><div className="timeline-aside"><div className="timeline-note"><div className="note-icon"><Sparkles size={17}/></div><div className="panel-kicker">A GENTLE REMINDER</div><h3>别忘了给<br/>自己留一点空间。</h3><p>安排得刚刚好，才能走得更长远。你的每一步都算数。</p><div className="note-decoration">✳</div></div><div className="panel upcoming-count"><span>未来 7 天</span><b>{upcoming.length}<small>项待办</small></b><div className="mini-week">{weekDays.map((d, i) => <span className={i === (new Date().getDay() + 6) % 7 ? 'active' : ''} key={d}><i/>{d}</span>)}</div></div></div></section>}
     {['kpi', 'materials', 'boms', 'documents'].includes(page) && <Plm page={page} workspace={workspace} onChange={commit} onToast={setToast} currentUser={authUser}/>}
-    {page === 'workflow' && canAccessPage(page, authUser, dailyAccess) && <WorkflowWorkbench/>}
+    {page === 'workflow' && canAccessPage(page, authUser, dailyAccess) && <WorkflowEntry currentUser={authUser}/>}
     {isDailyWorkbenchPage(page) && <DailyReportingWorkbench page={page} onNavigate={setPage}/>}
     {['report-definitions','report-definitions-new','report-definitions-edit'].includes(page) && canAccessPage(page, authUser, dailyAccess) && <ReportDefinitionsWorkbench key={`${authUser.tenantId}:${authUser.organizationId}:${authUser.accountId}`} page={page} onNavigate={setPage} canManage={authUser.role === 'admin'}/>}
     {(page === 'reports' || page.startsWith('report-schedules')) && isReportPage(page) && canAccessPage(page, authUser, dailyAccess) && <ReportsWorkbench page={page} onNavigate={setPage} canManage={authUser.role === 'admin'}/>}

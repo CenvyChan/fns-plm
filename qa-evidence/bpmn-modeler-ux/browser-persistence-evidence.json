@@ -1,0 +1,242 @@
+{
+  "isolation": "Temporary SQLite + loopback Flowable mock only. Read-only database evidence after real browser actions.",
+  "model": {
+    "id": "rCpLDcWXeorHxbJzN17CU",
+    "name": "采购变更审批 · UX验收",
+    "key": "uiApproval",
+    "revision": 6,
+    "tenant_id": "3QhYirNMyd5j6HlOyftYL",
+    "organization_id": "8MySChc9SYie2xggr_ouO",
+    "account_id": "0f3aufiMTod_TY1U5ooh0"
+  },
+  "graph": {
+    "key": "uiApproval",
+    "name": "采购变更审批 · UX验收",
+    "nodes": [
+      {
+        "id": "start",
+        "type": "startEvent",
+        "name": "开始",
+        "x": 60,
+        "y": 200
+      },
+      {
+        "id": "review",
+        "type": "userTask",
+        "name": "审批",
+        "x": 340,
+        "y": 180,
+        "assignment": {
+          "kind": "assignee",
+          "userIds": [
+            "HUGMefsr-qucSJgJN_QyK"
+          ]
+        }
+      },
+      {
+        "id": "end",
+        "type": "endEvent",
+        "name": "结束",
+        "x": 800,
+        "y": 200
+      },
+      {
+        "id": "userTask_8vbh2",
+        "type": "userTask",
+        "name": "部门复核（移动端确认）",
+        "x": 520,
+        "y": 180,
+        "assignment": {
+          "kind": "candidateRole",
+          "role": "admin"
+        },
+        "formBinding": {
+          "formKey": "purchaseChange",
+          "formVersion": 1
+        }
+      }
+    ],
+    "flows": [
+      {
+        "id": "flow1",
+        "source": "start",
+        "target": "review"
+      },
+      {
+        "id": "flow2",
+        "source": "userTask_8vbh2",
+        "target": "end"
+      },
+      {
+        "id": "flow_6o5mi",
+        "source": "review",
+        "target": "userTask_8vbh2"
+      }
+    ]
+  },
+  "versions": [
+    {
+      "version": 1,
+      "sha256": "58c8510cf63fd23601153d55f920f9ed0fc0cf843494add4e624b9e4d102963e",
+      "graph": {
+        "key": "uiApproval",
+        "name": "采购变更审批 · UX验收",
+        "nodes": [
+          {
+            "id": "start",
+            "type": "startEvent",
+            "name": "开始",
+            "x": 60,
+            "y": 200
+          },
+          {
+            "id": "review",
+            "type": "userTask",
+            "name": "审批",
+            "x": 340,
+            "y": 180,
+            "assignment": {
+              "kind": "assignee",
+              "userIds": [
+                "HUGMefsr-qucSJgJN_QyK"
+              ]
+            }
+          },
+          {
+            "id": "end",
+            "type": "endEvent",
+            "name": "结束",
+            "x": 800,
+            "y": 200
+          },
+          {
+            "id": "userTask_8vbh2",
+            "type": "userTask",
+            "name": "部门复核",
+            "x": 520,
+            "y": 180,
+            "assignment": {
+              "kind": "candidateRole",
+              "role": "admin"
+            },
+            "formBinding": {
+              "formKey": "purchaseChange",
+              "formVersion": 1
+            }
+          }
+        ],
+        "flows": [
+          {
+            "id": "flow1",
+            "source": "start",
+            "target": "review"
+          },
+          {
+            "id": "flow2",
+            "source": "userTask_8vbh2",
+            "target": "end"
+          },
+          {
+            "id": "flow_z6n13",
+            "source": "review",
+            "target": "userTask_8vbh2"
+          }
+        ]
+      },
+      "createdAt": "2026-10-20T02:10:15.829Z"
+    }
+  ],
+  "publications": [
+    {
+      "status": "published",
+      "deployment_id": "ui-mock-deployment",
+      "definition_id": "uiApproval:1:mock",
+      "updated_at": "2026-10-20T02:10:29.233Z"
+    }
+  ],
+  "audit": [
+    {
+      "event": "create",
+      "detail": "",
+      "created_at": "2026-10-20T02:09:50.859Z"
+    },
+    {
+      "event": "update",
+      "detail": "1",
+      "created_at": "2026-10-20T02:09:52.593Z"
+    },
+    {
+      "event": "update",
+      "detail": "2",
+      "created_at": "2026-10-20T02:10:06.943Z"
+    },
+    {
+      "event": "version_created",
+      "detail": "1",
+      "created_at": "2026-10-20T02:10:15.830Z"
+    },
+    {
+      "event": "preview",
+      "detail": "1",
+      "created_at": "2026-10-20T02:10:16.079Z"
+    },
+    {
+      "event": "publish_started",
+      "detail": "1",
+      "created_at": "2026-10-20T02:10:29.219Z"
+    },
+    {
+      "event": "published",
+      "detail": "1",
+      "created_at": "2026-10-20T02:10:29.233Z"
+    },
+    {
+      "event": "update",
+      "detail": "3",
+      "created_at": "2026-10-20T02:13:10.107Z"
+    },
+    {
+      "event": "update",
+      "detail": "4",
+      "created_at": "2026-10-20T02:15:30.193Z"
+    },
+    {
+      "event": "update",
+      "detail": "5",
+      "created_at": "2026-10-20T02:16:41.853Z"
+    }
+  ],
+  "formVersions": [
+    {
+      "version": 1,
+      "definition": {
+        "dslVersion": 1,
+        "fields": [
+          {
+            "id": "title",
+            "label": "变更说明",
+            "type": "text",
+            "required": true
+          }
+        ]
+      },
+      "createdAt": "2026-10-20T02:10:06.238Z"
+    },
+    {
+      "version": 2,
+      "definition": {
+        "dslVersion": 1,
+        "fields": [
+          {
+            "id": "title",
+            "label": "变更原因与影响",
+            "type": "text",
+            "required": true
+          }
+        ]
+      },
+      "createdAt": "2026-10-20T02:16:51.581Z"
+    }
+  ],
+  "assertions": "Connected added node, explicit flow editing, PLM role, immutable XML hash, frozen form v1 despite edited form v2, mock publication and audit chain: PASS"
+}
