@@ -46,7 +46,7 @@ function validateBaseUrl(value: unknown, provider: ConnectorProvider): void {
   try { url = new URL(value) } catch { throw new Error(`${provider} baseUrl must be a valid URL.`) }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error(`${provider} baseUrl must use HTTP(S) without embedded credentials, query or fragment.`)
   if (url.protocol === 'http:' && process.env.NODE_ENV === 'production') {
-    const approvedFlowable = provider === 'flowable' && url.hostname === '100.83.138.26' && url.port === '18080' && (url.pathname === '/flowable-rest/service' || url.pathname === '/flowable-rest/service/')
+    const approvedFlowable = provider === 'flowable' && url.hostname === '100.83.138.26' && ['18080', '18081'].includes(url.port) && (url.pathname === '/flowable-rest/service' || url.pathname === '/flowable-rest/service/')
     if (!approvedFlowable) throw new Error('Connector URLs must use HTTPS in production; only the approved Flowable endpoint may use HTTP.')
   }
 }

@@ -25,16 +25,16 @@ db.prepare('INSERT INTO accounts(id,tenant_id,organization_id,name,code,created_
 const credentials = { username: 'tester', password: 'not-a-real-secret' }
 const statusFor = baseUrl => getFlowableStatus({ ...credentials, baseUrl })
 
-test('production accepts only exact approved Flowable HTTP endpoint (optional terminal slash)', () => {
-  for (const baseUrl of ['http://100.83.138.26:18080/flowable-rest/service', 'http://100.83.138.26:18080/flowable-rest/service/']) {
+test('production accepts only exact approved Flowable HTTP endpoints on rollback port 18080 and staging port 18081', () => {
+  for (const baseUrl of ['http://100.83.138.26:18080/flowable-rest/service', 'http://100.83.138.26:18080/flowable-rest/service/', 'http://100.83.138.26:18081/flowable-rest/service', 'http://100.83.138.26:18081/flowable-rest/service/']) {
     assert.equal(statusFor(baseUrl).configured, true, baseUrl)
   }
   assert.equal(statusFor('https://flowable.example/flowable-rest/service').configured, true)
   assert.equal(statusFor('http://localhost:8080/flowable-rest/service').configured, false)
 })
 
-test('production saveConnectorConfig permits only approved Flowable HTTP and rejects other providers despite override flag', () => {
-  assert.doesNotThrow(() => saveConnectorConfig(scope, 'flowable', { baseUrl: 'http://100.83.138.26:18080/flowable-rest/service', ...credentials }, 'policy-user'))
+test('production saveConnectorConfig permits only approved Flowable HTTP endpoints and rejects other providers despite override flag', () => {
+  for (const port of ['18080', '18081']) assert.doesNotThrow(() => saveConnectorConfig(scope, 'flowable', { baseUrl: `http://100.83.138.26:${port}/flowable-rest/service`, ...credentials }, 'policy-user'))
   const k3 = { accountId: 'erp-account', username: 'erp-user', organization: 'org', appId: 'app', appSecret: 'fake-secret' }
   assert.throws(() => saveConnectorConfig(scope, 'k3cloud', { ...k3, baseUrl: 'http://100.83.138.26:18080/flowable-rest/service' }, 'policy-user'), /HTTPS/)
   assert.throws(() => saveConnectorConfig(scope, 'k3cloud', { ...k3, baseUrl: 'http://localhost:8080/flowable-rest/service' }, 'policy-user'), /HTTPS/)
@@ -53,7 +53,11 @@ test('non-production connector configuration continues to allow loopback HTTP', 
 test('production rejects other HTTP hosts, ports, paths, URL decorations; global flag cannot override', () => {
   for (const baseUrl of [
     'http://100.83.138.26/flowable-rest/service',
-    'http://100.83.138.26:18081/flowable-rest/service',
+    'http://100.83.138.26:18082/flowable-rest/service',
+    'http://100.83.138.26:18081/other',
+    'http://100.83.138.26:18081/flowable-rest/service/extra',
+    'http://other.example:18081/flowable-rest/service',
+    'http://100.83.138.27:18081/flowable-rest/service',
     'http://100.83.138.26:18080/other',
     'http://100.83.138.26:18080/flowable-rest/service/extra',
     'http://other.example:18080/flowable-rest/service',
