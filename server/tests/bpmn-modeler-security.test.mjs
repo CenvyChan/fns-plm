@@ -146,6 +146,26 @@ test("production/default gate blocks release; test mock is limited to loopback",
   }
 });
 
+test("verified staging release flag permits only the exact patched staging URL", () => {
+  const old = { node: process.env.NODE_ENV, mock: process.env.BPMN_MODELER_ALLOW_TEST_MOCK, verified: process.env.FLOWABLE_VERIFIED_STAGING_RELEASE };
+  try {
+    process.env.NODE_ENV = "test";
+    delete process.env.BPMN_MODELER_ALLOW_TEST_MOCK;
+    process.env.FLOWABLE_VERIFIED_STAGING_RELEASE = "20261020-parser-patched";
+    assert.equal(engineReleaseBlocked({ baseUrl: "http://100.83.138.26:18081/flowable-rest/service" }), false);
+    for (const baseUrl of ["http://100.83.138.26:18080/flowable-rest/service", "http://100.83.138.26:18081/flowable-rest/service/", "http://100.83.138.26:18081/flowable-rest/service/extra", "http://100.83.138.27:18081/flowable-rest/service", "http://other.example:18081/flowable-rest/service", "https://100.83.138.26:18081/flowable-rest/service"])
+      assert.equal(engineReleaseBlocked({ baseUrl }), true, `${baseUrl} must be blocked`);
+    process.env.FLOWABLE_VERIFIED_STAGING_RELEASE = "wrong-value";
+    assert.equal(engineReleaseBlocked({ baseUrl: "http://100.83.138.26:18081/flowable-rest/service" }), true);
+    delete process.env.FLOWABLE_VERIFIED_STAGING_RELEASE;
+    assert.equal(engineReleaseBlocked({ baseUrl: "http://100.83.138.26:18081/flowable-rest/service" }), true, "NODE_ENV=test alone is not verification proof");
+  } finally {
+    process.env.NODE_ENV = old.node;
+    if (old.mock === undefined) delete process.env.BPMN_MODELER_ALLOW_TEST_MOCK; else process.env.BPMN_MODELER_ALLOW_TEST_MOCK = old.mock;
+    if (old.verified === undefined) delete process.env.FLOWABLE_VERIFIED_STAGING_RELEASE; else process.env.FLOWABLE_VERIFIED_STAGING_RELEASE = old.verified;
+  }
+});
+
 test("diff includes changed process, assignment, layout, conditions, added and removed nodes and flows", () => {
   const previous = {
     key: "p",

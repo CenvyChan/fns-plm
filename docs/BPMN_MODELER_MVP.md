@@ -16,7 +16,9 @@
 
 发布复用现有加密连接器，Flowable `tenantId` 格式与现有审批集成一致：`tenant:T:organization:O:account:A`。重复或并发发布不能无意增加引擎定义版本；网络结果不明确时记录为 uncertain，禁止自动重试，须另行核对。
 
-**真实引擎发布默认阻断。** 仅测试环境显式开启 mock 模式且 connector 指向 loopback 时，才能走发布闭环。该模式只是开发测试通道，不是生产发布开关。
+**真实引擎发布默认阻断。** 保留显式 test mock + loopback 通道；另仅当部署环境明确设置 `FLOWABLE_VERIFIED_STAGING_RELEASE=20261020-parser-patched`，且 connector URL 精确等于 `http://100.83.138.26:18081/flowable-rest/service` 时，允许已验证 staging 发布。`NODE_ENV=test` 不构成 staging 证明。18080 回滚端点及其他主机/端口/路径均不允许 BPMN 发布；无通用 HTTP 或全局绕过，此开关不授权生产发布。
+
+staging 验证记录：解析器补丁镜像 SHA-256 `c15051ca278e4cd86f31a81498a04741d13aaa6c384c6b37d78f6b1f949b412a`，engineJar SHA-256 `77f4d443e554362d471f4aa2b9401af1c983e41ee9472e7905b7a1f3b1cf04c1`；deploy/start/tasks/image/complete 和 PostgreSQL 重启持久化通过。Forms 任务 adapter 仍未实现，任务 API 返回 501；自定义流程启动仍仅允许现有 4 个内置流程，allowlist 未扩展。
 
 ## 为什么不能发布到现有 Flowable 8.0.0
 
