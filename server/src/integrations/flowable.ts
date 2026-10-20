@@ -143,7 +143,7 @@ export async function listTasksForActor(actor: string, tenantId: string, candida
     for (const row of taskRows(results[index])) {
       if (String(row.tenantId ?? '') !== tenantId) continue
       const assignee = String(row.assignee ?? '')
-      if (index < 2 ? assignee !== actor : Boolean(assignee && assignee !== actor)) continue
+      if (index === 0 ? assignee !== actor : Boolean(assignee)) continue
       const id = String(row.id ?? '')
       if (id) visible.set(id, row)
     }
@@ -176,6 +176,24 @@ export async function startProcess(processDefinitionKey: string, variables: Arra
   if (!tenantId) throw new Error('tenantId is required to start a PLM approval process.')
   await deployTenantDefinitions(cfg, tenantId)
   return request(cfg, 'POST', '/runtime/process-instances', { ...options, processDefinitionKey, tenantId, variables })
+}
+
+/** Start an already-published custom definition by its exact server-verified immutable ID. */
+export async function startProcessDefinition(processDefinitionId: string, variables: Array<{ name: string; value: unknown }> = [], options: Record<string, unknown> = {}, input?: FlowableConfig): Promise<unknown> {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(processDefinitionId)) throw new Error('A verified processDefinitionId is required.')
+  const tenantId = typeof options.tenantId === 'string' ? options.tenantId : ''
+  if (!tenantId || tenantId.length > 500) throw new Error('tenantId is required to start a custom PLM process.')
+  const cfg = requireConfig(input)
+  const expected = options.expectedDefinition && typeof options.expectedDefinition === 'object' ? options.expectedDefinition as JsonRecord : {}
+  const definition = await request(cfg, 'GET', `/repository/process-definitions/${encodeURIComponent(processDefinitionId)}`) as JsonRecord
+  if (String(definition.id ?? '') !== processDefinitionId || String(definition.tenantId ?? '') !== tenantId ||
+      (expected.deploymentId !== undefined && String(definition.deploymentId ?? '') !== String(expected.deploymentId)) ||
+      (expected.key !== undefined && String(definition.key ?? '') !== String(expected.key)))
+    throw new Error('Flowable process definition does not match the published scoped definition.')
+  // Flowable rejects requests that combine processDefinitionId and tenantId; the exact definition
+  // was just verified to belong to this tenant, so start only by immutable ID.
+  return request(cfg, 'POST', '/runtime/process-instances', { processDefinitionId, variables,
+    ...(typeof options.businessKey === 'string' ? { businessKey: options.businessKey } : {}) })
 }
 
 export async function completeTask(taskId: string, input: { actor: string; decision: ApprovalDecision; comment: string }, connection?: FlowableConfig): Promise<unknown> {

@@ -220,3 +220,11 @@ test("diff includes changed process, assignment, layout, conditions, added and r
     );
   assert.deepEqual(modelChanges(next, structuredClone(next)), []);
 });
+
+test("candidateGroups accepts only scoped deterministic role IDs", async () => {
+  const { validateGeneratedBpmnXml } = await import("../dist/bpmn-xml.js");
+  const base = `<?xml version="1.0" encoding="UTF-8"?><definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:flowable="http://flowable.org/bpmn" targetNamespace="https://momentum.local/bpmn"><process id="p" name="P" isExecutable="true"><startEvent id="s"/><userTask id="t" name="T" flowable:candidateGroups="plm_${"a".repeat(32)}_r_reviewer"/><endEvent id="e"/><sequenceFlow id="f1" sourceRef="s" targetRef="t"></sequenceFlow><sequenceFlow id="f2" sourceRef="t" targetRef="e"></sequenceFlow></process></definitions>`;
+  assert.deepEqual(validateGeneratedBpmnXml(base), []);
+  for (const bad of ["admin", "plm_"+"a".repeat(32)+"_r_admin,plm_"+"b".repeat(32)+"_r_member", "plm_"+"a".repeat(32)+"_r_owner"])
+    assert.ok(validateGeneratedBpmnXml(base.replace(/plm_[a-f0-9]{32}_r_reviewer/, bad)).length);
+});

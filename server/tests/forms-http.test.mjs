@@ -209,7 +209,10 @@ await test('forms end-to-end with verified sessions, immutable versions, authori
     assert.equal(valid.data.formVersion, 1)
     assert.equal(valid.data.processInstanceId, context.processInstanceId)
     submission = valid.data
-    const conditional = await submit({ mode: 'special', reason: 'Approved reason', limited: 'enabled payload' })
+    assert.equal((await submit({ mode: 'special', reason: 'Approved reason', limited: 'enabled payload' })).status, 409, 'an accepted task form is immutable')
+    assert.equal((await submit({ derived: 'another client value' })).data.id, submission.id, 'canonical identical retries reuse the existing submission')
+    contexts.set('conditional-task', { ...context, taskId: 'conditional-task' })
+    const conditional = await submit({ mode: 'special', reason: 'Approved reason', limited: 'enabled payload' }, admin, 'conditional-task')
     assert.equal(conditional.status, 201)
     const memberTask = { ...context, taskId: 'member-task', actorId: member.id }
     contexts.set(memberTask.taskId, memberTask)

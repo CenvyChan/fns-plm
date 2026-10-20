@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createHmac, randomBytes, randomUUID } from 'node:crypto'
+import { createHmac, createHash, randomBytes, randomUUID } from 'node:crypto'
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -101,6 +101,10 @@ function assertStatus(result, status, context) {
 
 function flowableTenant(scope) {
   return `tenant:${scope.tenantId}:organization:${scope.organizationId}:account:${scope.accountId}`
+}
+function scopedRoleGroup(scope, role = 'admin') {
+  const digest = createHash('sha256').update(JSON.stringify([scope.tenantId, scope.organizationId, scope.accountId])).digest('hex').slice(0, 32)
+  return `plm_${digest}_r_${role}`
 }
 
 function signCallback(secret) {
@@ -611,10 +615,10 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
     }
   } finally { db.close() }
 
-  const actorA = `flowable-mapped-a-${random}`
-  const actorB = `flowable-mapped-b-${random}`
-  const groupA = `candidate-group-a-${random}`
-  const groupB = `candidate-group-b-${random}`
+  const actorA = email
+  const actorB = email
+  const groupA = scopedRoleGroup(scopeA)
+  const groupB = scopedRoleGroup(scopeBRecord)
   const taskA = { id: `mock-candidate-task-a-${random}`, tenantId: scopeAKey, assignee: null, name: 'Mock candidate task A', processInstanceId: `mock-process-a-${random}` }
   const taskB = { id: `mock-candidate-task-b-${random}`, tenantId: scopeBKey, assignee: null, name: 'Mock candidate task B', processInstanceId: `mock-process-b-${random}` }
   scopeTasks = new Map([[taskA.id, taskA], [taskB.id, taskB]])
@@ -631,19 +635,20 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
   })
 
   await startScope(scopeA.accountId)
-  await saveProvider('flowable', { ...mockFlowable, userMap: { [email]: actorA }, groupMap: {} })
-  await saveProvider('dingtalk', mockDing(dingSecretA, actorA))
+  await saveProvider('flowable', { ...mockFlowable })
+  await saveProvider('dingtalk', mockDing(dingSecretA, 'unknown-plm-member@example.test'))
   const missingGroup = await api('/api/dingtalk/cards/callback', { method: 'POST', token: '', headers: signCallback(dingSecretA), body: callbackPayload(taskA.id) })
-  assertStatus(missingGroup, 403, 'DingTalk identity without a scoped candidate-group mapping must not approve a candidate group task')
+  assertStatus(missingGroup, 403, 'DingTalk identity without an active scoped PLM member must not approve a candidate group task')
   assert.deepEqual(queryCounts.completed, [])
 
-  await saveProvider('flowable', { ...mockFlowable, userMap: { [email]: actorA }, groupMap: { [actorA]: [groupA] } })
+  await saveProvider('flowable', { ...mockFlowable })
+  await saveProvider('dingtalk', mockDing(dingSecretA, actorA))
   const approvedA = await api('/api/dingtalk/cards/callback', { method: 'POST', token: '', headers: signCallback(dingSecretA), body: callbackPayload(taskA.id) })
   assertStatus(approvedA, 200, 'signed DingTalk callback with exact scope/user/group mapping')
   assert.deepEqual(queryCounts.completed, [taskA.id])
 
   await startScope(scopeBRecord.accountId)
-  await saveProvider('flowable', { ...mockFlowable, userMap: { [email]: actorB }, groupMap: {} })
+  await saveProvider('flowable', { ...mockFlowable })
   await saveProvider('dingtalk', mockDing(dingSecretB, actorB))
   const crossScopeA = await api('/api/dingtalk/cards/callback', { method: 'POST', token: '', headers: signCallback(dingSecretB), body: callbackPayload(taskA.id) })
   assertStatus(crossScopeA, 403, 'scope B signed identity must not act on scope A tenant task')
@@ -655,11 +660,13 @@ test('K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to com
   assertStatus(unmappedDingTalk, 403, 'valid callback signature without a scope-local DingTalk user mapping must be denied')
   await saveProvider('dingtalk', mockDing(dingSecretB, actorB))
 
+  candidateGroupsByTask.set(taskB.id, groupA)
   const missingGroupB = await api('/api/dingtalk/cards/callback', { method: 'POST', token: '', headers: signCallback(dingSecretB), body: callbackPayload(taskB.id) })
-  assertStatus(missingGroupB, 403, 'scope B candidate group must be independently mapped')
-  await saveProvider('flowable', { ...mockFlowable, userMap: { [email]: actorB }, groupMap: { [actorB]: [groupB] } })
+  assertStatus(missingGroupB, 403, 'scope B member must not acquire a scope A candidate group')
+  candidateGroupsByTask.set(taskB.id, groupB)
+  await saveProvider('flowable', { ...mockFlowable })
   const approvedB = await api('/api/dingtalk/cards/callback', { method: 'POST', token: '', headers: signCallback(dingSecretB), body: callbackPayload(taskB.id) })
-  assertStatus(approvedB, 200, 'scope B callback should succeed only after its own candidate-group map is saved')
+  assertStatus(approvedB, 200, 'scope B callback succeeds with automatic scoped role mapping')
   assert.deepEqual(queryCounts.completed, [taskA.id, taskB.id])
 
   const badSignature = await api('/api/dingtalk/cards/callback', { method: 'POST', token: '', headers: signCallback(`${dingSecretA}-wrong`), body: callbackPayload(taskB.id) })

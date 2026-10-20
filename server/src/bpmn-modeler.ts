@@ -7,6 +7,7 @@ import { db, recordSecurityEvent } from "./database.js";
 import { currentWorkspaceScope, type WorkspaceScope } from "./scope.js";
 import { connectorCredentialConfig } from "./integrations/configuration.js";
 import { flowableFormKey } from "./form-binding.js";
+import { resolveFlowableIdentity, resolveFlowableRoleGroup } from "./flowable-identity.js";
 import {
   deployModelDefinition,
   type FlowableConfig,
@@ -375,9 +376,10 @@ function xmlFor(g: Graph): string {
     }
     if (n.type === "userTask") {
       const a = n.assignment as Record<string, unknown>;
-      const prop = a.kind === "assignee" ? "assignee" : "candidateUsers";
       const binding = n.formBinding as { formKey: string; formVersion: number } | undefined;
-      let attrs = `flowable:${prop}="${esc((a.userIds as string[]).join(","))}"`;
+      let attrs = a.kind === "candidateRole"
+        ? `flowable:candidateGroups="${esc(String((a.groupIds as string[])[0]))}"`
+        : `flowable:${a.kind === "assignee" ? "assignee" : "candidateUsers"}="${esc((a.userIds as string[]).join(","))}"`;
       if (binding) attrs += ` flowable:formKey="${esc(flowableFormKey(binding))}"`;
       lines.push(`<userTask id="${esc(String(n.id))}" name="${esc(String(n.name))}" ${attrs}/>`);
       continue;
@@ -400,11 +402,6 @@ function xmlFor(g: Graph): string {
   return lines.join("");
 }
 function resolveAssignments(scope: WorkspaceScope, graph: Graph): Graph {
-  const cfg = connectorCredentialConfig(scope, "flowable"),
-    map =
-      cfg.userMap && typeof cfg.userMap === "object"
-        ? (cfg.userMap as Record<string, unknown>)
-        : {};
   const result = JSON.parse(JSON.stringify(graph)) as Graph;
   for (const n of result.nodes) {
     if (n.type !== "userTask") continue;
@@ -414,44 +411,22 @@ function resolveAssignments(scope: WorkspaceScope, graph: Graph): Graph {
       if (!form) throw new Error("pinned form version is unavailable in this scope");
     }
     const a = n.assignment as Record<string, unknown>;
-    let ids = (a.userIds as string[] | undefined) || [];
-    if (a.kind === "candidateRole")
-      ids = (
-        db
-          .prepare(
-            `SELECT u.id FROM tenant_memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=? AND m.organization_id=? AND m.account_id=? AND m.role=? AND m.disabled=0 AND u.disabled=0 ORDER BY u.id`,
-          )
-          .all(
-            scope.tenantId,
-            scope.organizationId,
-            scope.accountId,
-            a.role,
-          ) as Array<{ id: string }>
-      ).map((x) => x.id);
+    if (a.kind === "candidateRole") {
+      const members = db.prepare(`SELECT m.user_id AS id FROM tenant_memberships m
+        JOIN users u ON u.id=m.user_id
+        JOIN accounts ac ON ac.id=m.account_id AND ac.tenant_id=m.tenant_id AND ac.organization_id=m.organization_id
+        JOIN tenants t ON t.id=m.tenant_id JOIN organizations o ON o.id=m.organization_id AND o.tenant_id=m.tenant_id
+        WHERE m.tenant_id=? AND m.organization_id=? AND m.account_id=? AND m.role=?
+          AND m.disabled=0 AND u.disabled=0 AND ac.status='active' AND t.status='active' AND o.status='active' ORDER BY u.id`)
+        .all(scope.tenantId, scope.organizationId, scope.accountId, a.role) as Array<{id:string}>;
+      if (!members.length) throw new Error("assignment has no active scoped members");
+      n.assignment = { kind: "candidateRole", role: a.role, groupIds: [resolveFlowableRoleGroup(scope, String(a.role))] };
+      continue;
+    }
+    const ids = (a.userIds as string[] | undefined) || [];
     if (!ids.length) throw new Error("assignment has no active scoped members");
-    const mapped = ids.map((id) => {
-      const row = db
-        .prepare(
-          `SELECT u.email FROM tenant_memberships m JOIN users u ON u.id=m.user_id WHERE m.user_id=? AND m.tenant_id=? AND m.organization_id=? AND m.account_id=? AND m.disabled=0 AND u.disabled=0`,
-        )
-        .get(id, scope.tenantId, scope.organizationId, scope.accountId) as
-        { email: string } | undefined;
-      if (!row) throw new Error("assignment references a non-member");
-      const engine = map[row.email];
-      if (typeof engine !== "string" || !engine.trim())
-        throw new Error(`unmapped Flowable user: ${row.email}`);
-      if (
-        engine.length > 160 ||
-        !/^[A-Za-z0-9_.@-]+$/.test(engine) ||
-        /[,${}]/.test(engine)
-      )
-        throw new Error(`unsafe Flowable user mapping: ${row.email}`);
-      return engine;
-    });
-    n.assignment = {
-      kind: a.kind === "assignee" ? "assignee" : "candidateUsers",
-      userIds: mapped,
-    };
+    const mapped = ids.map((id) => resolveFlowableIdentity(scope, id).actor);
+    n.assignment = { kind: a.kind === "assignee" ? "assignee" : "candidateUsers", userIds: mapped };
   }
   return result;
 }
@@ -597,8 +572,9 @@ export function createBpmnModelerRouter() {
       roles,
       flowable: {
         configured: Boolean(cfg.baseUrl && cfg.username && cfg.password),
-        userMapAvailable: Boolean(cfg.userMap),
-        groupMapAvailable: Boolean(cfg.groupMap),
+        userMapAvailable: true,
+        groupMapAvailable: true,
+        identityMappingMode: 'plm-scoped-automatic',
       },
     });
   });

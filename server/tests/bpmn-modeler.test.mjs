@@ -161,7 +161,6 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
       baseUrl: `http://127.0.0.1:${mockPort}`,
       username: "mock-user",
       password: "mock-password",
-      userMap: { "bpmn-admin@example.test": "engine-admin" },
     };
     ok(await api("/integrations/settings/flowable", "PUT", connector));
     const formDefinition = { dslVersion: 1, fields: [{ id: "title", label: "Title", type: "text" }] };
@@ -313,8 +312,7 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
         baseUrl: `http://127.0.0.1:${mockPort}`,
         username: "mock-user",
         password: "mock-password",
-        userMap: { "bpmn-admin@example.test": "engine-admin" },
-      }),
+        }),
     );
     const parallelGraph = {
       key: "closedParallel",
@@ -354,7 +352,7 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
       201,
     );
     assert.equal(frozen.version, 1);
-    assert.match(frozen.xml, /flowable:assignee="engine-admin"/);
+    assert.match(frozen.xml, /flowable:assignee="plm_[a-f0-9]{32}_u_[a-f0-9]{32}"/);
     const sha = frozen.sha256;
     await stop();
     await start();
@@ -458,22 +456,14 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
     ok(
       await api("/integrations/settings/flowable", "PUT", {
         ...connector,
-        userMap: { "bpmn-admin@example.test": "changed-engine-user" },
       }),
     );
+    // Automatic scoped identities do not depend on legacy connector userMap configuration.
     assert.equal(
-      (
-        await api(path + "/publish", "POST", {
-          version: 1,
-          confirmationToken: staleMapping.confirmationToken,
-          confirm: true,
-        })
-      ).status,
-      409,
-    );
-    assert.equal(
-      ok(await api(path + "/preview", "POST", { version: 1 })).blocked,
-      true,
+      (await api(path + "/publish", "POST", {
+        version: 1, confirmationToken: staleMapping.confirmationToken, confirm: true,
+      })).status,
+      200,
     );
     ok(await api("/integrations/settings/flowable", "PUT", connector));
     const branched = {
@@ -511,7 +501,8 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
       await api(path + "/versions", "POST", { expectedRevision: 3 }),
       201,
     );
-    assert.match(v2.xml, /flowable:candidateUsers="engine-admin"/);
+    assert.match(v2.xml, /flowable:candidateGroups="plm_[a-f0-9]{32}_r_admin"/);
+    assert.doesNotMatch(v2.xml, /flowable:candidateUsers=/);
     assert.match(
       v2.xml,
       /exclusiveGateway id="Decision" default="DefaultFlow"/,

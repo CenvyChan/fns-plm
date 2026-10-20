@@ -107,7 +107,7 @@ export function validateGeneratedBpmnXml(xml: string): string[] {
       process: ["id", "name", "isExecutable"],
       startEvent: ["id", "name"],
       endEvent: ["id", "name"],
-      userTask: ["id", "name", "flowable:assignee", "flowable:candidateUsers", "flowable:formKey"],
+      userTask: ["id", "name", "flowable:assignee", "flowable:candidateUsers", "flowable:candidateGroups", "flowable:formKey"],
       exclusiveGateway: ["id", "default"],
       parallelGateway: ["id"],
       sequenceFlow: ["id", "sourceRef", "targetRef", "name"],
@@ -135,6 +135,12 @@ export function validateGeneratedBpmnXml(xml: string): string[] {
       )
         errors.push("unsafe identity attribute");
     }
+    if (attrs["flowable:candidateGroups"] !== undefined &&
+      !/^plm_[a-f0-9]{32}_r_(?:admin|plm_manager|reviewer|member)$/.test(attrs["flowable:candidateGroups"]!))
+      errors.push("unsafe identity attribute");
+    if (name === "userTask" && attrs["flowable:candidateGroups"] !== undefined &&
+      (attrs["flowable:assignee"] !== undefined || attrs["flowable:candidateUsers"] !== undefined))
+      errors.push("conflicting userTask identity attributes");
     if (
       name === "userTask" && attrs["flowable:formKey"] !== undefined &&
       !/^plm-form:[A-Za-z][A-Za-z0-9_-]{0,63}:v[1-9][0-9]*$/.test(attrs["flowable:formKey"]!)

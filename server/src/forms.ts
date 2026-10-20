@@ -147,8 +147,15 @@ export function createFormsRouter(options: { taskAdapter?: FormTaskAdapter } = {
       const context = await adapter.resolve({ scope: s, actorId: req.authUser!.id, taskId: req.body.taskId, formKey: req.params.key, formVersion: version })
       if (!context || context.tenantId !== s.tenantId || context.organizationId !== s.organizationId || context.accountId !== s.accountId || context.actorId !== req.authUser!.id || context.formKey !== req.params.key || context.formVersion !== version || context.taskId !== req.body.taskId || typeof context.processInstanceId !== 'string' || !context.processInstanceId) return res.status(403).json({ error: 'task context not authorized' })
       const values = validateValues(JSON.parse(vr.definition) as FormDefinition, req.body.values, s, lookup), id = randomUUID(), createdAt = new Date().toISOString()
-      db.prepare('INSERT INTO form_submissions VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(id, s.tenantId, s.organizationId, s.accountId, req.params.key, version, req.authUser!.id, context.processInstanceId, context.taskId, JSON.stringify(values), createdAt)
-      return res.status(201).json({ id, formKey: req.params.key, formVersion: version, actorId: req.authUser!.id, processInstanceId: context.processInstanceId, taskId: context.taskId, values, createdAt })
+      const stable = (v: unknown): string => Array.isArray(v) ? `[${v.map(stable).join(',')}]` : v && typeof v === 'object' ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${stable((v as Record<string,unknown>)[k])}`).join(',')}}` : JSON.stringify(v) ?? 'null'
+      const submission = db.transaction(() => {
+        const previous = db.prepare('SELECT id,values_json,created_at FROM form_submissions WHERE tenant_id=? AND organization_id=? AND account_id=? AND form_key=? AND form_version=? AND actor_id=? AND process_instance_id=? AND task_id=? ORDER BY created_at LIMIT 1').get(s.tenantId,s.organizationId,s.accountId,req.params.key,version,req.authUser!.id,context.processInstanceId,context.taskId) as {id:string;values_json:string;created_at:string} | undefined
+        if (previous) return stable(JSON.parse(previous.values_json)) === stable(values) ? {id:previous.id,createdAt:previous.created_at} : null
+        db.prepare('INSERT INTO form_submissions VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(id, s.tenantId, s.organizationId, s.accountId, req.params.key, version, req.authUser!.id, context.processInstanceId, context.taskId, JSON.stringify(values), createdAt)
+        return {id,createdAt}
+      }).immediate()
+      if (!submission) return res.status(409).json({ error: 'task form already submitted with different values' })
+      return res.status(201).json({ ...submission, formKey: req.params.key, formVersion: version, actorId: req.authUser!.id, processInstanceId: context.processInstanceId, taskId: context.taskId, values })
     } catch (e) { return error(res, e) }
   })
   router.get('/forms/:key/submissions/:id', (req, res) => {
