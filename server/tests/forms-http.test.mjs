@@ -124,6 +124,27 @@ await test('forms end-to-end with verified sessions, immutable versions, authori
     assert.deepEqual((await api('/inspection/versions/2', { identity: member })).data.definition, next)
     assert.deepEqual((await api('/inspection/versions', { identity: admin })).data.versions.map(v => v.version), [2, 1])
     assert.equal((await api('/inspection', { identity: admin })).data.definition.fields[0].label, 'Code version two')
+    assert.equal((await api('/inspection', { identity: admin })).data.activeVersion, null)
+    assert.equal((await api('/inspection/activate', { method: 'POST', identity: member, body: { version: 1 } })).status, 403)
+    assert.equal((await api('/inspection/activate', { method: 'POST', identity: admin, body: { version: 99 } })).status, 404)
+    assert.equal((await api('/inspection', { identity: admin })).data.activeVersion, null, 'missing version activation leaves historical active pointer unchanged')
+    assert.equal((await api('/inspection/activate', { method: 'POST', identity: reviewer, body: { version: 1 } })).status, 403)
+    assert.equal((await api('/inspection/activate', { method: 'POST', identity: admin, body: { version: 1, extra: true } })).status, 400)
+    const activated = await api('/inspection/activate', { method: 'POST', identity: manager, body: { version: 1 } })
+    assert.deepEqual({ activeVersion: activated.data.activeVersion, latestVersion: activated.data.latestVersion }, { activeVersion: 1, latestVersion: 2 })
+    assert.equal((await api('/inspection', { identity: admin })).data.latestVersion, 2, 'active pointer never changes latest published version')
+    for (const identity of [member, reviewer]) assert.equal((await api('/inspection/bindings/node-A', { method: 'PUT', identity, body: { version: 2, processKey: 'procA' } })).status, 403)
+    assert.equal((await api('/inspection/bindings/node-A', { method: 'PUT', identity: admin, body: { version: 999, processKey: 'procA' } })).status, 404)
+    assert.equal((await api('/inspection/bindings/node-A', { method: 'PUT', identity: manager, body: { version: 2, processKey: 'procA' } })).data.bindingKey, 'plm-form:inspection:v2')
+    assert.equal((await api('/inspection/bindings/node-A', { method: 'PUT', identity: admin, body: { version: 2, processKey: 'procA', html: '<script>' } })).status, 400)
+    assert.equal((await api('/inspection/bindings/node-A', { method: 'PUT', identity: admin, body: { version: 1, processKey: 'procB' } })).status, 200)
+    const bindings = (await api('/inspection/bindings', { identity: admin })).data.bindings
+    assert.equal(bindings.length, 2, 'same node key coexists independently in distinct processes')
+    assert.deepEqual(bindings.map(({ processKey, nodeKey, version }) => ({ processKey, nodeKey, version })), [
+      { processKey: 'procA', nodeKey: 'node-A', version: 2 }, { processKey: 'procB', nodeKey: 'node-A', version: 1 },
+    ])
+    assert.equal(bindings[0].bindingKey, 'plm-form:inspection:v2')
+
     assert.throws(() => db.prepare('UPDATE form_versions SET definition=? WHERE form_key=?').run('{}', 'inspection'), /immutable/)
     assert.throws(() => db.prepare('DELETE FROM form_versions WHERE form_key=?').run('inspection'), /immutable/)
     const reopened = new Database(process.env.DATABASE_FILE, { readonly: true })
@@ -140,6 +161,9 @@ await test('forms end-to-end with verified sessions, immutable versions, authori
       assert.deepEqual((await api('', { identity: other })).data.forms, [])
       assert.equal((await api('/inspection', { identity: other })).status, 404)
       assert.equal((await api('/inspection/versions/1', { identity: other })).status, 404)
+      assert.equal((await api('/inspection/bindings', { identity: other })).status, 404)
+      assert.equal((await api('/inspection/bindings/node-A', { method: 'PUT', identity: other, body: { version: 1, processKey: 'procA' } })).status, 404)
+      assert.equal((await api('/inspection/activate', { method: 'POST', identity: other, body: { version: 1 } })).status, 404)
       assert.equal((await create(other)).status, 201, 'same form key is independent per exact scope')
       assert.ok(!(await api('/lookups/users', { identity: other })).data.options.some(x => x.value === member.id))
     }

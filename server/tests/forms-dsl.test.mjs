@@ -52,3 +52,10 @@ test('forward event dependencies normalize idempotently and never recurse', () =
     [{ on: 'change', field: 'a', actions: [] }, { on: 'change', field: 'a', actions: [] }],
   ]) assert.throws(() => validateDefinition({ dslVersion: 1, fields, events }))
 })
+
+test('DSL v1 sections remain optional, require unique safe IDs and valid field references', () => {
+  assert.doesNotThrow(() => validateDefinition({ dslVersion: 1, fields: [field('legacy')] }))
+  assert.deepEqual(validateDefinition({ dslVersion: 1, sections: [{ id: 'main', title: 'Main', description: 'Details' }], fields: [field('code', { section: 'main' })] }).sections[0].id, 'main')
+  for (const sections of [[{ id: 'x', title: 'X' }, { id: 'x', title: 'Again' }], [{ id: '__proto__', title: 'Unsafe' }]]) assert.throws(() => validateDefinition({ dslVersion: 1, sections, fields: [field('code')] }))
+  assert.throws(() => validateDefinition({ dslVersion: 1, sections: [{ id: 'known', title: 'Known' }], fields: [field('code', { section: 'missing' })] }), /section/)
+})

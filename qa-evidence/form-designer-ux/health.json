@@ -1,0 +1,1 @@
+{"ok":true,"service":"momentum-api","dataStore":"sqlite","database":{"ok":true,"journalMode":"wal","tenantTablesReady":true}}

@@ -1,5 +1,5 @@
 export type Condition = { field: string; op: 'eq' | 'neq' | 'in'; value: string | number | boolean | (string | number | boolean)[] }
-export type FormDefinition = { dslVersion: 1; fields: { id: string; visibleWhen?: Condition; requiredWhen?: Condition; required?: boolean; enabledWhen?: Condition; [key: string]: unknown }[]; events?: { on: 'change'; field: string; actions: { type: 'set' | 'clear'; target: string; value?: string | number | boolean }[] }[] }
+export type FormDefinition = { dslVersion: 1; sections?: { id: string; title: string; description?: string }[]; fields: { id: string; visibleWhen?: Condition; requiredWhen?: Condition; required?: boolean; enabledWhen?: Condition; [key: string]: unknown }[]; events?: { on: 'change'; field: string; actions: { type: 'set' | 'clear'; target: string; value?: string | number | boolean }[] }[] }
 
 export function conditionMatches(condition: Condition | undefined, values: Record<string, unknown>): boolean {
   if (!condition) return true

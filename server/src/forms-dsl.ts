@@ -3,10 +3,11 @@ export type Condition = { field: string; op: 'eq' | 'neq' | 'in'; value: Scalar 
 export type ScopeIds = { tenantId: string; organizationId: string; accountId: string }
 export type FormField = {
   id: string; label: string; type: 'text' | 'textarea' | 'number' | 'date' | 'select' | 'multiselect' | 'customer' | 'user'
+  section?: string
   required?: boolean; min?: number; max?: number; pattern?: string; options?: Array<{ value: string; label: string }>
   requiredWhen?: Condition; visibleWhen?: Condition; enabledWhen?: Condition
 }
-export type FormDefinition = { dslVersion: 1; fields: FormField[]; events?: Array<{ on: 'change'; field: string; actions: Array<{ type: 'set' | 'clear'; target: string; value?: Scalar }> }> }
+export type FormDefinition = { dslVersion: 1; fields: FormField[]; sections?: Array<{ id: string; title: string; description?: string }>; events?: Array<{ on: 'change'; field: string; actions: Array<{ type: 'set' | 'clear'; target: string; value?: Scalar }> }> }
 const own = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x)
 const only = (x: Record<string, unknown>, allowed: string[]) => Object.keys(x).every(k => allowed.includes(k))
 const scalar = (x: unknown): x is Scalar => typeof x === 'string' || typeof x === 'number' && Number.isFinite(x) || typeof x === 'boolean'
@@ -48,13 +49,22 @@ function validateCondition(x: unknown, ids: Set<string>): Condition {
   return x as Condition
 }
 export function validateDefinition(input: unknown): FormDefinition {
-  if (!own(input) || !only(input, ['dslVersion', 'fields', 'events']) || input.dslVersion !== 1 || !Array.isArray(input.fields) || input.fields.length > 100) throw Error('invalid definition')
+  if (!own(input) || !only(input, ['dslVersion', 'fields', 'events', 'sections']) || input.dslVersion !== 1 || !Array.isArray(input.fields) || input.fields.length > 100) throw Error('invalid definition')
+  const sectionIds = new Set<string>()
+  if (input.sections !== undefined) {
+    if (!Array.isArray(input.sections) || input.sections.length > 50) throw Error('invalid sections')
+    for (const raw of input.sections) {
+      if (!own(raw) || !only(raw, ['id', 'title', 'description']) || typeof raw.id !== 'string' || ['__proto__', 'prototype', 'constructor'].includes(raw.id) || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(raw.id) || sectionIds.has(raw.id) || typeof raw.title !== 'string' || !raw.title.trim() || raw.title.length > 120 || raw.description !== undefined && (typeof raw.description !== 'string' || raw.description.length > 500)) throw Error('invalid section')
+      sectionIds.add(raw.id)
+    }
+  }
   const ids = new Set<string>()
   for (const raw of input.fields) {
-    if (!own(raw) || !only(raw, ['id', 'label', 'type', 'required', 'min', 'max', 'pattern', 'options', 'requiredWhen', 'visibleWhen', 'enabledWhen'])) throw Error('unknown field property')
+    if (!own(raw) || !only(raw, ['id', 'label', 'type', 'section', 'required', 'min', 'max', 'pattern', 'options', 'requiredWhen', 'visibleWhen', 'enabledWhen'])) throw Error('unknown field property')
     const f = raw as unknown as FormField
     if (typeof f.id !== 'string' || ['__proto__', 'prototype', 'constructor'].includes(f.id) || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(f.id) || ids.has(f.id) || typeof f.label !== 'string' || !f.label.trim() || f.label.length > 120 || !['text', 'textarea', 'number', 'date', 'select', 'multiselect', 'customer', 'user'].includes(f.type)) throw Error('invalid field')
     ids.add(f.id)
+    if (f.section !== undefined && (typeof f.section !== 'string' || !sectionIds.has(f.section))) throw Error('unknown field section')
     if (f.required !== undefined && typeof f.required !== 'boolean') throw Error('invalid required')
     for (const k of ['min', 'max'] as const) if (f[k] !== undefined && (!Number.isFinite(f[k]) || Math.abs(f[k]!) > 1e12)) throw Error('invalid bounds')
     if (f.min !== undefined && f.max !== undefined && f.min > f.max) throw Error('invalid bounds')
