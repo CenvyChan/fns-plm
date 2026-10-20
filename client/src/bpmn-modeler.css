@@ -1,0 +1,231 @@
+.workflow-entry-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.workflow-entry-tabs button,
+.bpmn-page button {
+  border: 1px solid #dce1ec;
+  background: white;
+  color: #29314a;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+.workflow-entry-tabs button.active {
+  background: #242044;
+  color: white;
+}
+.bpmn-page {
+  color: #22283c;
+  max-width: 1500px;
+  margin: auto;
+  padding: 20px;
+}
+.bpmn-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.bpmn-head small {
+  color: #777;
+}
+.bpmn-head h1 {
+  margin: 4px 0;
+}
+.bpmn-head p,
+.bpmn-page p {
+  color: #70778b;
+  margin: 6px 0;
+}
+.bpmn-actions,
+.bpmn-toolbar,
+.bpmn-version-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bpmn-page button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.bpmn-layout {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 14px;
+}
+.bpmn-models,
+.bpmn-work,
+.bpmn-lifecycle {
+  background: white;
+  border: 1px solid #e4e7ef;
+  border-radius: 12px;
+  padding: 14px;
+}
+.bpmn-models h2,
+.bpmn-inspector h2,
+.bpmn-lifecycle h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+.bpmn-models > button {
+  display: block;
+  text-align: left;
+  width: 100%;
+  margin-bottom: 8px;
+}
+.bpmn-models > button.active {
+  border-color: #7765d8;
+  background: #f5f2ff;
+}
+.bpmn-models button small {
+  display: block;
+  color: #73798a;
+  margin-top: 5px;
+}
+.bpmn-toolbar {
+  align-items: center;
+  margin-bottom: 12px;
+}
+.bpmn-toolbar span {
+  font-size: 12px;
+  color: #72778a;
+  margin-left: auto;
+}
+.bpmn-canvas-wrap {
+  position: relative;
+  height: 430px;
+  border: 1px solid #e4e7ef;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fbfcfe;
+}
+.bpmn-canvas {
+  height: 100%;
+  width: 100%;
+}
+.bpmn-canvas .djs-palette,
+.bpmn-canvas .djs-context-pad {
+  display: none !important;
+}
+.bpmn-inspector {
+  margin-top: 14px;
+  border-top: 1px solid #eceef3;
+  padding-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 12px;
+}
+.bpmn-inspector h2 {
+  grid-column: 1/-1;
+  margin: 0;
+}
+.bpmn-inspector label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+}
+.bpmn-inspector input,
+.bpmn-inspector select,
+.bpmn-version-controls select {
+  border: 1px solid #dce1ec;
+  border-radius: 6px;
+  padding: 8px;
+  background: white;
+}
+.bpmn-inspector select[multiple] {
+  min-height: 88px;
+}
+.bpmn-inspector label small {
+  color: #777;
+  font-size: 11px;
+}
+.bpmn-flow-list {
+  grid-column: 1/-1;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bpmn-flow-list > div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  padding: 6px;
+  font-size: 12px;
+}
+.bpmn-lifecycle {
+  margin-top: 14px;
+}
+.bpmn-lifecycle > p {
+  font-size: 13px;
+}
+.bpmn-result,
+.bpmn-preview pre {
+  white-space: pre-wrap;
+  max-height: 280px;
+  overflow: auto;
+  background: #f7f8fb;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.bpmn-preview {
+  margin-top: 12px;
+  border: 1px solid #e4e7ef;
+  border-radius: 8px;
+  padding: 12px;
+}
+.bpmn-preview .publish {
+  background: #4d3ba7;
+  color: #fff;
+  margin-top: 8px;
+}
+.bpmn-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.bpmn-alert,
+.bpmn-notice {
+  padding: 10px 12px;
+  margin: 10px 0;
+  border-radius: 8px;
+  background: #fff3e9;
+  color: #7a3d00;
+}
+.bpmn-notice {
+  background: #ecf8f0;
+  color: #24633b;
+}
+.bpmn-foot {
+  margin-top: 14px;
+  color: #777;
+  font-size: 12px;
+  line-height: 1.7;
+}
+@media (max-width: 850px) {
+  .bpmn-layout {
+    grid-template-columns: 1fr;
+  }
+  .bpmn-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .bpmn-inspector {
+    grid-template-columns: 1fr 1fr;
+  }
+  .bpmn-toolbar span {
+    width: 100%;
+    margin: 0;
+  }
+  .bpmn-page {
+    padding: 10px;
+  }
+}

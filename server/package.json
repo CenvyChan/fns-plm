@@ -20,7 +20,8 @@
     "multer": "^2.4.0",
     "nanoid": "^5.1.5",
     "node-cron": "^4.6.0",
-    "redis": "^6.3.0"
+    "redis": "^6.3.0",
+    "saxes": "6.0.0"
   },
   "devDependencies": {
     "@types/archiver": "^8.0.0",

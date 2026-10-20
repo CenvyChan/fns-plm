@@ -1,3 +1,4 @@
+import { validateGeneratedBpmnXml, engineReleaseBlocked } from "../bpmn-xml.js"
 import { Buffer } from 'node:buffer'
 import { readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
@@ -189,4 +190,78 @@ export async function completeTask(taskId: string, input: { actor: string; decis
     { name: 'approvedBy', value: actor }, { name: 'approvedAt', value: new Date().toISOString() },
   ]
   return request(cfg, 'POST', `/runtime/tasks/${encodeURIComponent(taskId)}`, { action: 'complete', variables })
+}
+
+/** Isolated modeler adapter; never used by the existing automatic approval deployment path. */
+export async function deployModelDefinition(
+  input: { key: string; name: string; xml: string; tenantId: string },
+  connection?: FlowableConfig,
+): Promise<{ deploymentId: string; processDefinitionId: string }> {
+  if (engineReleaseBlocked(connection ?? {})) throw new Error("Real Flowable model publication is blocked pending independently validated mitigation; mock-only test mode is required.");
+  const cfg = requireConfig(connection);
+  if (
+    !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(input.key) ||
+    !input.tenantId ||
+    input.tenantId.length > 500
+  )
+    throw new Error("Invalid generated process key or tenantId.");
+  if (validateGeneratedBpmnXml(input.xml).length)
+    throw new Error("Generated BPMN XML failed the safe subset check.");
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([input.xml], { type: "application/xml" }),
+    `${input.key}.bpmn20.xml`,
+  );
+  form.append("tenantId", input.tenantId);
+  const controller = new AbortController(),
+    timer = setTimeout(() => controller.abort(), cfg.timeoutMs ?? 10000);
+  try {
+    const response = await fetch(`${cfg.baseUrl}/repository/deployments`, {
+      method: "POST",
+      headers: authHeaders(cfg),
+      body: form,
+      redirect: "error",
+      signal: controller.signal,
+    });
+    const data = (await responseData(response)) as JsonRecord;
+    const deploymentId = String(data.id ?? "");
+    if (!deploymentId)
+      throw new Error("Flowable deployment response omitted deployment id.");
+    const query = new URLSearchParams({
+      key: input.key,
+      tenantId: input.tenantId,
+      size: "100",
+    });
+    const listed = (await request(
+      cfg,
+      "GET",
+      `/repository/process-definitions?${query}`,
+    )) as { data?: unknown[] };
+    const def = (Array.isArray(listed?.data) ? listed.data : []).find(
+      (x) =>
+        String((x as JsonRecord)?.deploymentId ?? "") === deploymentId &&
+        String((x as JsonRecord)?.key ?? "") === input.key,
+    ) as JsonRecord | undefined;
+    if (!def?.id)
+      throw new Error(
+        "Flowable deployment did not expose its process definition.",
+      );
+    return { deploymentId, processDefinitionId: String(def.id) };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError")
+      throw new Error(
+        "Flowable model deployment timed out; outcome may be ambiguous.",
+      );
+    if (
+      error instanceof Error &&
+      /Flowable|safe subset|generated|process key|tenantId/.test(error.message)
+    )
+      throw error;
+    throw new Error(
+      "Flowable model deployment failed; outcome may be ambiguous and must not be retried automatically.",
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 }

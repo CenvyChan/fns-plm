@@ -1,0 +1,17 @@
+{
+  "name": "FlowableMinimal",
+  "uri": "http://flowable.org/bpmn",
+  "prefix": "flowable",
+  "xml": { "tagAlias": "lowerCase" },
+  "types": [
+    {
+      "name": "UserTask",
+      "extends": ["bpmn:UserTask"],
+      "properties": [
+        { "name": "assignee", "type": "String", "isAttr": true },
+        { "name": "candidateUsers", "type": "String", "isAttr": true },
+        { "name": "candidateGroups", "type": "String", "isAttr": true }
+      ]
+    }
+  ]
+}

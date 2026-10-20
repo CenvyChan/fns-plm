@@ -1,0 +1,28 @@
+✔ accepts a minimal valid generated BPMN document (5.521395ms)
+✔ rejects XML declarations, external entities, and external URLs (0.952189ms)
+✔ rejects dangerous BPMN elements, namespaces, attributes and executable content (1.597117ms)
+✔ rejects malformed XML and comment-obscured unsafe payloads (0.648925ms)
+✔ production/default gate blocks release; test mock is limited to loopback (0.515991ms)
+✔ diff includes changed process, assignment, layout, conditions, added and removed nodes and flows (0.831106ms)
+✔ BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries and mock deployment (2948.276817ms)
+✔ production accepts only exact approved Flowable HTTP endpoint (optional terminal slash) (2.076035ms)
+✔ production saveConnectorConfig permits only approved Flowable HTTP and rejects other providers despite override flag (5.268045ms)
+✔ non-production connector configuration continues to allow loopback HTTP (1.556114ms)
+✔ production rejects other HTTP hosts, ports, paths, URL decorations; global flag cannot override (0.494349ms)
+✔ Flowable authenticated requests do not follow redirects (3.879197ms)
+{"providers":["K3Cloud mock","Flowable mock","DingTalk callback mock"],"internalScopes":2,"connectorDefaultTripleBinding":"passed","dingtalkSsoRequiresEachScopeLayer":"passed","k3cloudSessionAndCacheIsolation":"passed","missingOrForgedScopeHeadersRejectedBeforeProviderCall":"passed","flowableCandidateGroupsScopedPerAccount":"passed","dingtalkIdentityAndCallbackScopeBinding":"passed","realEnterpriseServicesContacted":false}
+✔ K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to complete tenant/org/account scope with mocks only (2886.694942ms)
+✔ Node tenant-deployment BPMN stays in sync with the standalone Flowable engine model (683.927489ms)
+✔ tenant data, mobile authentication, role enforcement, and connector secrets stay isolated (529.676586ms)
+✔ project workbench template, scoped plans/files, atomic KPI set, and dual-review flow (545.610625ms)
+✔ controlled document revisions, private file access, and upload RBAC stay scoped (197.905927ms)
+✔ tenant, organization, and account scope plus core API reference and RBAC matrix stay isolated (731.717719ms)
+✔ report definitions are scoped, role-safe, validated, versioned and preview existing daily rows only (2382.759591ms)
+ℹ tests 19
+ℹ suites 0
+ℹ pass 19
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7521.229215
