@@ -1,0 +1,104 @@
+{
+  "database": "/tmp/plm-forms-mvp-ui/forms.sqlite",
+  "form": {
+    "tenant_id": "oUoQRcWKExXG9r78CfghD",
+    "organization_id": "6FkB-Qw5AA8l9hsysFQ-h",
+    "account_id": "1jwdTf8Xm2pfK5UbiF4SO",
+    "form_key": "mvp_browser_form",
+    "name": "隔离表单验收 v1",
+    "revision": 2,
+    "latest_version": 2,
+    "definition": {
+      "dslVersion": 1,
+      "fields": [
+        {
+          "id": "title",
+          "label": "申请标题（修订）",
+          "type": "text",
+          "required": true,
+          "min": 2,
+          "max": 40
+        },
+        {
+          "id": "amount",
+          "label": "数量",
+          "type": "number",
+          "required": true,
+          "min": 0,
+          "max": 5
+        },
+        {
+          "id": "notes",
+          "label": "说明",
+          "type": "textarea"
+        }
+      ]
+    }
+  },
+  "versions": [
+    {
+      "version": 1,
+      "definition": {
+        "dslVersion": 1,
+        "fields": [
+          {
+            "id": "title",
+            "label": "申请标题",
+            "type": "text",
+            "required": true,
+            "min": 2,
+            "max": 40
+          },
+          {
+            "id": "amount",
+            "label": "数量",
+            "type": "number",
+            "required": true,
+            "min": 0,
+            "max": 10
+          },
+          {
+            "id": "notes",
+            "label": "说明",
+            "type": "textarea"
+          }
+        ]
+      },
+      "created_at": "2026-10-20T00:29:13.904Z",
+      "created_by": "c2vI0An9jOxjT5qGMOoPl"
+    },
+    {
+      "version": 2,
+      "definition": {
+        "dslVersion": 1,
+        "fields": [
+          {
+            "id": "title",
+            "label": "申请标题（修订）",
+            "type": "text",
+            "required": true,
+            "min": 2,
+            "max": 40
+          },
+          {
+            "id": "amount",
+            "label": "数量",
+            "type": "number",
+            "required": true,
+            "min": 0,
+            "max": 5
+          },
+          {
+            "id": "notes",
+            "label": "说明",
+            "type": "textarea"
+          }
+        ]
+      },
+      "created_at": "2026-10-20T00:29:26.095Z",
+      "created_by": "c2vI0An9jOxjT5qGMOoPl"
+    }
+  ],
+  "submissionsInBrowserDb": 0,
+  "verifiedBy": "Native browser save/publish/refresh/read controls, then separate read-only SQLite connection"
+}

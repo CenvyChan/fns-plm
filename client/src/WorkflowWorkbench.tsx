@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Check, Plus, RefreshCw, Send, X } from 'lucide-react'
 import { apiFetch } from './api'
+import FormDesignerWorkbench from './FormDesignerWorkbench'
 
 type BusinessType = 'material' | 'bom' | 'document' | 'performance'
 type WorkflowTask = {
@@ -19,6 +20,7 @@ async function errorMessage(response: Response) {
 }
 
 export default function WorkflowWorkbench() {
+  const [workspace, setWorkspace] = useState<'workflow' | 'forms'>('workflow')
   const [data, setData] = useState<WorkflowResponse>({ tasks: [] })
   const [selected, setSelected] = useState<WorkflowTask | null>(null)
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([])
@@ -83,8 +85,9 @@ export default function WorkflowWorkbench() {
     finally { setBusy(false) }
   }
 
+  if (workspace === 'forms') return <><nav className="fd-workspace-switch"><button onClick={() => setWorkspace('workflow')}>流程待办</button><button aria-current="page">表单设计</button></nav><FormDesignerWorkbench/></>
   return <main className="iw-page">
-    <header className="iw-heading"><div><div className="iw-eyebrow">流程协同 / WORKFLOW</div><h1>流程待办</h1><p>查看业务上下文、发起流程并提交必填审批意见。</p></div><div className="iw-heading-actions"><button className="iw-button iw-primary" onClick={() => { setCreateOpen(value => !value); setError(''); setNotice('') }}><Plus size={15}/>{createOpen ? '收起表单' : '发起流程'}</button><button className="iw-button iw-secondary" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15}/>刷新</button></div></header>
+    <header className="iw-heading"><div><div className="iw-eyebrow">流程协同 / WORKFLOW</div><h1>流程待办</h1><p>查看业务上下文、发起流程并提交必填审批意见。</p></div><div className="iw-heading-actions"><button className="iw-button iw-secondary" onClick={() => setWorkspace('forms')}>表单设计</button><button className="iw-button iw-primary" onClick={() => { setCreateOpen(value => !value); setError(''); setNotice('') }}><Plus size={15}/>{createOpen ? '收起表单' : '发起流程'}</button><button className="iw-button iw-secondary" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15}/>刷新</button></div></header>
     <div className={`iw-banner ${flowable ? 'iw-live' : 'iw-demo'}`}><span className="iw-status-dot"/><div><b>{flowable ? 'Flowable 已连接' : '本地演示 / Flowable 未连接'}</b><small>{flowable ? (data.engine?.message || '流程引擎连接正常；身份由可信代理校验。') : '当前任务及操作仅写入本地演示记录，不代表真实审批或流程引擎操作。'}</small></div></div>
     {(error || notice) && <div className={`iw-alert ${error ? 'iw-error' : 'iw-success'}`} role="status">{error || notice}</div>}
 
