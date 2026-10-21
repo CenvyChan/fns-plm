@@ -15,8 +15,13 @@ export default function CustomProcessStartPanel({ modelId, currentUser, refreshK
   const [confirmed, setConfirmed] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [attempt, setAttempt] = useState<Attempt | null>(null)
   const sending = useRef(false)
   const storageKey = `plm-custom-start:${currentUser?.id}:${currentUser?.tenantId}:${currentUser?.organizationId}:${currentUser?.accountId}:${modelId}`
+  const currentModelId = useRef(modelId)
+  const currentStorageKey = useRef(storageKey)
+  currentModelId.current = modelId
+  currentStorageKey.current = storageKey
+  const isCurrent = (model: string, key: string) => currentModelId.current === model && currentStorageKey.current === key
   const permitted = currentUser?.role === 'admin' || currentUser?.role === 'plm_manager'
-  const remember = (value: Attempt | null) => { if (value) sessionStorage.setItem(storageKey, JSON.stringify(value)); else sessionStorage.removeItem(storageKey); setAttempt(value) }
+  const remember = (value: Attempt | null, key = storageKey, model = modelId) => { if (value) sessionStorage.setItem(key, JSON.stringify(value)); else sessionStorage.removeItem(key); if (isCurrent(model, key)) setAttempt(value) }
   useEffect(() => {
     let active = true
     setContext(null); setOpen(false); setConfirmed(false); setError(''); setTitle(''); setBusinessId(''); setChangeSummary('')
@@ -27,21 +32,24 @@ export default function CustomProcessStartPanel({ modelId, currentUser, refreshK
         const response = await apiFetch(`/api/bpmn-models/${encodeURIComponent(modelId)}/start-context`)
         if (!response.ok) throw Error(`无法读取已发布启动上下文（HTTP ${response.status}）`)
         const data: StartContext = await response.json()
-        if (active) setContext(data)
-      } catch (e) { if (active) setError(e instanceof Error ? e.message : '读取失败') }
+        if (active && currentModelId.current === modelId) setContext(data)
+      } catch (e) { if (active && currentModelId.current === modelId) { setContext(null); setError(e instanceof Error ? e.message : '读取失败') } }
     })()
     return () => { active = false }
   }, [modelId, storageKey, refreshKey])
   const start = async () => {
     if (sending.current || busy || attempt || !permitted || !context?.canStart || !context.versionId || !confirmed || !title.trim()) return
+    const operationModel = modelId, operationKey = storageKey
+    const operationContext = context
+    const operationTitle = title.trim(), operationBusinessId = businessId.trim(), operationChangeSummary = changeSummary.trim()
     sending.current = true; setBusy(true); setError('')
     const next: Attempt = { key: crypto.randomUUID(), state: 'pending' }
     try {
       // Persist before dispatch: a lost response or remount must never silently create another instance.
-      remember(next)
-      const response = await apiFetch(`/api/bpmn-models/${encodeURIComponent(modelId)}/start`, {
+      remember(next, operationKey, operationModel)
+      const response = await apiFetch(`/api/bpmn-models/${encodeURIComponent(operationModel)}/start`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': next.key },
-        body: JSON.stringify({ title: title.trim(), ...(businessId.trim() ? { businessId: businessId.trim() } : {}), ...(changeSummary.trim() ? { changeSummary: changeSummary.trim() } : {}), expectedVersionId: context.versionId }),
+        body: JSON.stringify({ title: operationTitle, ...(operationBusinessId ? { businessId: operationBusinessId } : {}), ...(operationChangeSummary ? { changeSummary: operationChangeSummary } : {}), expectedVersionId: operationContext.versionId }),
       })
       let data: Record<string, unknown>
       try { data = await response.json() as Record<string, unknown> }
@@ -49,18 +57,26 @@ export default function CustomProcessStartPanel({ modelId, currentUser, refreshK
       if (!response.ok) {
         const outcome = classifyStartFailure(response.status, data.error)
         const uncertain = outcome === 'uncertain'
-        remember(uncertain ? { ...next, state: 'uncertain' } : null)
-        if (!uncertain) setConfirmed(false)
+        remember(uncertain ? { ...next, state: 'uncertain' } : null, operationKey, operationModel)
+        if (!uncertain && isCurrent(operationModel, operationKey)) setConfirmed(false)
+        if (response.status === 409 && data.error === 'published_version_changed') {
+          if (isCurrent(operationModel, operationKey)) { setContext(null); setConfirmed(false); setOpen(true); setError('流程发布版本已更新。已重新读取最新的不可变流程及表单版本；请核对新版并重新确认后再试。') }
+          const refreshModelId = operationModel
+          const latest = await apiFetch(`/api/bpmn-models/${encodeURIComponent(refreshModelId)}/start-context`)
+          if (!latest.ok) throw Error(`版本已变化，但无法刷新启动上下文（HTTP ${latest.status}）；请稍后重新读取。`)
+          const refreshedContext = await latest.json() as StartContext
+          if (isCurrent(operationModel, operationKey)) setContext(refreshedContext)
+          return
+        }
         throw Error(uncertain ? '启动结果不明确，禁止重复提交。请由管理员按下方请求标识核对引擎和启动记录。' : `服务端确认未启动：${data.message || data.error || response.status}。请重新确认后重试。`)
       }
       if (typeof data.processInstanceId !== 'string' || !data.processInstanceId) throw Error('启动响应缺少实例 ID，须人工核对，禁止重试。')
-      remember({ ...next, state: 'started', processInstanceId: data.processInstanceId }); setOpen(false)
+      remember({ ...next, state: 'started', processInstanceId: data.processInstanceId }, operationKey, operationModel); if (isCurrent(operationModel, operationKey)) setOpen(false)
     } catch (e) {
       // Unknown transport/parsing outcome remains locked; never automatically retry a POST.
-      setAttempt(current => current?.state === 'pending' ? { ...current, state: 'uncertain' } : current)
-      const saved = sessionStorage.getItem(storageKey)
-      if (saved) { const value = JSON.parse(saved) as Attempt; if (value.state === 'pending') remember({ ...value, state: 'uncertain' }) }
-      setError(e instanceof Error ? e.message : '连接中断，结果不明确，禁止重复提交。')
+      const saved = sessionStorage.getItem(operationKey)
+      if (saved) { const value = JSON.parse(saved) as Attempt; if (value.state === 'pending') remember({ ...value, state: 'uncertain' }, operationKey, operationModel) }
+      if (isCurrent(operationModel, operationKey)) { setAttempt(current => current?.state === 'pending' ? { ...current, state: 'uncertain' } : current); setError(e instanceof Error ? e.message : '连接中断，结果不明确，禁止重复提交。') }
     } finally { sending.current = false; setBusy(false) }
   }
   if (!modelId) return null

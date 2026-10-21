@@ -46,7 +46,7 @@ test('runtime router enforces authentication and manager role; unpublished model
     assert.equal((await call('admin', { 'x-tenant': 'tenant-other', 'x-org': 'org-other', 'x-account': 'account-other' })).status, 503, 'a different scope must not inherit the default scope connector')
     // Seed canonical completed requests so this isolates idempotency handling before model lookup.
     const { db } = await import('../dist/database.js')
-    const record = (key, version, instance) => db.prepare(`INSERT INTO bpmn_runtime_starts VALUES(?,?,?,?,?,?, 'started',?,?,?)`)
+    const record = (key, version, instance) => db.prepare(`INSERT INTO bpmn_runtime_starts (idempotency_key,tenant_id,organization_id,account_id,actor_id,request_hash,state,process_instance_id,created_at,updated_at) VALUES(?,?,?,?,?,?, 'started',?,?,?)`)
       .run(key, 'tenant-a', 'org-a', 'account-a', 'actor-a', runtimeHash(version), instance, new Date().toISOString(), new Date().toISOString())
     const callKey = (key, payload) => fetch(`${origin}/bpmn-models/model-x/start`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key, 'x-role': 'plm_manager' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(3000) })
     const mismatch = async (key, priorVersion, payload) => {
@@ -66,6 +66,9 @@ test('runtime router enforces authentication and manager role; unpublished model
     const sameMissingReplay = await callKey('replay-missing-1', {})
     assert.equal(sameMissingReplay.status, 200)
     assert.deepEqual(await sameMissingReplay.json(), { processInstanceId: 'instance-missing', replayed: true })
+    const competing = await Promise.all([callKey('race-key-20261021', {}), callKey('race-key-20261021', {})])
+    assert.deepEqual(competing.map(r => r.status).sort(), [404, 404], 'synchronous no-start rejection releases each owned reservation')
+    assert.equal(db.prepare('SELECT 1 FROM bpmn_runtime_starts WHERE idempotency_key=?').get('race-key-20261021'), undefined)
     assert.equal(flowablePosts, 0, 'idempotent replay/conflict handling must not start another engine process')
   } finally { server.closeAllConnections(); flowable.closeAllConnections(); await close(server); await close(flowable); const {db}=await import('../dist/database.js');db.close(); rmSync(dir, { recursive: true, force: true }) }
 })

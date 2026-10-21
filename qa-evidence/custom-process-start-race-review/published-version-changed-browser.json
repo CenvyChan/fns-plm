@@ -1,0 +1,15 @@
+{
+  "url": "local loopback Vite page",
+  "checks": {
+    "firstAttemptWasV7": true,
+    "refreshedContextV8AndFormV3": true,
+    "confirmationClearedAndSubmitDisabled": true,
+    "secondAttemptAfterReconfirmationWasV8": true,
+    "startContextFetchCount": 2,
+    "requestVersions": [
+      "immutable-v7",
+      "immutable-v8"
+    ],
+    "pageErrors": []
+  }
+}

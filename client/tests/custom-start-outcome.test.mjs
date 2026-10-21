@@ -19,7 +19,9 @@ test('明确 unavailable 前置拒绝可在恢复后经重新确认再试；模�
       [409, 'idempotency_key_reused_with_different_request'],
       [503, undefined],
     ]) assert.equal(classifyStartFailure(status, error), 'uncertain', `${status}/${error}`)
-    assert.equal(classifyStartFailure(403, 'role_forbidden'), 'definitely-not-started')
+    assert.equal(classifyStartFailure(401, 'authentication_required'), 'uncertain')
+    assert.equal(classifyStartFailure(403, 'role_forbidden'), 'uncertain')
+    assert.equal(classifyStartFailure(403, 'current_scope_flowable_membership_required'), 'uncertain')
     assert.equal(classifyStartFailure(502, 'flowable_unavailable_no_process_started'), 'uncertain')
     assert.equal(classifyStartFailure(503, 'custom_bpmn_runtime_release_blocked'), 'definitely-not-started')
   }
