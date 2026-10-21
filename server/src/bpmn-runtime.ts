@@ -61,7 +61,9 @@ export function createBpmnRuntimeRouter(): Router {
     if (Object.entries(input).some(([k, v]) => typeof v !== 'string' || !(v as string).trim() || (v as string).length > (k === 'changeSummary' ? 4000 : 240)))
       return res.status(400).json({ error: 'invalid_business_context' })
     const vars: Record<string, unknown> = { ...input, requester: user.displayName }
-    const requestHash = createHash('sha256').update(stable({ modelId, vars })).digest('hex')
+    // Absence is distinct from a confirmed version: both presence and value participate in replay identity.
+    const requestHash = createHash('sha256').update(stable({ modelId, vars,
+      expectedVersion: expectedVersionId === undefined ? { present: false } : { present: true, value: expectedVersionId } })).digest('hex')
     const prior = db.prepare(`SELECT request_hash AS requestHash,state,process_instance_id AS processInstanceId FROM bpmn_runtime_starts
       WHERE tenant_id=? AND organization_id=? AND account_id=? AND actor_id=? AND idempotency_key=?`)
       .get(scope.tenantId, scope.organizationId, scope.accountId, user.id, idempotencyKey) as { requestHash: string; state: string; processInstanceId?: string } | undefined

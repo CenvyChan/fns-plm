@@ -32,7 +32,7 @@ test('启动请求只允许业务上下文和服务端固定版本，无内置�
   assert.match(source, /remember\(next\)[\s\S]*await apiFetch/)
   assert.match(source, /sending.current \|\| busy \|\| attempt/)
   assert.match(source, /sessionStorage.setItem/)
-  assert.match(source, /response.status >= 500/)
+  assert.match(source, /classifyStartFailure\(response.status, data.error\)/)
   assert.match(source, /state: 'uncertain'/)
   assert.match(source, /确认启动已发布 v/)
   assert.doesNotMatch(source, /\/workflow\/instances|processDefinitionKey:|assignee:|processDefinitionId:/)

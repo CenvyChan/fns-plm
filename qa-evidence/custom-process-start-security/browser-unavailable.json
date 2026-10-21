@@ -1,0 +1,16 @@
+{
+  "work": "/tmp/custom-start-ui-kgLU0b",
+  "modelId": "IK-lT7ykWYrlaiolNfLPu",
+  "healthUnavailable": true,
+  "starts": [],
+  "calls": [
+    "POST /repository/deployments",
+    "GET /repository/process-definitions?key=uatCustomApproval&tenantId=tenant%3AUhrrS9gTgtE0y_TlYIqDP%3Aorganization%3ApIErcmafeFt71qsU26Xwt%3Aaccount%3AN6OsdMZtUbOKFQKi_2Ic1&size=100",
+    "GET /runtime/tasks?size=1",
+    "GET /runtime/tasks?assignee=plm_29f590d7a34f9fff43d7d2991baaff11_u_e021c64a619b18d71728ca6e98c893ec&tenantId=tenant%3AUhrrS9gTgtE0y_TlYIqDP%3Aorganization%3ApIErcmafeFt71qsU26Xwt%3Aaccount%3AN6OsdMZtUbOKFQKi_2Ic1&active=true&size=100",
+    "GET /runtime/tasks?candidateUser=plm_29f590d7a34f9fff43d7d2991baaff11_u_e021c64a619b18d71728ca6e98c893ec&tenantId=tenant%3AUhrrS9gTgtE0y_TlYIqDP%3Aorganization%3ApIErcmafeFt71qsU26Xwt%3Aaccount%3AN6OsdMZtUbOKFQKi_2Ic1&active=true&size=100",
+    "GET /runtime/tasks?candidateGroup=plm_29f590d7a34f9fff43d7d2991baaff11_r_admin&tenantId=tenant%3AUhrrS9gTgtE0y_TlYIqDP%3Aorganization%3ApIErcmafeFt71qsU26Xwt%3Aaccount%3AN6OsdMZtUbOKFQKi_2Ic1&active=true&size=100",
+    "GET /runtime/tasks?size=1",
+    "GET /runtime/tasks?size=1"
+  ]
+}

@@ -1,0 +1,23 @@
+
+> momentum-client@1.0.0 build
+> tsc -b && vite build
+
+vite v6.4.4 building for production...
+transforming...
+✓ 2449 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                      1.02 kB │ gzip:   0.58 kB
+dist/assets/bpmn-DaJ2be00.woff2     13.20 kB
+dist/assets/bpmn-DaGVGZ7K.woff      16.16 kB
+dist/assets/bpmn-CZlEAdL6.ttf       48.65 kB
+dist/assets/bpmn-Cyvp-fAH.eot       48.80 kB
+dist/assets/bpmn-0HrGCizt.svg      136.02 kB │ gzip:  24.55 kB
+dist/assets/index-p7OY-VyK.css     262.55 kB │ gzip:  52.57 kB
+dist/assets/index-BLDikCwz.js    1,507.79 kB │ gzip: 433.31 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 7.96s

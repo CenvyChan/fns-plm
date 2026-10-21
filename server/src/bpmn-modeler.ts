@@ -21,6 +21,13 @@ type Graph = {
   flows: Array<Record<string, unknown>>;
 };
 const roles = ["admin", "plm_manager", "reviewer", "member"];
+// Must stay aligned with the built-in PLM process keys in integrations/flowable.ts.
+const reservedProcessKeys = new Set([
+  "materialApproval",
+  "bomReleaseApproval",
+  "documentReleaseApproval",
+  "performanceReviewApproval",
+]);
 const tables = `CREATE TABLE IF NOT EXISTS bpmn_models(id TEXT PRIMARY KEY,tenant_id TEXT NOT NULL,organization_id TEXT NOT NULL,account_id TEXT NOT NULL,key TEXT NOT NULL,name TEXT NOT NULL,graph TEXT NOT NULL,revision INTEGER NOT NULL,created_by TEXT NOT NULL,updated_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,UNIQUE(tenant_id,organization_id,account_id,key)); CREATE TABLE IF NOT EXISTS bpmn_versions(id TEXT PRIMARY KEY,tenant_id TEXT NOT NULL,organization_id TEXT NOT NULL,account_id TEXT NOT NULL,model_id TEXT NOT NULL,version INTEGER NOT NULL,graph TEXT NOT NULL,xml TEXT NOT NULL,sha256 TEXT NOT NULL,created_by TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(model_id,version)); CREATE TABLE IF NOT EXISTS bpmn_audit(id TEXT PRIMARY KEY,tenant_id TEXT NOT NULL,organization_id TEXT NOT NULL,account_id TEXT NOT NULL,model_id TEXT NOT NULL,actor_id TEXT NOT NULL,event TEXT NOT NULL,detail TEXT NOT NULL,created_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS bpmn_publish(id TEXT PRIMARY KEY,tenant_id TEXT NOT NULL,organization_id TEXT NOT NULL,account_id TEXT NOT NULL,model_id TEXT NOT NULL,version_id TEXT NOT NULL,status TEXT NOT NULL,deployment_id TEXT,definition_id TEXT,updated_at TEXT NOT NULL,UNIQUE(model_id,version_id));`;
 db.exec(
   tables +
@@ -76,6 +83,8 @@ function validate(raw: unknown): { graph: Graph; errors: string[] } {
     errors.push("graph contains unknown fields");
   if (typeof g.key !== "string" || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(g.key))
     errors.push("invalid key");
+  else if (reservedProcessKeys.has(g.key))
+    errors.push(`流程 Key「${g.key}」为 PLM 内置流程保留，不能用于自定义模型。`);
   if (
     typeof g.name !== "string" ||
     !g.name.trim() ||
@@ -853,8 +862,15 @@ export function createBpmnModelerRouter() {
         s.tenantId,
         s.organizationId,
         s.accountId,
-      ) as Record<string, unknown> | undefined;
+    ) as Record<string, unknown> | undefined;
     if (!v) return res.status(404).json({ error: "version_not_found" });
+    // Existing databases may contain collisions created before this validation existed.
+    const frozenGraph = JSON.parse(String(v.graph)) as Graph;
+    if (reservedProcessKeys.has(String(frozenGraph.key)))
+      return res.status(400).json({
+        error: "reserved_process_key",
+        message: `流程 Key「${String(frozenGraph.key)}」与 PLM 内置流程冲突，禁止发布；请先将自定义模型改用其他 Key。`,
+      });
     const cfg = connectorCredentialConfig(s, "flowable");
     const mode = engineMode(cfg);
     let blockedReason = mode === "blocked" || mode === "unconfigured"
@@ -862,7 +878,7 @@ export function createBpmnModelerRouter() {
       : "";
     try {
       if (
-        xmlFor(resolveAssignments(s, JSON.parse(String(v.graph)) as Graph)) !==
+        xmlFor(resolveAssignments(s, frozenGraph)) !==
         String(v.xml)
       )
         blockedReason = "成员或身份映射已改变，请重新冻结版本。";
@@ -968,13 +984,19 @@ export function createBpmnModelerRouter() {
         s.tenantId,
         s.organizationId,
         s.accountId,
-      ) as Record<string, unknown> | undefined;
+    ) as Record<string, unknown> | undefined;
     if (!v || v.sha256 !== t.hash)
       return res.status(409).json({ error: "version_changed" });
+    const frozenGraph = JSON.parse(String(v.graph)) as Graph;
+    if (reservedProcessKeys.has(String(frozenGraph.key)))
+      return res.status(400).json({
+        error: "reserved_process_key",
+        message: `流程 Key「${String(frozenGraph.key)}」与 PLM 内置流程冲突，禁止发布；请先将自定义模型改用其他 Key。`,
+      });
     let regenerated: string;
     try {
       regenerated = xmlFor(
-        resolveAssignments(s, JSON.parse(String(v.graph)) as Graph),
+        resolveAssignments(s, frozenGraph),
       );
     } catch {
       return res.status(409).json({ error: "assignment_mapping_changed" });

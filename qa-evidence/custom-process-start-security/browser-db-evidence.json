@@ -1,0 +1,25 @@
+{
+  "starts": [
+    {
+      "idempotency_key": "a20fc822-a0ad-4dca-8225-3acc5cdd03ff",
+      "state": "started",
+      "process_instance_id": "isolated-custom-instance-1"
+    },
+    {
+      "idempotency_key": "3de6500a-15f6-4f27-bc2a-7e2b9f79d225",
+      "state": "uncertain",
+      "process_instance_id": null
+    }
+  ],
+  "models": [
+    {
+      "key": "uatCustomApproval",
+      "revision": 1
+    },
+    {
+      "key": "uatDraftOnly",
+      "revision": 1
+    }
+  ],
+  "storedConnectors": 0
+}

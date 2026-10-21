@@ -1,0 +1,10 @@
+✔ custom deploy adapter rejects each reserved built-in key before any HTTP engine call (17.207541ms)
+✔ legacy frozen reserved-key collision is rejected on preview and publish without engine deployment (1990.431085ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2164.595723

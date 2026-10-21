@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch, type AuthUser } from './api'
+import { classifyStartFailure } from './customStartOutcome'
 
 export type StartContext = {
   canStart: boolean; reason?: string; engineMode: 'mock-test' | 'flowable' | 'unconfigured' | 'blocked'
@@ -42,13 +43,17 @@ export default function CustomProcessStartPanel({ modelId, currentUser, refreshK
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': next.key },
         body: JSON.stringify({ title: title.trim(), ...(businessId.trim() ? { businessId: businessId.trim() } : {}), ...(changeSummary.trim() ? { changeSummary: changeSummary.trim() } : {}), expectedVersionId: context.versionId }),
       })
-      const data = await response.json()
+      let data: Record<string, unknown>
+      try { data = await response.json() as Record<string, unknown> }
+      catch { throw Error('启动响应无法解析，结果不明确，禁止重复提交。') }
       if (!response.ok) {
-        const uncertain = response.status >= 500 || /uncertain|in_progress|recorded/.test(data.error || '')
+        const outcome = classifyStartFailure(response.status, data.error)
+        const uncertain = outcome === 'uncertain'
         remember(uncertain ? { ...next, state: 'uncertain' } : null)
-        throw Error(uncertain ? '启动结果不明确，禁止重复提交。请由管理员按下方请求标识核对引擎和启动记录。' : `启动被拒绝：${data.message || data.error || response.status}。请重新选择模型以刷新已发布版本与权限。`)
+        if (!uncertain) setConfirmed(false)
+        throw Error(uncertain ? '启动结果不明确，禁止重复提交。请由管理员按下方请求标识核对引擎和启动记录。' : `服务端确认未启动：${data.message || data.error || response.status}。请重新确认后重试。`)
       }
-      if (!data.processInstanceId) throw Error('启动响应缺少实例 ID，须人工核对，禁止重试。')
+      if (typeof data.processInstanceId !== 'string' || !data.processInstanceId) throw Error('启动响应缺少实例 ID，须人工核对，禁止重试。')
       remember({ ...next, state: 'started', processInstanceId: data.processInstanceId }); setOpen(false)
     } catch (e) {
       // Unknown transport/parsing outcome remains locked; never automatically retry a POST.

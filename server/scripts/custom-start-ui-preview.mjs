@@ -11,10 +11,12 @@ const root = resolve(import.meta.dirname, '../..'), work = mkdtempSync(join(tmpd
 const port = Number(process.env.CUSTOM_UI_PORT || 4560), apiPort = port + 1, mockPort = port + 2
 const origin = `http://127.0.0.1:${apiPort}`
 let child, token, scope, deployment = 0, starts = [], calls = [], definitions = new Map()
+let healthUnavailable = false
 const mock = createServer(async (req, res) => {
   let body = ''; for await (const b of req) body += b
   calls.push(`${req.method} ${req.url}`); res.setHeader('Content-Type', 'application/json')
   const url = new URL(req.url, 'http://127.0.0.1')
+  if (healthUnavailable && url.pathname === '/runtime/tasks') { res.statusCode = 503; return res.end(JSON.stringify({ error: 'isolated_health_unavailable' })) }
   if (req.method === 'POST' && url.pathname === '/repository/deployments') return res.end(JSON.stringify({ id: `isolated-deployment-${++deployment}` }))
   if (url.pathname === '/repository/process-definitions') {
     const def = { id: `${url.searchParams.get('key')}:1:isolated-${deployment}`, key: url.searchParams.get('key'), deploymentId: `isolated-deployment-${deployment}`, tenantId: url.searchParams.get('tenantId') }
@@ -68,7 +70,9 @@ await api('/forms/uatPinnedForm/publish', 'POST', { revision: 2 }, 201)
 await api('/bpmn-models', 'POST', { graph: { ...graph, key: 'uatDraftOnly', name: 'UAT 自定义流程（未发布）' } }, 201)
 const mime = { '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff': 'font/woff', '.woff2': 'font/woff2', '.png': 'image/png' }
 const web = createServer((req, res) => {
-  if (req.url === '/__test-evidence') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ work, modelId: model.id, starts, calls }, null, 2)) }
+  if (req.url === '/__test-control/unavailable' && req.method === 'POST') { healthUnavailable = true; return res.end('isolated health unavailable') }
+  if (req.url === '/__test-control/restore' && req.method === 'POST') { healthUnavailable = false; return res.end('isolated health restored') }
+  if (req.url === '/__test-evidence') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ work, modelId: model.id, healthUnavailable, starts, calls }, null, 2)) }
   if (req.url.startsWith('/api/')) {
     const upstream = request(origin + req.url, { method: req.method, headers: { ...req.headers, host: `127.0.0.1:${apiPort}`, origin } }, up => { res.writeHead(up.statusCode, up.headers); up.pipe(res) })
     upstream.on('error', () => { res.writeHead(502); res.end() }); req.pipe(upstream); return

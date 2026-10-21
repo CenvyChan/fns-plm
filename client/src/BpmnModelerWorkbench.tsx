@@ -51,6 +51,7 @@ type Version = { version: number; createdAt?: string; sha256?: string };
 type FormItem = { key: string; name: string; revision: number; latestVersion: number };
 type FormHistory = { publications: any[]; audit: any[] };
 const roles = ["admin", "plm_manager", "reviewer", "member"];
+const reservedProcessKeys = new Set(["materialApproval", "bomReleaseApproval", "documentReleaseApproval", "performanceReviewApproval"]);
 export const emptyGraph = (key = "uiApproval", name = "新审批流程"): Graph => ({
   key,
   name,
@@ -469,6 +470,10 @@ export default function BpmnModelerWorkbench({
   };
   const save = async () => {
     if (!modelId) return;
+    if (reservedProcessKeys.has(graph.key)) {
+      setError(`流程 Key「${graph.key}」为 PLM 内置流程保留，不能保存自定义模型。请更换 Key。`);
+      return;
+    }
     setPreview(null);
     setConfirm(false);
     setBusy(true);
@@ -549,6 +554,10 @@ export default function BpmnModelerWorkbench({
     }
   };
   const publish = async () => {
+    if (reservedProcessKeys.has(graph.key)) {
+      setError(`流程 Key「${graph.key}」与 PLM 内置流程冲突，禁止发布。请先更换 Key 并重新冻结版本。`);
+      return;
+    }
     if (!preview?.confirmationToken || !confirm) {
       setError("请先预览并明确勾选确认发布");
       return;
@@ -609,7 +618,7 @@ export default function BpmnModelerWorkbench({
         </aside>
         <section className={`bpmn-work ${panel === "画布" ? "mobile-active" : ""}`}>
           {!modelId ? <div className="bpmn-canvas-empty"><div className="empty-symbol">◇</div><h2>准备好构建流程</h2><p>选择左侧已有模型，或新建模型后在画布中添加节点。</p><small>不会加载示例流程 · 仅支持受控 BPMN 元素</small></div> : <>
-          <div className="bpmn-model-fields"><label className="bpmn-field"><span>流程名称</span><input disabled={!admin || busy} value={graph.name} maxLength={120} onChange={(e) => { setValidation(null); setGraph({ ...graph, name: e.target.value }); }} /></label><label className="bpmn-field key-field"><span>流程 Key</span><input disabled={!admin || busy} value={graph.key} maxLength={64} onChange={(e) => { setValidation(null); setGraph({ ...graph, key: e.target.value }); }} /></label></div>
+          <div className="bpmn-model-fields"><label className="bpmn-field"><span>流程名称</span><input disabled={!admin || busy} value={graph.name} maxLength={120} onChange={(e) => { setValidation(null); setGraph({ ...graph, name: e.target.value }); }} /></label><label className="bpmn-field key-field"><span>流程 Key</span><input disabled={!admin || busy} value={graph.key} maxLength={64} onChange={(e) => { setValidation(null); setGraph({ ...graph, key: e.target.value }); }} /><small>不可使用内置 Key：materialApproval、bomReleaseApproval、documentReleaseApproval、performanceReviewApproval</small></label></div>
           <div className="bpmn-toolbar"><div className="tool-group">{types.map(({type,label,symbol}) => <button key={type} className="tool-button" title={`添加${label}`} onClick={() => addNode(type)} disabled={!admin || busy}><span>{symbol}</span>{label}</button>)}<i className="tool-divider"/><button className="tool-button" onClick={addFlow} disabled={!admin || busy}><span>⌁</span>添加连线</button></div><span className="toolbar-hint">受控元素范围 · 仅管理员可编辑</span></div>
           <div className="bpmn-canvas-wrap"><div ref={host} className="bpmn-canvas" aria-label="BPMN 图形画布" />{!graph.nodes.length && <div className="canvas-empty-overlay">添加第一个节点以开始流程设计</div>}</div>
           </>}

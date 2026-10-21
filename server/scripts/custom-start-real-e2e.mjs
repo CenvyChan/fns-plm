@@ -111,6 +111,10 @@ try {
   const started=expect(await api(`/bpmn-models/${model.id}/start`,'POST',startBody,{'Idempotency-Key':key}),201); instances.push(started.processInstanceId)
   const repeated=expect(await api(`/bpmn-models/${model.id}/start`,'POST',startBody,{'Idempotency-Key':key}),200)
   assert.equal(repeated.processInstanceId,started.processInstanceId)
+  const differentVersion=expect(await api(`/bpmn-models/${model.id}/start`,'POST',{...startBody,expectedVersionId:'different-version-id'},{'Idempotency-Key':key}),409)
+  assert.equal(differentVersion.error,'idempotency_key_reused_with_different_request')
+  const missingVersion=expect(await api(`/bpmn-models/${model.id}/start`,'POST',(({expectedVersionId,...rest})=>rest)(startBody),{'Idempotency-Key':key}),409)
+  assert.equal(missingVersion.error,'idempotency_key_reused_with_different_request')
   expect(await api(`/bpmn-models/${model.id}/start`,'POST',{...startBody,title:'Changed payload'},{'Idempotency-Key':key}),409)
   const tasks=expect(await api('/workflow/tasks'),200).tasks, task=tasks.find(t=>t.processInstanceId===started.processInstanceId); assert(task,'real Flowable user task must be exposed')
   expect(await api(`/workflow/tasks/${task.id}`),200)
@@ -128,7 +132,7 @@ try {
   const evidenceDb=new Database(dbPath,{readonly:true})
   assert.equal(evidenceDb.prepare('SELECT count(*) AS n FROM connector_configs').get().n,0,'no stored connector edits')
   evidenceDb.close()
-  log.push(`PASS closed real Flowable history process=${started.processInstanceId}; pinned form=${form.key}:v1 despite form v2 publication; rejected stale version; no integration settings PUT; no outbound connectors configured`)
+  log.push(`PASS closed real Flowable history process=${started.processInstanceId}; pinned form=${form.key}:v1 despite form v2 publication; rejected stale published version; idempotency key conflicts on changed or absent expectedVersionId; no integration settings PUT; no outbound connectors configured`)
   console.log(`PASS custom-start real Flowable E2E; processes=${instances.length}; workdir=${work}; log=${logPath}`)
 } catch(e) { log.push(`FAIL ${e.stack||e}`); console.error(e.message); process.exitCode=1 }
 finally {

@@ -225,6 +225,13 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
         { id: "Flow2", source: "Review", target: "End" },
       ],
     };
+    const builtInKeys = ["materialApproval", "bomReleaseApproval", "documentReleaseApproval", "performanceReviewApproval"];
+    for (const reservedKey of builtInKeys) {
+      const collisionGraph = { ...graph, key: reservedKey };
+      const createCollision = await api("/bpmn-models", "POST", { graph: collisionGraph });
+      assert.equal(createCollision.status, 400, `create rejects reserved key ${reservedKey}`);
+      assert.ok(createCollision.data.errors.some((message) => message.includes(reservedKey)));
+    }
     const options = ok(await api("/bpmn-modeler/options"));
     assert.ok(options.users.some((u) => u.id === scope.id));
     assert.equal(
@@ -307,6 +314,14 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
       }),
     );
     assert.equal(saved.revision, 2);
+    for (const reservedKey of builtInKeys) {
+      const collisionUpdate = await api(path, "PUT", {
+        expectedRevision: saved.revision,
+        graph: { ...graph, key: reservedKey },
+      });
+      assert.equal(collisionUpdate.status, 400, `update rejects reserved key ${reservedKey}`);
+      assert.ok(collisionUpdate.data.errors.some((message) => message.includes(reservedKey)));
+    }
     assert.equal(ok(await api(path + "/validate", "POST", {})).valid, true);
     // Identity mappings must be explicitly configured through the existing scoped connector.
     ok(

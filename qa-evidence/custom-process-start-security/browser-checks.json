@@ -1,0 +1,15 @@
+{
+  "environment": "new temporary SQLite database and loopback mock only",
+  "fixtureDatabase": "/tmp/custom-start-ui-kgLU0b/ui.sqlite",
+  "realBrowser": true,
+  "checks": {
+    "adminLoginViaForm": "passed",
+    "unavailableBeforeEngineStart": {"engineStarts": 0, "confirmationCleared": true, "submitDisabled": true},
+    "restoreThenFreshExplicitConfirmation": {"engineStarts": 1, "processInstanceId": "isolated-custom-instance-1"},
+    "separateUncertainAttempt": {"engineStartsTotal": 2, "submitButtonAbsent": true},
+    "switchAwayAndBack": {"uncertainRequestId": "3de6500a-15f6-4f27-bc2a-7e2b9f79d225", "locked": true, "noAutomaticRetry": true},
+    "reservedKeyUi": {"attemptedKey": "materialApproval", "clearChineseError": true, "notPersisted": true},
+    "database": {"startedRows": 1, "uncertainRows": 1, "storedConnectorRows": 0}
+  },
+  "limits": ["No production or shared staging browser test", "Transport and parse cases remain locked by code path; browser injected uncertainty used an engine 503 response after receiving a start request", "Reserved-key UI browser check used materialApproval; server tests cover all four keys"]
+}
