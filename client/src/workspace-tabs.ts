@@ -31,3 +31,12 @@ export function restoreTabs(raw: string | null, allowed: (page: string) => boole
     })
   } catch { return [] }
 }
+
+// A soft warning, never an automatic eviction of a live panel or draft.
+export const TAB_WARNING_THRESHOLD = 8
+export function planTabClose(tabs: WorkspaceTab[], ids: string[], dirty: Record<string, boolean>, activeId: string) {
+  const selected = new Set(ids)
+  const closing = tabs.filter(tab => selected.has(tab.id))
+  const remaining = tabs.filter(tab => !selected.has(tab.id))
+  return { closing, remaining, unsaved: closing.filter(tab => dirty[tab.id]), target: remaining.find(tab => tab.id === activeId) ?? remaining.at(-1) }
+}

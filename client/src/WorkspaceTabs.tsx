@@ -1,13 +1,15 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { X } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { X, PanelsTopLeft } from 'lucide-react'
 import { pageById } from './navigation'
-import { restoreTabs, safeTabUrl, tabId, type WorkspaceTab } from './workspace-tabs'
+import { restoreTabs, safeTabUrl, tabId, type WorkspaceTab, TAB_WARNING_THRESHOLD, planTabClose } from './workspace-tabs'
 import './workspace-tabs.css'
 import { WorkspacePortalContext } from './WorkspacePortal'
 import { applyViewState, readViewState, saveViewState } from './workspace-view-state'
 import WorkspaceFeedback from './WorkspaceFeedback'
+import WorkspaceTabManager from './WorkspaceTabManager'
 
-function Panel({ id, active, children, onDirty, storageKey }: { id: string; active: boolean; children: ReactNode; storageKey: string; onDirty: (id: string, dirty: boolean) => void }) {
+function Panel({ id, active, children, onDirty, onTitle, storageKey }: { id: string; active: boolean; children: ReactNode; storageKey: string; onDirty: (id: string, dirty: boolean) => void; onTitle: (id: string, title: string) => void }) {
+  const reportTitle = useCallback((title: string) => onTitle(id, title), [id, onTitle])
   const root = useRef<HTMLDivElement>(null)
   const viewKey = `${storageKey}:view:${id}`
   const activeRef = useRef(active); activeRef.current = active
@@ -45,13 +47,13 @@ function Panel({ id, active, children, onDirty, storageKey }: { id: string; acti
     if (host) observer.observe(host, { childList: true, subtree: true })
     return () => observer.disconnect()
   }, [id, onDirty, host])
-  return <WorkspacePortalContext.Provider value={{ host, active }}><div ref={root} id={`workspace-panel-${id}`} role="tabpanel" aria-labelledby={`workspace-tab-${id}`} hidden={!active} className="workspace-tab-panel" onChangeCapture={event => {
+  return <WorkspacePortalContext.Provider value={{ host, active, tabId: id, onTitle: reportTitle }}><div ref={root} id={`workspace-panel-${id}`} role="tabpanel" aria-labelledby={`workspace-tab-${id}`} hidden={!active} className="workspace-tab-panel" onChangeCapture={event => {
     const field = event.target as HTMLElement
     if (field.closest('form, [role="dialog"], .modal-card')) onDirty(id, true)
   }}>{children}</div><WorkspaceFeedback root={root} host={host} active={active}/></WorkspacePortalContext.Provider>
 }
 
-export default function WorkspaceTabs({ page, storageKey, allowed, onNavigate, children }: { page: string; storageKey: string; allowed: (page: string) => boolean; onNavigate: (page: string, url?: string) => void; children: (page: string) => ReactNode }) {
+export default function WorkspaceTabs({ page, storageKey, allowed, onNavigate, children, externalDirty = {}, onTabsClosed }: { page: string; storageKey: string; allowed: (page: string) => boolean; onNavigate: (page: string, url?: string) => void; children: (page: string) => ReactNode; externalDirty?: Record<string, boolean>; onTabsClosed?: (ids: string[]) => void }) {
   // Access loading is handled by the parent before mounting this security-scoped tree.
   const [tabs, setTabs] = useState<WorkspaceTab[]>(() => {
     let saved: string | null = null
@@ -61,7 +63,12 @@ export default function WorkspaceTabs({ page, storageKey, allowed, onNavigate, c
     return [...restored.filter(tab => tab.id !== id), { id, page, url: safeTabUrl(location.href, page) }]
   })
   const [mounted, setMounted] = useState(() => new Set([tabId(page)]))
-  const [dirty, setDirty] = useState<Record<string, boolean>>({})
+  const [localDirty, setDirty] = useState<Record<string, boolean>>({})
+  const dirty = { ...localDirty, ...externalDirty }
+  const [titles, setTitles] = useState<Record<string, string>>({})
+  const [managerOpen, setManagerOpen] = useState(false)
+  const markTitle = useRef((id: string, title: string) => setTitles(old => old[id] === title ? old : { ...old, [id]: title })).current
+  const label = (tab: WorkspaceTab) => titles[tab.id] || pageById[tab.id]?.label || tab.id
   const scrollPositions = useRef<Record<string, number>>({})
   const activeTabId = tabId(page)
   useLayoutEffect(() => {
@@ -115,13 +122,21 @@ export default function WorkspaceTabs({ page, storageKey, allowed, onNavigate, c
     if (tab.id === tabId(page)) return
     onNavigate(tab.page, tab.url)
   }
-  const close = (tab: WorkspaceTab) => {
-    if (dirty[tab.id] && !window.confirm('此页签有未保存内容。关闭将丢弃，确定关闭？')) return
-    const next = tabs.filter(item => item.id !== tab.id)
-    if (tab.id === tabId(page)) { const target = next.at(-1); onNavigate(target?.page ?? 'overview', target?.url) }
-    setTabs(next)
-    markDirty(tab.id, false)
+  const closeTabs = (ids: string[]): boolean => {
+    const plan = planTabClose(tabsRef.current, ids, dirtyRef.current, tabId(page))
+    if (!plan.closing.length) return false
+    if (plan.unsaved.length && !window.confirm(`所选页签中有 ${plan.unsaved.length} 项未保存内容：\n${plan.unsaved.map(label).join('\n')}\n关闭将丢弃这些内容，确定关闭所选全部 ${plan.closing.length} 项？`)) return false
+    // Confirm the entire batch before changing any tab; cancellation is atomic.
+    if (plan.closing.some(tab => tab.id === tabId(page))) onNavigate(plan.target?.page ?? 'overview', plan.target?.url)
+    const remaining = plan.remaining.length ? plan.remaining : [{ id: 'overview', page: 'overview', url: safeTabUrl('/', 'overview') }]
+    setTabs(remaining)
+    setMounted(old => new Set([...old].filter(id => !ids.includes(id)).concat(remaining.map(tab => tab.id === 'overview' ? tab.id : '').filter(Boolean))))
+    setDirty(old => Object.fromEntries(Object.entries(old).filter(([id]) => !ids.includes(id))))
+    onTabsClosed?.(plan.closing.map(tab => tab.id))
+    setTitles(old => Object.fromEntries(Object.entries(old).filter(([id]) => !ids.includes(id))))
+    return true
   }
+  const close = (tab: WorkspaceTab) => { closeTabs([tab.id]) }
   const activeId = tabId(page)
   const rail = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
@@ -137,10 +152,10 @@ export default function WorkspaceTabs({ page, storageKey, allowed, onNavigate, c
     const observer = new ResizeObserver(reveal)
     observer.observe(row)
     return () => observer.disconnect()
-  }, [activeId, tabs.length])
-  return <div className="workspace-frame"><div ref={rail} className="workspace-tabs" role="tablist" aria-label="已打开的工作页签">{tabs.map((tab, index) => <div className={`workspace-tab ${tab.id === activeId ? 'is-active' : ''}`} key={tab.id}><button id={`workspace-tab-${tab.id}`} type="button" role="tab" aria-selected={tab.id === activeId} aria-controls={`workspace-panel-${tab.id}`} tabIndex={tab.id === activeId ? 0 : -1} onClick={() => activate(tab)} onKeyDown={event => {
+  }, [activeId, tabs.length, titles[activeId]])
+  return <div className="workspace-frame"><div className="workspace-tabs-toolbar"><span>{tabs.length >= TAB_WARNING_THRESHOLD ? `已打开 ${tabs.length} 个页签，建议关闭暂不使用的页签。` : `已打开 ${tabs.length} 个页签`}</span><button type="button" className="outline-button workspace-manage-button" onClick={() => setManagerOpen(true)}><PanelsTopLeft size={15}/>管理页签（{tabs.length}）</button></div>{tabs.length >= TAB_WARNING_THRESHOLD && <div className="workspace-tabs-warning" role="status">页签较多：切换不会关闭后台页签；请使用“管理页签”多选整理。</div>}<div ref={rail} className="workspace-tabs" role="tablist" aria-label="已打开的工作页签">{tabs.map((tab, index) => <div className={`workspace-tab ${tab.id === activeId ? 'is-active' : ''}`} key={tab.id}><button id={`workspace-tab-${tab.id}`} type="button" role="tab" aria-selected={tab.id === activeId} title={label(tab)} aria-controls={`workspace-panel-${tab.id}`} tabIndex={tab.id === activeId ? 0 : -1} onClick={() => activate(tab)} onKeyDown={event => {
     const offset = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
     const target = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs.at(-1) : offset ? tabs[(index + offset + tabs.length) % tabs.length] : undefined
     if (target) { event.preventDefault(); activate(target); document.getElementById(`workspace-tab-${target.id}`)?.focus() }
-  }}>{pageById[tab.id]?.label ?? tab.id}{dirty[tab.id] && <span className="workspace-dirty" aria-label="未保存"> ·</span>}</button><button type="button" className="workspace-tab-close" aria-label={`关闭${pageById[tab.id]?.label ?? tab.id}页签`} onClick={() => close(tab)}><X size={13}/></button></div>)}</div>{Object.values(dirty).some(Boolean) && <div className="workspace-unsaved" role="status">有未保存内容；切页保留，关闭、刷新或切换账套前请保存。</div>}{tabs.filter(tab => mounted.has(tab.id) || tab.id === activeId).map(tab => <Panel storageKey={storageKey} key={tab.id} id={tab.id} active={tab.id === activeId} onDirty={markDirty}>{children(tab.id === activeId ? page : tab.page)}</Panel>)}</div>
+  }}>{label(tab)}{dirty[tab.id] && <span className="workspace-dirty" aria-label="未保存"> ·</span>}</button><button type="button" className="workspace-tab-close" aria-label={`关闭${label(tab)}页签`} onClick={() => close(tab)}><X size={13}/></button></div>)}</div>{Object.values(dirty).some(Boolean) && <div className="workspace-unsaved" role="status">有未保存内容；切页保留，关闭、刷新或切换账套前请保存。</div>}{tabs.filter(tab => mounted.has(tab.id) || tab.id === activeId).map(tab => <Panel storageKey={storageKey} key={tab.id} id={tab.id} active={tab.id === activeId} onDirty={markDirty} onTitle={markTitle}>{children(tab.id === activeId ? page : tab.page)}</Panel>)}{managerOpen && <WorkspaceTabManager tabs={tabs} activeId={activeId} dirty={dirty} label={label} onClose={() => setManagerOpen(false)} onCloseTabs={closeTabs}/>}</div>
 }

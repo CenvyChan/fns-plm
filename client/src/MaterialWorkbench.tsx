@@ -1,4 +1,5 @@
 import { useWorkspacePortal } from './WorkspacePortal'
+import { businessTabTitle, useWorkspaceTabIdentity } from './workspace-tab-identity.tsx'
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import './material-modal-overrides.css'
@@ -36,6 +37,7 @@ export default function MaterialWorkbench({ workspace, onChange, onToast }: { wo
   const [query, setQuery] = useState('')
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState<Material | null>(null)
+  useWorkspaceTabIdentity(editing ? businessTabTitle('物料', editing.name, editing.id) : '物料主数据')
   const [family, setFamily] = useState('成品')
   const [nodeId, setNodeId] = useState('')
   const [templateNumber, setTemplateNumber] = useState('')

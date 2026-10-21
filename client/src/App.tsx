@@ -18,7 +18,8 @@ import DailyReportImport from './DailyReportImport'
 import { pages, pageById, resolvePage, pageFromLocation, canAccessPage, isDailyWorkbenchPage, isDailyManagementPage, isDailyImportPage, isReportPage, type DailyAccess } from './navigation'
 import './navigation.css'
 import WorkspaceTabs from './WorkspaceTabs'
-import { scopeKey } from './workspace-tabs'
+import { scopeKey, tabId } from './workspace-tabs'
+import { WorkspaceTabIdentity, taskTabTitle } from './workspace-tab-identity.tsx'
 import { navigationAreas, navigationPath } from './navigation-areas'
 import './design-system.css'
 import LoginScreen from './LoginScreen'
@@ -162,6 +163,7 @@ function App() {
   const [filter, setFilter] = useState<'all' | 'todo' | 'done'>('all')
   const [taskModal, setTaskModal] = useState(false)
   const [projectModal, setProjectModal] = useState(false)
+  const [modalOwner, setModalOwner] = useState<string | null>(null)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [taskSaving, setTaskSaving] = useState(false)
@@ -245,10 +247,10 @@ function App() {
     try { await apiJson('/api/auth/logout', jsonRequest('POST')) } catch { /* clear local credential even if the API is offline */ }
     setApiToken(''); setApiScope(null); setAuthUser(null); setDailyAccess(null); setUserScopes([]); setPage('overview'); setWorkspace(loadLocalWorkspace())
   }
-  const openNewTask = () => { setEditingTask(null); setTaskModal(true) }
-  const openEditTask = (task: Task) => { setEditingTask(task); setTaskModal(true) }
-  const openNewProject = () => { setEditingProject(null); setProjectModal(true) }
-  const openEditProject = () => { const project = selectedProject ? projectsById[selectedProject] : undefined; if (project) { setEditingProject(project); setProjectModal(true) } }
+  const openNewTask = () => { setModalOwner(page); setEditingTask(null); setTaskModal(true) }
+  const openEditTask = (task: Task) => { setModalOwner(page); setEditingTask(task); setTaskModal(true) }
+  const openNewProject = () => { setModalOwner(page); setEditingProject(null); setProjectModal(true) }
+  const openEditProject = () => { const project = selectedProject ? projectsById[selectedProject] : undefined; if (project) { setModalOwner(page); setEditingProject(project); setProjectModal(true) } }
   const toggleTask = async (task: Task) => {
     const status: TaskStatus = task.status === 'done' ? 'todo' : 'done'
     if (pendingTaskId) return; setPendingTaskId(task.id)
@@ -312,10 +314,11 @@ function App() {
   if (!authUser) return <LoginScreen setupRequired={setupRequired} apiError={authError} onAuthenticated={handleAuthenticated} onRetry={() => { void bootstrap() }}/>
 
   return <div className="app-shell"><Sidebar page={page} setPage={p => { setPage(p); setSelectedProject(null); setMobileNav(false) }} onAddTask={openNewTask} onCreateProject={openNewProject} onOpenProject={id => { setPage('projects'); setSelectedProject(id); setMobileNav(false) }} open={mobileNav} projects={workspace.projects} pendingCount={pendingCount} user={authUser} isAdmin={authUser.role === 'admin'} dailyAccess={dailyAccess} scopes={userScopes} onSwitchScope={id => { void switchScope(id) }} weekCompleted={weekCompleted} weekTotal={weekTasks.length} onViewWeek={() => { setPage('timeline'); setMobileNav(false) }} onLogout={() => { void logout() }}/><div className="app-main"><Header page={page} query={query} setQuery={setQuery} onAddTask={openNewTask} onMenu={() => setMobileNav(!mobileNav)} user={authUser} scopes={userScopes} onSwitchScope={id => { void switchScope(id) }} onLogout={() => { void logout() }} tasks={workspace.tasks} onOpenTasks={() => setPage('tasks')}/><main className="content-area" key={`${authUser.id}:${authUser.tenantId}:${authUser.organizationId}:${authUser.accountId}:${authUser.role}`}>
-    <WorkspaceTabs page={page} storageKey={scopeKey(authUser)} allowed={candidate => canAccessPage(candidate, authUser, dailyAccess)} onNavigate={setPage}>{page => {
+    <WorkspaceTabs page={page} storageKey={scopeKey(authUser)} allowed={candidate => canAccessPage(candidate, authUser, dailyAccess)} onNavigate={setPage} externalDirty={modalOwner && (taskModal || projectModal) ? { [modalOwner]: true } : {}} onTabsClosed={ids => { if (modalOwner && ids.includes(modalOwner)) { setTaskModal(false); setProjectModal(false); setEditingTask(null); setEditingProject(null); setModalOwner(null) } }}>{page => {
       const isPersonalPage = ['overview', 'tasks', 'projects', 'timeline'].includes(page)
       const headerTitle = pageById[page]?.label ?? '总览'
       return <>
+    {(page === 'tasks' || (taskModal && modalOwner === tabId(page))) && <WorkspaceTabIdentity title={taskModal && modalOwner === tabId(page) && editingTask ? taskTabTitle(editingTask.title, editingTask.wbsCode, editingTask.id) : page === 'tasks' ? '任务管理' : ''}/>}
     {isPersonalPage && <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line"/>{fullDateLabel}</div><h1>{page === 'overview' ? <>早上好，<em>{authUser.displayName}</em></> : headerTitle}</h1><p>{page === 'overview' ? '把注意力留给真正重要的事。今天也会是稳稳向前的一天。' : page === 'tasks' ? '把大事拆小，按自己的节奏一件件完成。' : page === 'projects' ? '看见每个目标的进展，也看见自己走过的路。' : '把接下来的安排放进视野，心里就有了余裕。'}</p></div><button className="primary-button heading-add" onClick={() => page === 'projects' ? openNewProject() : openNewTask()}><Plus size={16}/>{page === 'projects' ? '新建项目' : '新建任务'}</button></div>}
 
     {page === 'overview' && <>
