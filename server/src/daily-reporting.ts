@@ -83,6 +83,7 @@ const STATE_PREFIX = 'daily-reporting'
 const WRITERS = ['admin', 'plm_manager', 'member'] as const
 const MIGRATION_MANAGERS = ['admin', 'plm_manager'] as const
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
+const roundQuantity = (value: number) => Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000
 const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const validDay = (value: unknown): value is string => {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
@@ -997,6 +998,103 @@ export function createDailyReportRouter(): Router {
     const to = typeof req.query.to === 'string' && validDay(req.query.to) ? req.query.to : undefined
     const reports = liveReports(state).filter(report => access[report.type] && (!type || report.type === type) && (!from || report.date >= from) && (!to || report.date <= to)).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)).map(report => ({ ...report, canEdit: req.authUser?.role === 'admin' || req.authUser?.role === 'plm_manager' || (req.authUser?.role === 'member' && !partyForReport(scope, req, report.type, report.partyId).error), allocatedAmount: reportAllocation(state, report.id), links: state.links.filter(link => link.reportId === report.id).map(link => ({ ...link, k3Row: state.k3Rows.find(row => row.id === link.k3RowId) })) }))
     return res.json({ reports, access, mockEnabled: state.mockEnabled, source: state.mockEnabled ? 'local-mock' : 'workspace', notice: state.mockEnabled ? '显示隔离演示数据；非真实业务数据。' : '手工日报仍可录入；当前未连接真实 ERP。' })
+  })
+
+  // One authorized, filtered set drives records, aggregates and XLSX export.
+  const analysisPayload = (req: Request, type: DailyKind) => {
+    const scope = scopeFromRequest(req), state = readDailyReportState(scope), access = reportingAccess(scope, req)
+    if (!access[type]) return { denied: true as const }
+    const filterKeys = ['from', 'to', 'partyName', 'createdBy', 'currency', 'source', 'q']
+    if (filterKeys.some(key => req.query[key] !== undefined && typeof req.query[key] !== 'string')) return { invalid: true as const }
+    const raw = (key: string) => typeof req.query[key] === 'string' ? String(req.query[key]).trim() : ''
+    const from = raw('from'), to = raw('to'), partyName = raw('partyName'), createdBy = raw('createdBy')
+    const currency = raw('currency'), source = raw('source'), q = raw('q')
+    if ((from && !validDay(from)) || (to && !validDay(to)) || (from && to && from > to)
+      || (currency && !['CNY', 'USD'].includes(currency)) || (source && !['manual', 'history-import'].includes(source))) return { invalid: true as const }
+    const filters = { type, from, to, partyName, createdBy, currency, source, q }
+    const all = liveReports(state).filter(row => row.type === type)
+    const rows = all.filter(row => (!from || row.date >= from) && (!to || row.date <= to)
+      && (!partyName || row.partyName.includes(partyName)) && (!createdBy || row.createdBy === createdBy)
+      && (!currency || row.currency === currency) && (!source || row.source === source)
+      && (!q || `${row.partyName} ${row.documentNo} ${row.note}`.toLowerCase().includes(q.toLowerCase())))
+      .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
+    const reports = rows.map(report => ({
+      ...report,
+      canEdit: req.authUser?.role === 'admin' || req.authUser?.role === 'plm_manager'
+        || (req.authUser?.role === 'member' && !partyForReport(scope, req, report.type, report.partyId).error),
+      allocatedAmount: reportAllocation(state, report.id),
+      links: state.links.filter(link => link.reportId === report.id).map(link => ({ ...link, k3Row: state.k3Rows.find(row => row.id === link.k3RowId) })),
+    }))
+    const aggregate = (items: DailyReport[]) => ({
+      count: items.length,
+      quantity: roundQuantity(items.reduce((total, row) => total + row.quantity, 0)),
+      amountCny: roundMoney(items.reduce((total, row) => total + row.amountCny, 0)),
+    })
+    const summary = {
+      ...aggregate(rows),
+      cnyAmount: roundMoney(rows.filter(row => row.currency === 'CNY').reduce((total, row) => total + row.originalAmount, 0)),
+      usdAmount: roundMoney(rows.filter(row => row.currency === 'USD').reduce((total, row) => total + row.originalAmount, 0)),
+    }
+    const grouped = (key: (row: DailyReport) => string) => {
+      const groups = new Map<string, DailyReport[]>()
+      for (const row of rows) {
+        const label = key(row), group = groups.get(label) ?? []
+        group.push(row); groups.set(label, group)
+      }
+      return [...groups].map(([label, items]) => ({ label, ...aggregate(items) }))
+    }
+    const trend = (key: (row: DailyReport) => string) => grouped(key)
+      .sort((a, b) => a.label.localeCompare(b.label)).map(({ label, ...values }) => ({ period: label, ...values }))
+    const counterpartRank = grouped(row => row.partyName)
+      .sort((a, b) => b.amountCny - a.amountCny || a.label.localeCompare(b.label)).slice(0, 10)
+    const people = [...new Map(all.map(row => [row.createdBy, { id: row.createdBy, label: row.createdByName || row.createdBy }])).values()]
+      .sort((a, b) => a.label.localeCompare(b.label))
+    return {
+      filters, reports, summary, dailyTrend: trend(row => row.date), monthlyTrend: trend(row => row.date.slice(0, 7)),
+      counterpartRank, options: { people }, mockEnabled: state.mockEnabled,
+      notice: state.mockEnabled ? '隔离演示数据，非真实业务数据；分析不触发 ERP 同步。' : '读取当前账套已保存日报；分析不触发 ERP 同步。',
+      amountBasis: '数量可能包含不同计量单位，合计仅供参考；原币按 CNY/USD 分别汇总，人民币按保存金额合计后显示两位小数，不重算历史汇率。',
+    }
+  }
+  router.get('/daily-reports/analysis', (req, res) => {
+    const type = req.query.type
+    if (!validKind(type)) return res.status(400).json({ error: 'type 必须是 sales 或 purchase。' })
+    const result = analysisPayload(req, type)
+    if ('denied' in result) return res.status(403).json({ error: 'daily_reporting_access_denied', message: '当前成员没有此业务线的日报查看权限。' })
+    if ('invalid' in result) return res.status(400).json({ error: 'analysis_filter_invalid', message: '日期范围、币种或来源参数无效。' })
+    return res.json(result)
+  })
+  router.get('/daily-reports/analysis/export.xlsx', async (req, res) => {
+    const type = req.query.type
+    if (!validKind(type)) return res.status(400).json({ error: 'type 必须是 sales 或 purchase。' })
+    const result = analysisPayload(req, type)
+    if ('denied' in result) return res.status(403).json({ error: 'daily_reporting_access_denied', message: '当前成员没有此业务线的日报查看权限。' })
+    if ('invalid' in result) return res.status(400).json({ error: 'analysis_filter_invalid', message: '日期范围、币种或来源参数无效。' })
+    try {
+      const workbook = new ExcelJS.Workbook(), summary = workbook.addWorksheet('摘要'), detail = workbook.addWorksheet('日报明细')
+      // Explicit string cells, never formula objects; also safe when copied into a spreadsheet.
+      const safeCell = (value: string | number | undefined) => typeof value === 'string' && /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
+      const labels = { count: '记录数', quantity: '数量（可能混合单位）', cnyAmount: 'CNY 原币金额', usdAmount: 'USD 原币金额', amountCny: '折合人民币金额' }
+      summary.addRow(['指标', '值', '说明'])
+      for (const [key, value] of Object.entries(result.summary)) summary.addRow([key, value, labels[key as keyof typeof labels]])
+      summary.addRow(['数据来源', result.notice]); summary.addRow(['金额与数量口径', result.amountBasis])
+      const filterLabels = { type: '业务线', from: '开始日期', to: '结束日期', partyName: '客商名称包含', createdBy: '录入人 ID', currency: '币种', source: '来源', q: '关键词' }
+      for (const [key, value] of Object.entries(result.filters)) summary.addRow([filterLabels[key as keyof typeof filterLabels], safeCell(value || '不限')])
+      detail.addRow(['日期', '客商', '单号', '数量', '币种', '原币', '汇率', '人民币', '录入人', '来源', 'ID'])
+      for (const row of result.reports) detail.addRow([
+        row.date, row.partyName, row.documentNo, row.quantity, row.currency, row.originalAmount,
+        row.exchangeRate, row.amountCny, row.createdByName || row.createdBy, row.source, row.id,
+      ].map(safeCell))
+      summary.columns.forEach(column => { column.width = 32 }); detail.columns.forEach(column => { column.width = 22 })
+      summary.getRow(1).font = { bold: true }; detail.getRow(1).font = { bold: true }
+      const buffer = await workbook.xlsx.writeBuffer()
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      res.setHeader('Content-Disposition', `attachment; filename="daily-report-analysis-${type}.xlsx"`)
+      return res.send(Buffer.from(buffer))
+    } catch (error) {
+      console.error('Daily analysis export failed.', error)
+      return res.status(500).json({ error: 'daily_analysis_export_failed', message: '日报导出失败，请稍后重试。' })
+    }
   })
 
   router.get('/daily-reports/k3-lines', (req, res) => {
