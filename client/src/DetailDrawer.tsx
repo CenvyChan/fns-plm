@@ -1,3 +1,4 @@
+import { useWorkspacePortal } from './WorkspacePortal'
 import {
   useEffect,
   useId,
@@ -34,6 +35,7 @@ export default function DetailDrawer({
   onClose,
   children,
 }: DetailDrawerProps) {
+  const { portalHost, tabActive } = useWorkspacePortal();
   const id = useId();
   const titleId = `detail-drawer-title-${id}`;
   const panelRef = useRef<HTMLElement>(null);
@@ -42,7 +44,7 @@ export default function DetailDrawer({
   const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
-    if (open) {
+    if (open && tabActive) {
       returnFocusRef.current =
         document.activeElement instanceof HTMLElement
           ? document.activeElement
@@ -62,7 +64,7 @@ export default function DetailDrawer({
         returnFocusRef.current = null;
       };
     }
-  }, [open]);
+  }, [open, tabActive]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
@@ -151,6 +153,6 @@ export default function DetailDrawer({
         </motion.div>
       )}
     </AnimatePresence>,
-    document.body,
+    portalHost!,
   );
 }

@@ -1,3 +1,4 @@
+import { useWorkspacePortal } from './WorkspacePortal'
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowRight, Boxes, Check, CheckCircle2, ChevronRight, ClipboardList, FilePlus2, GitBranch, Layers3, PackageCheck, Plus, RefreshCw, Settings2, ShieldCheck, Tag, Trash2, X } from 'lucide-react'
@@ -15,6 +16,7 @@ const roleNames: Record<BomLineRole, string> = { component: '设计组件', proc
 const nextState = (status: LifecycleStatus): LifecycleStatus => status === 'draft' ? 'review' : status === 'review' ? 'released' : status === 'released' ? 'obsolete' : 'draft'
 
 function BomModal({ title, subtitle, onClose, children }: { title: string; subtitle: string; onClose: () => void; children: ReactNode }) {
+  const { portalHost } = useWorkspacePortal()
   return createPortal(
     <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={e => e.target === e.currentTarget && onClose()}>
       <motion.div className="modal-card bom-modal" role="dialog" aria-modal="true" aria-label={title} initial={{ opacity: 0, y: 18, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10 }}>
@@ -22,7 +24,7 @@ function BomModal({ title, subtitle, onClose, children }: { title: string; subti
         {children}
       </motion.div>
     </motion.div>,
-    document.body,
+    portalHost!,
   )
 }
 function BomField({ label, children, help }: { label: string; children: ReactNode; help?: string }) { return <label className="form-label bom-field"><span>{label}</span>{children}{help && <small>{help}</small>}</label> }
