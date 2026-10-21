@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "./api";
 import DetailDrawer from "./DetailDrawer";
+import { dailyReportTabTitle, useWorkspaceTabIdentity } from "./workspace-tab-identity.tsx";
 import "./daily-reporting.css";
 
 type Kind = "sales" | "purchase";
@@ -358,6 +359,11 @@ export default function DailyReportingWorkbench({ page, onNavigate }: Props) {
     () => reports.find((report) => report.id === selectedReportId),
     [reports, selectedReportId],
   );
+  const titleRecord = reports.find(report => report.id === editingId) ?? detailReport;
+  const titleKind = page.includes("purchase") ? "purchase" : "sales";
+  useWorkspaceTabIdentity(page.startsWith("daily-sales") || page.startsWith("daily-purchase")
+    ? dailyReportTabTitle(titleRecord?.date ?? reportDate, titleRecord?.documentNo || titleRecord?.id, titleKind)
+    : "");
   const reconciliation =
     selectedReport?.type === "purchase"
       ? summary?.purchase?.reconciliation
