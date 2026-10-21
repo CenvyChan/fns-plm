@@ -51,6 +51,7 @@ async function startServer() {
   // Deliberately do not inherit process.env: only explicit, non-secret test settings enter the child.
   const env = {
     PATH: '/usr/local/bin:/usr/bin:/bin', NODE_ENV: 'test', HOST: '127.0.0.1', PORT: String(port), DATABASE_FILE: databaseFile,
+    DOTENV_CONFIG_PATH: '/dev/null', DOTENV_CONFIG_QUIET: 'true',
     APP_ENCRYPTION_KEY: '6a'.repeat(32), APP_ENCRYPTION_KEY_FILE: join(tempDir, 'encryption.key'),
     DATA_FILE: join(tempDir, 'missing-legacy.json'), LEGACY_DATA_FILE: join(tempDir, 'missing-legacy.json'),
     DOCUMENT_STORAGE_DIR: join(tempDir, 'documents'), INTEGRATION_DATA_DIR: tempDir,
@@ -253,4 +254,125 @@ test('material closure uses authenticated scoped HTTP API, allowlisted K3 fixtur
   const rereadAudit = await api(`/api/material-closure/drafts/${draft.id}/audit`)
   assert.deepEqual(rereadAudit.data.events.map(x => x.event), ['copied', 'edited', 'allocated'])
   assert.equal(unexpectedMockPaths.length, 0)
+})
+
+test('external identity collisions and group changes require a freshly copied draft, including after restart', { concurrency: false }, async () => {
+  const k3 = { baseUrl: `${mockOrigin}/`, accountId: 'fixture-account', username: 'fixture-user', organization: 'fixture-org', appId: 'fixture-app', appSecret: 'fixture-secret', password: 'fixture-password', lcid: '1033', formAllowlist: { BD_MATERIAL: Object.values(fields) }, materialSource: { formId: 'BD_MATERIAL', fields } }
+  const scope = scopes.get(adminToken)
+  const stateKey = `material-source:${scope.tenantId}:${scope.organizationId}:${scope.accountId}`
+  const persistedSnapshot = () => JSON.parse(db.prepare('SELECT value FROM app_state WHERE key=?').get(stateKey).value)
+  const originalRows = mockRows.map(row => ({ ...row }))
+  const configure = async config => assert.equal((await api('/api/integrations/settings/k3cloud', { method: 'PUT', body: config })).response.status, 200)
+  const refresh = async () => assert.equal((await api('/api/material-closure/source/refresh', { method: 'POST' })).response.status, 200)
+  const copy = async () => { const result = await api('/api/material-closure/drafts', { method: 'POST', body: { sourceId: 'fixture-source-1' } }); assert.equal(result.response.status, 201, JSON.stringify(result.data)); return result.data }
+  const reservationsBefore = db.prepare('SELECT COUNT(*) AS n FROM material_code_reservations').get().n
+  const assertBlocked = async (draft, reason) => {
+    const preview = await api(`/api/material-closure/drafts/${draft.id}/preview`, { method: 'POST', body: rule })
+    assert.equal(preview.response.status, 200); assert.equal(preview.data.blocked, true)
+    assert.match(preview.data.reasons.join(' '), reason)
+    const allocation = await api(`/api/material-closure/drafts/${draft.id}/allocate`, { method: 'POST', body: rule })
+    assert.equal(allocation.response.status, 409, JSON.stringify(allocation.data)); assert.match(allocation.data.error, reason)
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM material_code_reservations').get().n, reservationsBefore)
+    assert.equal((await api(`/api/material-closure/drafts/${draft.id}/audit`)).data.events.some(event => event.event === 'allocated'), false)
+    assert.equal((await api('/api/workspace')).data.materials.find(row => row.id === draft.id).partNo.startsWith('DRAFT-'), true)
+  }
+  let switchedDraft, originalDraft
+  for (const dimension of ['account', 'organization', 'namespace', 'form', 'mapping']) {
+    mockRows.splice(0, mockRows.length, ...originalRows.map(row => ({ ...row })))
+    await configure(k3); await refresh()
+    const draft = await copy(), before = persistedSnapshot()
+    originalDraft = draft
+    assert.match(before.sourceFingerprint, /^sha256:[a-f0-9]{64}$/)
+    assert.equal((await api(`/api/material-closure/drafts/${draft.id}/audit`)).data.events[0].payload.sourceFingerprint, before.sourceFingerprint)
+    const changed = structuredClone(k3)
+    if (dimension === 'account') changed.accountId = 'fixture-account-other'
+    if (dimension === 'organization') { changed.organization = 'fixture-org-other'; for (const row of mockRows) row.FOrg = changed.organization }
+    if (dimension === 'namespace') changed.baseUrl = `${mockOrigin}/other-service/`
+    if (dimension === 'form') { changed.materialSource.formId = 'BD_OTHER'; changed.formAllowlist.BD_OTHER = Object.values(fields) }
+    if (dimension === 'mapping') { changed.materialSource.fields.name = 'FAlternateName'; changed.formAllowlist.BD_MATERIAL.push('FAlternateName'); for (const row of mockRows) row.FAlternateName = row.FName }
+    await configure(changed)
+    assert.equal((await api('/api/material-closure/drafts', { method: 'POST', body: { sourceId: 'fixture-source-1' } })).response.status, 409, 'cannot copy stale snapshot after connector change')
+    await refresh()
+    const after = persistedSnapshot()
+    assert.notEqual(after.sourceFingerprint, before.sourceFingerprint, dimension)
+    assert.notEqual(after.sourceEpoch, before.sourceEpoch)
+    assert.equal(after.rows[0].id, before.rows[0].id, 'external material IDs deliberately collide')
+    assert.equal(after.rows[0].groupId, before.rows[0].groupId)
+    assert.equal(after.rows[0].groupNumber, before.rows[0].groupNumber, 'group numbers deliberately collide')
+    await assertBlocked(draft, /来源身份.*重新查询并复制/)
+    const recopied = await copy()
+    assert.equal((await api(`/api/material-closure/drafts/${recopied.id}/preview`, { method: 'POST', body: rule })).data.blocked, false, 'recopy from new source is usable')
+    switchedDraft = draft
+  }
+  await stopServer(); await startServer()
+  await assertBlocked(switchedDraft, /来源身份.*重新查询并复制/)
+
+  mockRows.splice(0, mockRows.length, ...originalRows.map(row => ({ ...row })))
+  await configure(k3); await refresh()
+  await assertBlocked(originalDraft, /来源身份.*重新查询并复制/)
+  for (const groupField of ['FGroupId', 'FGroup']) {
+    const draft = await copy(), fingerprint = persistedSnapshot().sourceFingerprint
+    for (const row of mockRows) row[groupField] = groupField === 'FGroupId' ? 'fixture-group-other' : '3.01.03'
+    await refresh()
+    assert.equal(persistedSnapshot().sourceFingerprint, fingerprint, 'row changes do not redefine connector identity')
+    await assertBlocked(draft, /分组变化.*重新查询并复制/)
+    mockRows.splice(0, mockRows.length, ...originalRows.map(row => ({ ...row }))); await refresh()
+  }
+
+  const unrefreshedSwitchDraft = await copy(), beforeUnrefreshedSwitch = persistedSnapshot()
+  await configure({ ...k3, accountId: 'fixture-account-other' })
+  await configure(k3)
+  await refresh()
+  assert.equal(persistedSnapshot().sourceFingerprint, beforeUnrefreshedSwitch.sourceFingerprint)
+  assert.notEqual(persistedSnapshot().sourceEpoch, beforeUnrefreshedSwitch.sourceEpoch, 'A -> B -> A without refreshing B still changes source epoch')
+  await assertBlocked(unrefreshedSwitchDraft, /来源身份.*重新查询并复制/)
+
+  const concurrentConfigDraft = await copy(), concurrentEpoch = persistedSnapshot().sourceEpoch
+  const connectorRevision = () => db.prepare("SELECT revision FROM connector_configs WHERE tenant_id=? AND organization_id=? AND account_id=? AND provider='k3cloud'").get(scope.tenantId, scope.organizationId, scope.accountId).revision
+  const revisionBeforeConcurrentSaves = connectorRevision(), firstChild = child, firstOrigin = origin
+  const secondChild = await startServer()
+  const concurrentSaves = await Promise.all([
+    api('/api/integrations/settings/k3cloud', { method: 'PUT', body: { ...k3, accountId: 'fixture-account-other' }, baseOrigin: firstOrigin }),
+    api('/api/integrations/settings/k3cloud', { method: 'PUT', body: k3, baseOrigin: secondChild.origin }),
+  ])
+  assert.ok(concurrentSaves.every(result => result.response.status === 200))
+  await configure(k3)
+  assert.equal(connectorRevision(), revisionBeforeConcurrentSaves + 3, 'two-process connector saves serialize revision and epoch derivation')
+  await refresh()
+  assert.notEqual(persistedSnapshot().sourceEpoch, concurrentEpoch)
+  await assertBlocked(concurrentConfigDraft, /来源身份.*重新查询并复制/)
+  await stopServer(secondChild); child = firstChild; origin = firstOrigin
+
+  const credentialDraft = await copy(), originalFingerprint = persistedSnapshot().sourceFingerprint
+  const credentialEpoch = persistedSnapshot().sourceEpoch
+  await configure({ ...k3, username: 'fixture-rotated-user', appId: 'fixture-rotated-app', appSecret: 'fixture-rotated-secret', password: 'fixture-rotated-password', materialSource: { fields: Object.fromEntries(Object.entries(fields).reverse()), formId: 'BD_MATERIAL' } }); await refresh()
+  assert.equal(persistedSnapshot().sourceFingerprint, originalFingerprint, 'credential rotation and mapping key order do not change identity')
+  assert.equal(persistedSnapshot().sourceEpoch, credentialEpoch)
+  assert.equal((await api(`/api/material-closure/drafts/${credentialDraft.id}/preview`, { method: 'POST', body: rule })).data.blocked, false)
+
+  const legacyDraft = await copy(), legacySnapshot = persistedSnapshot()
+  delete legacySnapshot.sourceFingerprint
+  db.prepare('UPDATE app_state SET value=? WHERE key=?').run(JSON.stringify(legacySnapshot), stateKey)
+  await assertBlocked(legacyDraft, /来源身份.*重新查询并复制/)
+  assert.equal((await api('/api/material-closure/drafts', { method: 'POST', body: { sourceId: 'fixture-source-1' } })).response.status, 409)
+  await refresh()
+  // Insert an immutable historical copied row without a fingerprint before the new row.
+  const evidence = (await api(`/api/material-closure/drafts/${legacyDraft.id}/audit`)).data.events[0].payload
+  delete evidence.sourceFingerprint
+  db.prepare('INSERT INTO material_closure_audit(id,tenant_id,organization_id,account_id,material_id,actor,event,payload,created_at) VALUES(?,?,?,?,?,?,?,?,?)').run(-1, scope.tenantId, scope.organizationId, scope.accountId, legacyDraft.id, scope.id, 'copied', JSON.stringify(evidence), new Date().toISOString())
+  await assertBlocked(legacyDraft, /旧草稿缺少来源指纹.*重新查询并复制/)
+
+  const finalDraft = await copy()
+  const allocated = await api(`/api/material-closure/drafts/${finalDraft.id}/allocate`, { method: 'POST', body: rule })
+  assert.equal(allocated.response.status, 200, JSON.stringify(allocated.data))
+  const allocatedAudit = (await api(`/api/material-closure/drafts/${finalDraft.id}/audit`)).data.events
+  assert.equal(allocatedAudit.at(-1).payload.sourceFingerprint, originalFingerprint)
+  assert.equal(allocatedAudit.at(-1).payload.sourceEpoch, persistedSnapshot().sourceEpoch)
+  const safeEvidence = JSON.stringify({ snapshot: persistedSnapshot(), audit: db.prepare('SELECT payload FROM material_closure_audit').all() })
+  for (const forbidden of ['fixture-user', 'fixture-secret', 'fixture-password', 'fixture-app', 'fixture-rotated-user', 'fixture-rotated-secret', 'fixture-rotated-password', 'fixture-rotated-app', mockOrigin]) assert.equal(safeEvidence.includes(forbidden), false, `snapshot/audit must not store ${forbidden}`)
+  await stopServer(); await startServer()
+  assert.equal((await api(`/api/material-closure/drafts/${finalDraft.id}/audit`)).data.events.at(-1).payload.sourceFingerprint, originalFingerprint)
+  assert.equal((await api(`/api/material-closure/drafts/${finalDraft.id}/allocate`, { method: 'POST', body: rule })).data.partNo, allocated.data.partNo)
+  assert.equal(persistedSnapshot().sourceFingerprint, originalFingerprint)
+  assert.deepEqual(unexpectedMockPaths, [])
 })

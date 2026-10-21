@@ -7,10 +7,11 @@ import { loadScopedWorkspace, persistScopedWorkspace } from './workspace-store.j
 import { connectorCredentialConfig } from './integrations/configuration.js'
 import { queryK3Cloud, type K3CloudConfig } from './integrations/k3cloud.js'
 import { resolveMaterialRule, nextMaterialCode, MaterialRuleError } from './material-rules.js'
+import { MATERIAL_SOURCE_FIELDS, materialSourceFingerprint } from './material-source-identity.js'
 
 type Scope = WorkspaceScope
 type SourceRow = { id: string; number: string; name: string; specification: string; unit: string; groupNumber: string; groupId: string }
-type Snapshot = { id: string; source: 'k3cloud'; syncedAt: string; connectorRevision: number; rows: SourceRow[] }
+type Snapshot = { id: string; source: 'k3cloud'; sourceFingerprint: string; sourceEpoch: string; syncedAt: string; connectorRevision: number; rows: SourceRow[] }
 const notice = '编码仅在当前 PLM 账套原子保留，不写回 ERP，不表示 K3Cloud 已建料；预览不占号。ERP 独立并发建料仍须正式写入阶段重新核验。'
 const scope = (): Scope => { const value = currentWorkspaceScope(); if (!value) throw new Error('verified_scope_required'); return value }
 const args = (s: Scope) => [s.tenantId, s.organizationId, s.accountId]
@@ -26,22 +27,29 @@ function findDraft(s: Scope, id: string) {
   if (!material || !material.templateSourceId) return fail(404, '当前账套中不存在此来源草稿。')
   return { workspace, material }
 }
-function sourceEvidence(s: Scope, materialId: string): { source: SourceRow; snapshotId: string } {
+function sourceEvidence(s: Scope, materialId: string): { source: SourceRow; snapshotId: string; sourceFingerprint?: string; sourceEpoch?: string } {
   const row = db.prepare("SELECT payload FROM material_closure_audit WHERE tenant_id=? AND organization_id=? AND account_id=? AND material_id=? AND event='copied' ORDER BY id LIMIT 1").get(...args(s), materialId) as { payload: string } | undefined
   if (!row) return fail(409, '缺少可信复制来源审计，禁止分配。')
-  return JSON.parse(row.payload)
+  let evidence: Record<string, unknown>
+  try { evidence = record(JSON.parse(row.payload)) } catch { return fail(409, '复制来源审计损坏，请重新查询并复制草稿。') }
+  const source = record(evidence.source)
+  if (typeof evidence.snapshotId !== 'string' || !evidence.snapshotId || ['id', 'groupId', 'groupNumber'].some(key => typeof source[key] !== 'string' || !source[key])) return fail(409, '复制来源审计不完整，请重新查询并复制草稿。')
+  return { source: source as SourceRow, snapshotId: evidence.snapshotId, sourceFingerprint: typeof evidence.sourceFingerprint === 'string' ? evidence.sourceFingerprint : undefined, sourceEpoch: typeof evidence.sourceEpoch === 'string' ? evidence.sourceEpoch : undefined }
 }
 function ruleAndNext(s: Scope, materialId: string, body: Record<string, unknown>) {
   const source = sourceEvidence(s, materialId), current = snapshot(s)
   if (!current || Date.now() - Date.parse(current.syncedAt) > 5 * 60_000) return fail(409, '完整 K3 物料快照缺失或超过五分钟，请先只读刷新再分配。')
   const connector = db.prepare("SELECT revision FROM connector_configs WHERE tenant_id=? AND organization_id=? AND account_id=? AND provider='k3cloud'").get(...args(s)) as { revision: number } | undefined
   if (!connector || connector.revision !== current.connectorRevision) return fail(409, '连接器版本已变化或缺失，须重新刷新完整物料快照。')
+  if (!source.sourceFingerprint || !current.sourceFingerprint || source.sourceFingerprint !== current.sourceFingerprint || !source.sourceEpoch || !current.sourceEpoch || source.sourceEpoch !== current.sourceEpoch) return fail(409, '外部来源身份已变化或旧草稿缺少来源指纹，请重新查询并复制草稿。')
   const liveSource = current.rows.find(row => row.id === source.source.id)
-  if (!liveSource || liveSource.groupNumber !== source.source.groupNumber) return fail(409, '来源已移除或分组变化，请重新查询并复制草稿。')
+  if (!liveSource || liveSource.groupId !== source.source.groupId || liveSource.groupNumber !== source.source.groupNumber) return fail(409, '来源已移除或分组变化，请重新查询并复制草稿。')
   const rule = resolveMaterialRule(String(body.kind ?? ''), String(body.prefix ?? ''), liveSource.groupNumber)
   const sourceSuffix = liveSource.number.slice(rule.prefix.length)
   if (!liveSource.number.startsWith(rule.prefix) || !/^\d+$/.test(sourceSuffix) || sourceSuffix.length !== rule.width) return fail(409, '来源物料不属于所选已确认编码池；不可跨分类猜前缀，须重新选相似物料。')
   const workspace = loadScopedWorkspace(s)
+  const material = workspace.value.materials.find(row => row.id === materialId)
+  if (!material || material.templateSourceId !== source.source.id || material.erpGroupId !== source.source.groupId || material.erpGroupNumber !== source.source.groupNumber) return fail(409, '草稿来源或分组与复制审计不一致，请重新查询并复制草稿。')
   const reservations = db.prepare('SELECT code FROM material_code_reservations WHERE tenant_id=? AND organization_id=? AND account_id=?').all(...args(s)) as Array<{ code: string }>
   const codes = [...current.rows.map(row => row.number), ...workspace.value.materials.map(row => String(row.partNo ?? '')), ...reservations.map(row => row.code)]
   return { ...nextMaterialCode(rule, codes), rule, snapshotId: current.id, source }
@@ -73,11 +81,12 @@ export function createMaterialClosureRouter() {
     try {
       const s = scope(), config = connectorCredentialConfig(s, 'k3cloud'), mapping = record(config.materialSource), fields = record(mapping.fields)
       const previousSnapshotRevision = getAppStateVersioned(scopedStateKey('material-source', s), null).revision
-      const canonical = ['id','number','name','specification','unit','groupNumber','groupId','organization'] as const
+      const canonical = MATERIAL_SOURCE_FIELDS
       const allowlist = record(config.formAllowlist), allowed = allowlist[String(mapping.formId)]
       if (!/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(String(mapping.formId)) || !Array.isArray(allowed) || canonical.some(key => typeof fields[key] !== 'string' || !/^[A-Za-z0-9_.]{1,128}$/.test(String(fields[key])) || !allowed.includes(fields[key]))) return fail(409, '须配置 materialSource 的八个规范字段及当前账套只读 allowlist，禁止使用通用字段猜测。')
       const organization = String(config.organization ?? '')
       if (!/^[A-Za-z0-9_.-]{1,100}$/.test(organization)) return fail(409, '外部组织编号缺失或不可安全过滤。')
+      const sourceFingerprint = materialSourceFingerprint(config)
       const rows: SourceRow[] = [], ids = new Set<string>(), numbers = new Set<string>()
       const groupIds = new Map<string, string>(), groupNumbers = new Map<string, string>()
       for (let startRow = 0; ; startRow += 200) {
@@ -97,8 +106,11 @@ export function createMaterialClosureRouter() {
       const revisionRow = db.prepare("SELECT revision FROM connector_configs WHERE tenant_id=? AND organization_id=? AND account_id=? AND provider='k3cloud'").get(...args(s)) as { revision: number } | undefined
       const freshConfig = connectorCredentialConfig(s, 'k3cloud')
       if (JSON.stringify(freshConfig) !== JSON.stringify(config)) return fail(409, '扫描期间连接器配置变化，请重新刷新。')
-      const current: Snapshot = { id: randomUUID(), source: 'k3cloud', syncedAt: new Date().toISOString(), connectorRevision: revisionRow?.revision ?? 0, rows }
-      db.transaction(() => { setAppStateIfRevision(scopedStateKey('material-source', s), current, previousSnapshotRevision); audit(s, req.authUser!.id, '', 'source-refreshed', { snapshotId: current.id, rowCount: rows.length }) }).immediate()
+      // Configuration maintains the epoch even for source switches without a scan.
+      // A pre-upgrade connector uses its revision until the next configuration save.
+      const sourceEpoch = typeof config.materialSourceEpoch === 'string' && config.materialSourceEpoch ? config.materialSourceEpoch : `legacy-config-revision:${revisionRow?.revision ?? 0}`
+      const current: Snapshot = { id: randomUUID(), source: 'k3cloud', sourceFingerprint, sourceEpoch, syncedAt: new Date().toISOString(), connectorRevision: revisionRow?.revision ?? 0, rows }
+      db.transaction(() => { setAppStateIfRevision(scopedStateKey('material-source', s), current, previousSnapshotRevision); audit(s, req.authUser!.id, '', 'source-refreshed', { snapshotId: current.id, sourceFingerprint, sourceEpoch, rowCount: rows.length }) }).immediate()
       return res.json({ snapshot: { id: current.id, source: current.source, syncedAt: current.syncedAt }, rows: rows.slice(0, 200), notice })
     } catch (error) { next(error) }
   })
@@ -108,10 +120,12 @@ export function createMaterialClosureRouter() {
       const material = db.transaction(() => {
         const current = snapshot(s), source = current?.rows.find(row => row.id === sourceId)
         if (!current || !source) return fail(404, '当前账套完整快照中没有该物料。')
+        const connector = db.prepare("SELECT revision FROM connector_configs WHERE tenant_id=? AND organization_id=? AND account_id=? AND provider='k3cloud'").get(...args(s)) as { revision: number } | undefined
+        if (!current.sourceFingerprint || !current.sourceEpoch || !connector || connector.revision !== current.connectorRevision) return fail(409, '来源快照缺少身份或连接器版本已变化，请先重新刷新再复制草稿。')
         const id = randomUUID(), now = new Date().toISOString()
         const value = { id, partNo: `DRAFT-${id}`, name: source.name, specification: source.specification, unit: source.unit, category: '待确认分类', family: source.number.startsWith('1.') ? '产成品' : source.number.startsWith('2.') ? '半成品' : source.number.startsWith('3.') ? '原材料' : '待确认', erpGroupId: source.groupId, erpGroupNumber: source.groupNumber, templateSourceId: source.id, lifecycle: 'draft', revision: 'A', codeState: 'blocked', erpSyncState: 'unverified', owner: req.authUser!.displayName, createdAt: now, updatedAt: now }
         const workspace = loadScopedWorkspace(s); workspace.value.materials.unshift(value); persistScopedWorkspace(workspace)
-        audit(s, req.authUser!.id, id, 'copied', { source, snapshotId: current.id, excluded: ['source number','ERP identity','approval','organization','unique barcode'], notice })
+        audit(s, req.authUser!.id, id, 'copied', { source, snapshotId: current.id, sourceFingerprint: current.sourceFingerprint, sourceEpoch: current.sourceEpoch, excluded: ['source number','ERP identity','approval','organization','unique barcode'], notice })
         return value
       }).immediate()
       return res.status(201).json(material)
@@ -141,7 +155,7 @@ export function createMaterialClosureRouter() {
         db.prepare('INSERT INTO material_code_reservations(tenant_id,organization_id,account_id,material_id,code,rule_json,created_at) VALUES(?,?,?,?,?,?,?)').run(...args(s), id, result.code, JSON.stringify(result.rule), new Date().toISOString())
         Object.assign(material, { partNo: result.code, codePreview: result.code, codeState: 'reserved', updatedAt: new Date().toISOString() })
         persistScopedWorkspace(workspace)
-        audit(s, req.authUser!.id, id, 'allocated', { code: result.code, previousMaximum: result.maximum, rule: result.rule, snapshotId: result.snapshotId, source: result.source.source, copiedFromSnapshotId: result.source.snapshotId, notice })
+        audit(s, req.authUser!.id, id, 'allocated', { code: result.code, previousMaximum: result.maximum, rule: result.rule, snapshotId: result.snapshotId, source: result.source.source, sourceFingerprint: result.source.sourceFingerprint, sourceEpoch: result.source.sourceEpoch, copiedFromSnapshotId: result.source.snapshotId, notice })
         return material
       }).immediate()
       return res.json(material)
