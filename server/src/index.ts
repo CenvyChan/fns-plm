@@ -10,7 +10,8 @@ import { nanoid } from 'nanoid'
 import multer from 'multer'
 import * as archiver from 'archiver'
 import { createAuthRouter, requireRole, sameOriginGuard, sessionGate } from './auth.js'
-import { databaseHealth, db, StateConflictError } from './database.js'
+import { databaseHealth, db, recordSecurityEvent, StateConflictError } from './database.js'
+import { listResponse } from './list-query.js'
 import { createIntegrationRouter, stopIntegrationServices } from './integration-api.js'
 import { createDailyReportRouter } from './daily-reporting.js'
 import { createDailyReportingAdminRouter } from './daily-reporting-admin.js'
@@ -29,7 +30,7 @@ import { parseProjectPlanFile, projectTaskCsv, projectWorkbook } from './project
 type CollectionKey = 'kpiRules' | 'reviews' | 'materials' | 'boms' | 'documents' | 'salesBomSnapshots' | 'projectPhases' | 'projectMilestones' | 'projectEvents' | 'projectReports' | 'projectTemplates'
 
 const here = dirname(fileURLToPath(import.meta.url))
-type WorkspaceContext = ReturnType<typeof loadScopedWorkspace>
+type WorkspaceContext = ReturnType<typeof loadScopedWorkspace> & { request: Request }
 const workspaceStorage = new AsyncLocalStorage<WorkspaceContext>()
 function activeWorkspace(): WorkspaceContext {
   const current = workspaceStorage.getStore()
@@ -42,7 +43,20 @@ const data = new Proxy({} as Workspace, {
   ownKeys: () => Reflect.ownKeys(activeWorkspace().value),
   getOwnPropertyDescriptor: (_target, property) => property in activeWorkspace().value ? { configurable: true, enumerable: true, writable: true, value: (activeWorkspace().value as unknown as Record<PropertyKey, unknown>)[property] } : undefined,
 })
-const persist = () => persistScopedWorkspace(activeWorkspace())
+const persist = () => {
+  const current = activeWorkspace(), req = current.request, user = req.authUser!
+  const revision = current.revision
+  try {
+    return db.transaction(() => {
+      const nextRevision = persistScopedWorkspace(current)
+      // Never put request bodies, tokens or connector secrets into audit subjects.
+      recordSecurityEvent({ userId: user.id, tenantId: user.tenantId, organizationId: user.organizationId, accountId: user.accountId,
+        event: `workspace.${req.method.toLowerCase()}`, subject: `${req.route?.path ?? req.path}${req.params.id ? `#${req.params.id}` : ''}`,
+        ip: req.ip, userAgent: req.get('user-agent') })
+      return nextRevision
+    })()
+  } catch (error) { current.revision = revision; throw error }
+}
 
 function currentAccountHasUser(userId: string): boolean {
   const scope = currentWorkspaceScope()
@@ -111,7 +125,7 @@ app.use('/api', (req: Request, res: Response, next) => {
   const scope: WorkspaceScope = { tenantId: user.tenantId, tenantName: user.tenantName, organizationId: user.organizationId, organizationName: user.organizationName, accountId: user.accountId, accountName: user.accountName, role: user.role, isPlatformAdmin: user.isPlatformAdmin }
   try {
     const workspace = loadScopedWorkspace(scope)
-    return runWithWorkspaceScope(scope, () => workspaceStorage.run(workspace, next))
+    return runWithWorkspaceScope(scope, () => workspaceStorage.run({ ...workspace, request: req }, next))
   } catch (error) {
     if (error instanceof StateConflictError) return res.status(409).json({ error: 'workspace_conflict', message: '工作区刚被其他操作更新，请刷新后重试。' })
     console.error('Failed to load tenant workspace.', error)
@@ -124,7 +138,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
 })
 app.get('/api/workspace', (_req: Request, res: Response) => res.json(data))
 
-app.get('/api/tasks', (_req: Request, res: Response) => res.json(data.tasks))
+app.get('/api/tasks', (req: Request, res: Response) => listResponse(req, res, data.tasks))
 app.post('/api/tasks', (req: Request, res: Response) => {
   const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {}
   const { title, dueDate, priority = 'medium', status = 'todo', projectId, description } = body
@@ -175,7 +189,7 @@ app.delete('/api/tasks/:id', (req: Request, res: Response) => {
   if (before === data.tasks.length) return res.status(404).json({ error: 'task not found' })
   persist(); return res.status(204).end()
 })
-app.get('/api/projects', (_req: Request, res: Response) => res.json(data.projects))
+app.get('/api/projects', (req: Request, res: Response) => listResponse(req, res, data.projects))
 app.post('/api/projects', (req: Request, res: Response) => {
   const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {}
   if (typeof body.name !== 'string' || !body.name.trim()) return res.status(400).json({ error: 'name is required' })
@@ -223,7 +237,7 @@ app.post('/api/projects/from-template', requireRole('admin','plm_manager'), (req
   data.projects.push(project); data.projectPhases = [...createdPhases,...data.projectPhases]; data.projectMilestones = [...milestones,...data.projectMilestones]; data.tasks = [...tasks,...data.tasks]; persist()
   return res.status(201).json({ project, phases: createdPhases, milestones, tasks, template: { id: template.id, name: template.name }, counts: { phases: createdPhases.length, milestones: milestones.length, tasks: tasks.length } })
 })
-app.get('/api/project-template-library', (_req: Request, res: Response) => res.json([...builtInProjectTemplates, ...data.projectTemplates]))
+app.get('/api/project-template-library', (req: Request, res: Response) => listResponse(req, res, [...builtInProjectTemplates, ...data.projectTemplates]))
 app.patch('/api/projects/:id', (req: Request, res: Response) => {
   const index = data.projects.findIndex(project => project.id === req.params.id)
   if (index === -1) return res.status(404).json({ error: 'project not found' })
@@ -421,7 +435,7 @@ function registerCollection(path: string, key: CollectionKey, immutable = false)
   const list = () => data[key]
   const memberWritable = key === 'projectEvents' || key === 'projectReports'
   const writeAccess = key === 'reviews' ? requireRole('admin', 'plm_manager', 'reviewer') : memberWritable ? requireRole('admin', 'plm_manager', 'reviewer', 'member') : requireRole('admin', 'plm_manager')
-  app.get(`/api/${path}`, (_req: Request, res: Response) => res.json(list()))
+  app.get(`/api/${path}`, (req: Request, res: Response) => listResponse(req, res, list()))
   app.post(`/api/${path}`, writeAccess, (req: Request, res: Response) => {
     const body = safeFields(key, req.body)
     const error = validateEntity(key, body)
@@ -547,7 +561,7 @@ function weightedEventScore(lines: Array<Record<string, unknown>>, rules: Entity
   if (!totalWeight) return 0
   return Math.round(rules.reduce((sum, rule) => sum + (byId.get(String(rule.kpiRuleId)) ?? 0) * Number(rule.weight ?? 0), 0) / totalWeight * 10) / 10
 }
-app.get('/api/project-event-reviews', (_req: Request, res: Response) => res.json(data.projectEventReviews))
+app.get('/api/project-event-reviews', (req: Request, res: Response) => listResponse(req, res, data.projectEventReviews))
 app.post('/api/project-events/:id/start-review', requireRole('admin', 'plm_manager', 'reviewer'), (req: Request, res: Response) => {
   const event = data.projectEvents.find(item => item.id === req.params.id)
   if (!event) return res.status(404).json({ error: 'project event not found' })
@@ -741,7 +755,16 @@ app.delete('/api/projects/:id/files/:fileId', requireRole('admin','plm_manager')
   if(!row)return res.status(404).json({error:'file not found'})
   const target=resolve(documentStorageDir,row.storedName)
   if(!target.startsWith(`${documentStorageDir}/`))return res.status(400).json({error:'invalid stored path'})
-  try { if(existsSync(target))unlinkSync(target);db.prepare(`DELETE FROM project_files WHERE id=? AND tenant_id=? AND organization_id=? AND account_id=?`).run(req.params.fileId,scope.tenantId,scope.organizationId,scope.accountId);return res.status(204).end() }
+  try {
+    db.transaction(() => {
+      db.prepare(`DELETE FROM project_files WHERE id=? AND tenant_id=? AND organization_id=? AND account_id=?`).run(req.params.fileId,scope.tenantId,scope.organizationId,scope.accountId)
+      recordSecurityEvent({ userId: req.authUser!.id, tenantId: scope.tenantId, organizationId: scope.organizationId, accountId: scope.accountId,
+        event: 'workspace.delete', subject: `${req.route.path}#${req.params.id}/${req.params.fileId}`, ip: req.ip, userAgent: req.get('user-agent') })
+    })()
+    // Clean bytes only after metadata and mandatory audit commit; never lose a file on audit failure.
+    try { if(existsSync(target))unlinkSync(target) } catch(error) { console.error('Project attachment cleanup failed after audited metadata deletion.', error) }
+    return res.status(204).end()
+  }
   catch(error){console.error('Project file delete failed.',error);return res.status(500).json({error:'project_file_delete_failed'})}
 })
 function projectExportRows(projectId:string){

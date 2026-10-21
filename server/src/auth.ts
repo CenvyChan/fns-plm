@@ -256,9 +256,9 @@ export function createAuthRouter() {
         if (update.changes !== 1) throw new Error('activation_expired')
         db.prepare('DELETE FROM sessions WHERE user_id=?').run(valid.userId)
         db.prepare('DELETE FROM password_activation_tokens WHERE user_id=? AND token_hash<>?').run(valid.userId, digest)
+        recordSecurityEvent({ userId: valid.userId, event: 'password_activated', subject: 'one_time_activation', ip: req.ip, userAgent: req.get('user-agent') })
       })
       transaction()
-      recordSecurityEvent({ userId: valid.userId, event: 'password_activated', subject: 'one_time_activation', ip: req.ip, userAgent: req.get('user-agent') })
       return res.json({ ok: true, message: '密码已设置，请返回登录页使用个人密码登录。' })
     } catch (error) {
       if (error instanceof Error && error.message === 'activation_expired') return res.status(410).json({ error: 'activation_expired', message: '激活链接已失效或已使用，请联系管理员重新生成。' })
@@ -317,8 +317,11 @@ export function createAuthRouter() {
     const scopes = scopesForUser(user.id)
     if (!scopes.length) { logEvent(req, 'login_denied_no_membership', user.id, user.email); return res.status(403).json({ error: 'no_workspace_membership', message: '账号尚未加入任何启用的组织和账套。' }) }
     const requestedAccount = typeof req.body?.accountId === 'string' ? req.body.accountId : ''
-    const selected = (requestedAccount ? scopes.find(scope => scope.accountId === requestedAccount) : undefined) ?? scopes[0]
-    if (requestedAccount && !selected) return res.status(403).json({ error: 'scope_not_allowed', message: '该账号没有权限进入所选账套。' })
+    const selected = requestedAccount ? scopes.find(scope => scope.accountId === requestedAccount) : scopes[0]
+    if (!selected) {
+      logEvent(req, 'login_denied_scope_mismatch', user.id, requestedAccount)
+      return res.status(403).json({ error: 'scope_not_allowed', message: '该账号没有权限进入所选账套。' })
+    }
     nextLoginRateSuccess(req)
     const token = createSession(user.id, selected.accountId, req, res, mobile)
     const result = resolveSession(token)!
@@ -402,10 +405,13 @@ export function createAuthRouter() {
     const target = scopesForUser(user.id).find(scope => scope.accountId === accountId)
     if (!target) return res.status(403).json({ error: 'scope_not_allowed', message: '没有此组织/账套的访问权限。' })
     if (!req.sessionTokenHash) return res.status(401).json({ error: 'session_required', message: '请重新登录后切换范围。' })
-    db.prepare('UPDATE sessions SET active_account_id=? WHERE token_hash=?').run(accountId, req.sessionTokenHash)
-    const result = resolveSession(requestToken(req)!)!
+    const result = db.transaction(() => {
+      db.prepare('UPDATE sessions SET active_account_id=? WHERE token_hash=?').run(accountId, req.sessionTokenHash)
+      const resolved = resolveSession(requestToken(req)!)!
+      logEvent(req, 'workspace_scope_switched', user.id, target.accountName, resolved.user)
+      return resolved
+    })()
     req.authUser = result.user
-    logEvent(req, 'workspace_scope_switched', user.id, target.accountName, result.user)
     return res.json({ user: result.user, scopes: scopesForUser(user.id).map(scopeReply) })
   })
 
@@ -439,10 +445,10 @@ export function createAuthRouter() {
       if (already) throw new Error('membership_exists')
       db.prepare('INSERT INTO tenant_memberships(id,user_id,tenant_id,organization_id,account_id,role,disabled,created_at) VALUES(?,?,?,?,?,?,0,?)').run(nanoid(), user!.id, scope.tenantId, scope.organizationId, scope.accountId, role, new Date().toISOString())
       if (!user!.passwordEnabled) activation = issuePasswordActivation(user!.id)
+      logEvent(req, 'account_membership_created', scope.id, email, scope)
     })
     try {
       transaction()
-      logEvent(req, 'account_membership_created', scope.id, email, scope)
       return res.status(201).json({ user: { id: user!.id, email, displayName: user!.displayName, role, disabled: false, passwordEnabled: user!.passwordEnabled }, ...(activation ? { activationToken: activation.token, activationExpiresAt: activation.expiresAt } : {}) })
     } catch (error) {
       if (error instanceof Error && error.message === 'membership_exists') return res.status(409).json({ error: 'membership_exists', message: '此用户已在当前账套中。' })
@@ -467,13 +473,13 @@ export function createAuthRouter() {
         db.prepare('UPDATE users SET password_hash=?,password_enabled=0,updated_at=? WHERE id=?').run(dummyHash, now, userId)
         db.prepare('DELETE FROM sessions WHERE user_id=?').run(userId)
         activation = issuePasswordActivation(userId)
+        logEvent(req, 'password_activation_link_reset', scope.id, target.email, scope)
       })
       transaction()
     } catch (error) {
       console.error('Password activation link reset failed.', error)
       return res.status(500).json({ error: 'activation_reset_failed', message: '无法生成新的激活链接。' })
     }
-    logEvent(req, 'password_activation_link_reset', scope.id, target.email, scope)
     return res.json({ activationToken: activation!.token, activationExpiresAt: activation!.expiresAt })
   })
   router.patch('/users/:id', requireRole('admin'), (req, res) => {
@@ -503,14 +509,14 @@ export function createAuthRouter() {
       const transaction = db.transaction(() => {
         db.prepare('UPDATE users SET display_name=?,dingtalk_user_id=?,dingtalk_union_id=?,updated_at=? WHERE id=?').run(displayName, dingtalkUserId || null, dingtalkUnionId || null, now, userId)
         db.prepare('UPDATE tenant_memberships SET role=?,disabled=? WHERE id=?').run(role, disabled ? 1 : 0, target.membershipId)
-        if (disabled) db.prepare('DELETE FROM sessions WHERE user_id=?').run(userId)
+        if (disabled) db.prepare('DELETE FROM sessions WHERE user_id=? AND active_account_id=?').run(userId, scope.accountId)
+        logEvent(req, bindingUpdated ? 'dingtalk_identity_binding_updated' : 'account_membership_updated', scope.id, target.email, scope)
       })
       transaction()
     } catch (error) {
       if (String(error).includes('UNIQUE')) return res.status(409).json({ error: 'dingtalk_identity_already_bound', message: '此钉钉身份已绑定到其他工作区用户。' })
       throw error
     }
-    logEvent(req, bindingUpdated ? 'dingtalk_identity_binding_updated' : 'account_membership_updated', scope.id, target.email, scope)
     return res.json({ user: { id: userId, email: target.email, displayName, role, disabled, passwordEnabled: true } })
   })
 
@@ -520,9 +526,11 @@ export function createAuthRouter() {
     const ids = { tenantId: nanoid(), organizationId: nanoid(), accountId: nanoid(), userId: req.authUser!.id, role: 'admin' as const }
     const names = { tenantName, tenantCode: safeCode(req.body?.tenantCode, `TENANT_${ids.tenantId.slice(0,6).toUpperCase()}`), organizationName, organizationCode: safeCode(req.body?.organizationCode, `ORG_${ids.organizationId.slice(0,6).toUpperCase()}`), accountName, accountCode: safeCode(req.body?.accountCode, `MAIN_${ids.accountId.slice(0,6).toUpperCase()}`) }
     try {
-      const transaction = db.transaction(() => insertScope(ids, names, new Date().toISOString()))
+      const transaction = db.transaction(() => {
+        insertScope(ids, names, new Date().toISOString())
+        logEvent(req, 'tenant_created', ids.userId, names.tenantName, { tenantId: ids.tenantId, organizationId: ids.organizationId, accountId: ids.accountId })
+      })
       transaction()
-      logEvent(req, 'tenant_created', ids.userId, names.tenantName, { tenantId: ids.tenantId, organizationId: ids.organizationId, accountId: ids.accountId })
       return res.status(201).json({ scope: { ...ids, ...names } })
     } catch (error) { if (String(error).includes('UNIQUE')) return res.status(409).json({ error: 'duplicate_scope_code', message: '编码重复，请换一个编码。' }); return res.status(500).json({ error: 'tenant_create_failed' }) }
   })
@@ -536,9 +544,9 @@ export function createAuthRouter() {
         db.prepare('INSERT INTO organizations(id,tenant_id,name,code,status,created_at,updated_at) VALUES(?,?,?, ?,\'active\',?,?)').run(organizationId, user.tenantId, organizationName, orgCode, now, now)
         db.prepare('INSERT INTO accounts(id,tenant_id,organization_id,name,code,erp_system,status,created_at,updated_at) VALUES(?,?,?,?,?,\'k3cloud\',\'active\',?,?)').run(accountId, user.tenantId, organizationId, accountName, accountCode, now, now)
         db.prepare('INSERT INTO tenant_memberships(id,user_id,tenant_id,organization_id,account_id,role,disabled,created_at) VALUES(?,?,?,?,?,\'admin\',0,?)').run(nanoid(), user.id, user.tenantId, organizationId, accountId, now)
+        logEvent(req, 'organization_account_created', user.id, organizationName, { tenantId: user.tenantId, organizationId, accountId })
       })
       transaction()
-      logEvent(req, 'organization_account_created', user.id, organizationName, { tenantId: user.tenantId, organizationId, accountId })
       return res.status(201).json({ organization: { id: organizationId, name: organizationName, code: orgCode }, account: { id: accountId, name: accountName, code: accountCode } })
     } catch (error) { if (String(error).includes('UNIQUE')) return res.status(409).json({ error: 'duplicate_scope_code', message: '组织或账套编码重复。' }); return res.status(500).json({ error: 'organization_create_failed' }) }
   })
@@ -550,9 +558,9 @@ export function createAuthRouter() {
       const transaction = db.transaction(() => {
         db.prepare('INSERT INTO accounts(id,tenant_id,organization_id,name,code,erp_system,status,created_at,updated_at) VALUES(?,?,?,?,?,\'k3cloud\',\'active\',?,?)').run(id, user.tenantId, user.organizationId, name, code, now, now)
         db.prepare('INSERT INTO tenant_memberships(id,user_id,tenant_id,organization_id,account_id,role,disabled,created_at) VALUES(?,?,?,?,?,\'admin\',0,?)').run(nanoid(), user.id, user.tenantId, user.organizationId, id, now)
+        logEvent(req, 'account_created', user.id, name, { tenantId: user.tenantId, organizationId: user.organizationId, accountId: id })
       })
       transaction()
-      logEvent(req, 'account_created', user.id, name, { tenantId: user.tenantId, organizationId: user.organizationId, accountId: id })
       return res.status(201).json({ account: { id, tenantId: user.tenantId, organizationId: user.organizationId, name, code, status: 'active' } })
     } catch (error) { if (String(error).includes('UNIQUE')) return res.status(409).json({ error: 'duplicate_account_code', message: '此组织内账套编码已存在。' }); return res.status(500).json({ error: 'account_create_failed' }) }
   })
