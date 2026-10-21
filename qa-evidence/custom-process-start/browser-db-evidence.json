@@ -1,0 +1,27 @@
+{
+  "connectorRows": 0,
+  "states": [
+    {
+      "state": "started",
+      "processInstanceId": "isolated-custom-instance-1"
+    },
+    {
+      "state": "uncertain",
+      "processInstanceId": null
+    },
+    {
+      "state": "started",
+      "processInstanceId": "isolated-custom-instance-3"
+    }
+  ],
+  "formVersions": [
+    {
+      "form_key": "uatPinnedForm",
+      "version": 1
+    },
+    {
+      "form_key": "uatPinnedForm",
+      "version": 2
+    }
+  ]
+}

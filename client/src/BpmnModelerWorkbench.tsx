@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Modeler from "bpmn-js/lib/Modeler";
 import type { AuthUser } from "./api";
 import FormVersionPanel from "./FormVersionPanel";
+import CustomProcessStartPanel, { engineLabel } from "./CustomProcessStartPanel";
 import { approvalTemplate, type TemplateKind } from "./bpmnTemplates";
 import { apiFetch } from "./api";
 import flowableDescriptor from "./flowable-minimal-moddle.json";
@@ -199,7 +200,8 @@ export default function BpmnModelerWorkbench({
     [formVersions, setFormVersions] = useState<Record<string, number[]>>({}),
     [history, setHistory] = useState<FormHistory>({ publications: [], audit: [] }),
     [focusMode, setFocusMode] = useState(false),
-    [templateKind, setTemplateKind] = useState<TemplateKind>("serial");
+    [templateKind, setTemplateKind] = useState<TemplateKind>("serial"),
+    [startRefresh, setStartRefresh] = useState(0);
   const admin = currentUser?.role === "admin";
   const selectedElementRef = useRef("");
   selectedElementRef.current = selectedFlow || selectedNode;
@@ -558,6 +560,7 @@ export default function BpmnModelerWorkbench({
     });
     if (r) {
       setNotice("发布请求已完成");
+      setStartRefresh(value => value + 1);
       setPreview(null);
       setConfirm(false);
       await refresh();
@@ -592,14 +595,15 @@ export default function BpmnModelerWorkbench({
           <select className="bpmn-template-select" aria-label="新建流程模板" value={templateKind} onChange={e=>setTemplateKind(e.target.value as TemplateKind)} disabled={!admin||busy}><option value="serial">串行审批模板</option><option value="exclusive">条件审批模板</option><option value="parallel">并行审批模板</option></select><button className="bpmn-button quiet" disabled={!admin || busy} onClick={() => void create()}>＋ 新建</button>
         </div>
       </header>
-      {!admin && <div className="bpmn-alert">当前账户不是工作区管理员，设计与写入操作已禁用。</div>}
+      {!admin && <div className="bpmn-alert">当前账户不是工作区管理员，模型设计与发布已禁用；PLM 管理员仍可按权限启动已发布自定义流程。</div>}
       {error && <div className="bpmn-alert" role="alert">{error}<button className="bpmn-button" disabled={busy} onClick={()=>{setError("");void refresh();}}>重新读取</button></div>}{notice && <div className="bpmn-notice" role="status">{notice}</div>}
+      <CustomProcessStartPanel key={modelId} modelId={modelId} currentUser={currentUser} refreshKey={startRefresh} />
       <nav className="bpmn-mobile-nav" aria-label="工作区面板">{["模型", "画布", "属性", "发布", "表单"].map((x) => <button key={x} className={panel === x ? "active" : ""} onClick={() => setPanel(x)}>{x}</button>)}</nav>
       <div className={`bpmn-layout ${panel === "表单" ? "form-active" : ""}`}>
         <aside className={`bpmn-models ${panel === "模型" ? "mobile-active" : ""}`}>
           <div className="bpmn-section-title"><div><small>LIBRARY</small><h2>流程模型</h2></div><span className="bpmn-count">{items.length}</span></div>
           <label className="bpmn-search"><span>⌕</span><input aria-label="搜索模型" placeholder="搜索模型名称或 Key" value={modelQuery} onChange={(e) => setModelQuery(e.target.value)} /></label>
-          <div className="bpmn-model-list">{visibleItems.map((m) => <button key={m.id} className={`bpmn-model-item ${modelId === m.id ? "active" : ""}`} disabled={busy} onClick={() => void load(m.id)}><span className="model-icon">⌘</span><span className="model-copy"><b>{m.name}</b><small>{m.key} · r{m.revision}{m.publishedVersion ? ` · 模拟发布 v${m.publishedVersion}` : " · 草稿"}</small></span><span className="model-arrow">›</span></button>)}
+          <div className="bpmn-model-list">{visibleItems.map((m) => <button key={m.id} className={`bpmn-model-item ${modelId === m.id ? "active" : ""}`} disabled={busy} onClick={() => void load(m.id)}><span className="model-icon">⌘</span><span className="model-copy"><b>{m.name}</b><small>{m.key} · r{m.revision}{m.publishedVersion ? ` · 已发布 v${m.publishedVersion}` : " · 草稿"}</small></span><span className="model-arrow">›</span></button>)}
             {!visibleItems.length && <div className="bpmn-empty"><span>⌘</span><b>{items.length ? "没有匹配的模型" : "从一个空白模型开始"}</b><p>{items.length ? "试试其他名称或 Key" : "新建后可在画布中添加安全支持的 BPMN 元素。"}{!items.length && admin && <button className="text-button" onClick={() => void create()}>创建新模型 →</button>}</p></div>}</div>
           <div className="bpmn-model-foot">仅管理员可编辑　·　草稿保存在服务端</div>
         </aside>
@@ -629,12 +633,12 @@ export default function BpmnModelerWorkbench({
       <section className={`bpmn-lifecycle ${panel === "发布" ? "mobile-active" : ""}`}><div className="lifecycle-head"><div><small>RELEASE CONTROL</small><h2>校验与发布</h2></div><span className="lifecycle-safe">受控发布</span></div>
         <div className="bpmn-version-controls"><button className="bpmn-button" onClick={()=>void validate()} disabled={!admin||!modelId||busy}>校验草稿</button><button className="bpmn-button" onClick={()=>void freeze()} disabled={!admin||!modelId||busy}>冻结不可变版本</button><select aria-label="选择版本" disabled={!admin||busy} value={chosenVersion||""} onChange={e=>{setChosenVersion(Number(e.target.value));setPreview(null);setConfirm(false);}}><option value="">选择已冻结版本</option>{versionRows}</select><button className="bpmn-button" onClick={()=>void doPreview()} disabled={!admin||!chosenVersion||busy}>预览差异</button></div>
         <div className="lifecycle-columns"><div className="lifecycle-card"><b>校验结果</b>{validation?<div className={validation.valid?"result-good":"result-bad"}>{validation.valid?"校验通过":"发现需处理的问题"}{(validation.errors||[]).map((x:any,i:number)=><p key={i}>{typeof x==="string"?x:x.message||JSON.stringify(x)}</p>)}</div>:<p>保存草稿后运行校验。结果会在此呈现。</p>}</div>
-        <div className="lifecycle-card"><b>冻结版本 / 发布预览</b>{preview?<><p>版本 v{preview.version} · 基线 {preview.baselineVersion ? `v${preview.baselineVersion}` : "首次发布"} · 本地 mock 变更摘要</p><div className="change-list">{(Array.isArray(preview.changes)?preview.changes:[]).length ? preview.changes.map((c:any,i:number)=><div key={i}><span>{({added:"新增",removed:"删除",changed:"修改"} as any)[c.change]||"变更"}</span><b>{c.name||c.key||c.id||"流程定义"}</b><small>{`${changeSummary(c.before,c.kind,graph)} → ${changeSummary(c.after,c.kind,graph)}`}</small></div>):<p>{typeof preview.changes==="string"?preview.changes:"已生成预览。服务端返回的变更内容如下："}</p>}</div>
+        <div className="lifecycle-card"><b>冻结版本 / 发布预览</b>{preview?<><p>版本 v{preview.version} · 基线 {preview.baselineVersion ? `v${preview.baselineVersion}` : "首次发布"} · {engineLabel(preview.engineMode)} · 变更摘要</p><div className="change-list">{(Array.isArray(preview.changes)?preview.changes:[]).length ? preview.changes.map((c:any,i:number)=><div key={i}><span>{({added:"新增",removed:"删除",changed:"修改"} as any)[c.change]||"变更"}</span><b>{c.name||c.key||c.id||"流程定义"}</b><small>{`${changeSummary(c.before,c.kind,graph)} → ${changeSummary(c.after,c.kind,graph)}`}</small></div>):<p>{typeof preview.changes==="string"?preview.changes:"已生成预览。服务端返回的变更内容如下："}</p>}</div>
           {(preview.blocked||preview.blockedReasons||preview.reasons)&&<div className="bpmn-alert">安全阻断：{Array.isArray(preview.blockedReasons||preview.reasons)?(preview.blockedReasons||preview.reasons).map((r:any)=>typeof r==="string"?r:r.message||JSON.stringify(r)).join("；"):String(preview.blockedReason||preview.blockedReasons||preview.reasons||preview.blocked)}。后端策略为最终控制。</div>}
-          <label className="bpmn-confirm"><input type="checkbox" disabled={!admin||busy} checked={confirm} onChange={e=>setConfirm(e.target.checked)}/>我已审阅差异，并确认仅向本地 mock 模拟发布</label><button className="bpmn-button publish" disabled={!admin||!confirm||busy||!preview.confirmationToken} onClick={()=>void publish()}>确认模拟发布</button></>:<p>选择一个冻结版本并预览差异。只有持有效预览令牌且明确确认后才可发起发布；安全策略可能返回 423 阻断。</p>}</div></div>
-        <section className="history-panel"><b>发布历史与审计</b><button className="bpmn-button" disabled={!modelId||busy} onClick={async()=>{try{setHistory(await json<FormHistory>(`/api/bpmn-models/${encodeURIComponent(modelId)}/history`));}catch(e){setError(String(e));}}}>刷新历史</button>{history.publications.length ? history.publications.map((p:any,i:number)=><div key={i}><span>v{p.version}</span><b>{({published:"模拟发布完成",uncertain:"结果不明确 · 禁止重试",deploying:"发布中"} as any)[p.status]||p.status}</b><small>{p.deploymentId||p.deployment_id} · {p.updatedAt||p.updated_at}</small></div>) : <p>尚无发布记录</p>}{history.audit.slice(0,12).map((a:any,i:number)=><div key={i}><span>{({create:"创建草稿",update:"保存草稿",version_created:"冻结版本",preview:"预览差异",publish_started:"发起模拟发布",published:"模拟发布完成"} as any)[a.event]||a.event}</span><small>{a.createdAt||a.created_at}</small></div>)}</section>
+          <label className="bpmn-confirm"><input type="checkbox" disabled={!admin||busy} checked={confirm} onChange={e=>setConfirm(e.target.checked)}/>我已审阅差异，并确认向上述服务端允许的引擎发布</label><button className="bpmn-button publish" disabled={!admin||!confirm||busy||!preview.confirmationToken} onClick={()=>void publish()}>确认发布</button></>:<p>选择一个冻结版本并预览差异。只有持有效预览令牌且明确确认后才可发起发布；安全策略可能返回 423 阻断。</p>}</div></div>
+        <section className="history-panel"><b>发布历史与审计</b><button className="bpmn-button" disabled={!modelId||busy} onClick={async()=>{try{setHistory(await json<FormHistory>(`/api/bpmn-models/${encodeURIComponent(modelId)}/history`));}catch(e){setError(String(e));}}}>刷新历史</button>{history.publications.length ? history.publications.map((p:any,i:number)=><div key={i}><span>v{p.version}</span><b>{({published:"发布完成",uncertain:"结果不明确 · 禁止重试",deploying:"发布中"} as any)[p.status]||p.status}</b><small>{p.deploymentId||p.deployment_id} · {p.updatedAt||p.updated_at}</small></div>) : <p>尚无发布记录</p>}{history.audit.slice(0,12).map((a:any,i:number)=><div key={i}><span>{({create:"创建草稿",update:"保存草稿",version_created:"冻结版本",preview:"预览差异",publish_started:"发起发布",published:"发布完成"} as any)[a.event]||a.event}</span><small>{a.createdAt||a.created_at}</small></div>)}</section>
       </section>
-      <footer className="bpmn-foot">支持开始/结束、用户任务、排他及受限并行网关、固定表单版本；并行分支不等同于多实例会签。候选组尚无 PLM 主账映射，暂不开放。真实 Flowable 发布保持阻断，本地闭环仅使用 loopback mock；禁止导入外部 XML 或编辑源文本。Flowable 属性采用本项目自有最小 moddle 描述符。保留原生 bpmn.io 水印。当前用户：{currentUser?.displayName||"未知"}</footer>
+      <footer className="bpmn-foot">支持开始/结束、用户任务、排他及受限并行网关、固定表单版本；并行分支不等同于多实例会签。工作区角色由服务端映射为账套隔离的候选组。发布和启动受服务端安全门禁控制：隔离测试模式不代表模拟引擎；已验证补丁的 Flowable 连接与测试模式分别标识。禁止导入外部 XML 或编辑源文本。Flowable 属性采用本项目自有最小 moddle 描述符。保留原生 bpmn.io 水印。当前用户：{currentUser?.displayName||"未知"}</footer>
     </main>
   );
 }

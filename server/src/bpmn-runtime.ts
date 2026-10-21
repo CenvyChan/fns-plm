@@ -47,8 +47,6 @@ export function createBpmnRuntimeRouter(): Router {
     if (!['admin', 'plm_manager'].includes(user.role)) return res.status(403).json({ error: 'role_forbidden' })
     const scope = scopeOf(req), cfg = configOf(scope)
     if (engineReleaseBlocked(cfg)) return res.status(503).json({ error: 'custom_bpmn_runtime_release_blocked' })
-    const engine = await flowableHealth(cfg)
-    if (!engine.connected) return res.status(503).json({ error: 'flowable_unavailable_no_process_started' })
 
     const modelId = str(req.params.id), body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {}
     const idempotencyKey = str(req.get('Idempotency-Key') ?? body.idempotencyKey).trim()
@@ -56,7 +54,9 @@ export function createBpmnRuntimeRouter(): Router {
       return res.status(400).json({ error: 'model_id_and_idempotency_key_required' })
     // Reject all caller-controlled execution/identity fields. Only business context scalars pass.
     const allowed = new Set(['title', 'businessId', 'businessType', 'changeSummary'])
-    if (Object.keys(body).some(k => !allowed.has(k) && k !== 'idempotencyKey')) return res.status(400).json({ error: 'unsupported_start_field' })
+    if (Object.keys(body).some(k => !allowed.has(k) && !['idempotencyKey','expectedVersionId'].includes(k))) return res.status(400).json({ error: 'unsupported_start_field' })
+    const expectedVersionId = body.expectedVersionId
+    if (expectedVersionId !== undefined && (typeof expectedVersionId !== 'string' || !expectedVersionId.trim() || expectedVersionId.length > 160)) return res.status(400).json({ error: 'invalid_expected_version_id' })
     const input = Object.fromEntries(Object.entries(body).filter(([k]) => allowed.has(k)))
     if (Object.entries(input).some(([k, v]) => typeof v !== 'string' || !(v as string).trim() || (v as string).length > (k === 'changeSummary' ? 4000 : 240)))
       return res.status(400).json({ error: 'invalid_business_context' })
@@ -84,6 +84,9 @@ export function createBpmnRuntimeRouter(): Router {
         scope.tenantId, scope.organizationId, scope.accountId, scope.tenantId, scope.organizationId, scope.accountId) as
       { modelId: string; modelKey: string; modelName: string; versionId: string; xml: string; sha256: string; graph: string; definitionId: string | null; deploymentId: string | null } | undefined
     if (!published || !published.definitionId || !published.deploymentId) return res.status(404).json({ error: 'published_model_not_found_in_scope' })
+    if (expectedVersionId !== undefined && expectedVersionId !== published.versionId) return res.status(409).json({ error: 'published_version_changed', message: 'Published BPMN version changed; refresh context and confirm again.' })
+    const engine = await flowableHealth(cfg)
+    if (!engine.connected) return res.status(503).json({ error: 'flowable_unavailable_no_process_started' })
     const digest = createHash('sha256').update(published.xml, 'utf8').digest('hex')
     if (digest !== published.sha256 || validateGeneratedBpmnXml(published.xml).length) return res.status(409).json({ error: 'published_version_integrity_or_safe_subset_failed' })
     try {

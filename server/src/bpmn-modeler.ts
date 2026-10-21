@@ -500,6 +500,25 @@ export function modelChanges(previous: Graph | undefined, next: Graph) {
   return changes;
 }
 
+
+function engineMode(cfg: Record<string, unknown>): "mock-test" | "flowable" | "unconfigured" | "blocked" {
+  const baseUrl = String(cfg.baseUrl ?? "").trim();
+  if (!baseUrl || !String(cfg.username ?? "").trim() || !String(cfg.password ?? "").trim()) return "unconfigured";
+  if (process.env.FLOWABLE_VERIFIED_STAGING_RELEASE === "20261020-parser-patched" && baseUrl === "http://100.83.138.26:18081/flowable-rest/service") return "flowable";
+  try {
+    const u = new URL(baseUrl);
+    const loopback = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(u.hostname);
+    if (loopback && process.env.NODE_ENV === "test" && process.env.BPMN_MODELER_ALLOW_TEST_MOCK === "true") return "mock-test";
+  } catch {}
+  return engineReleaseBlocked(cfg) ? "blocked" : "flowable";
+}
+function engineModeReason(mode: "mock-test" | "flowable" | "unconfigured" | "blocked"): string {
+  if (mode === "mock-test") return "仅限隔离测试环境的 loopback 引擎门禁；此标记本身不证明对端是模拟引擎。";
+  if (mode === "flowable") return "已配置经验证的 Flowable staging 引擎。";
+  if (mode === "unconfigured") return "Flowable 连接配置不完整。";
+  return "真实引擎发布/启动被安全门禁阻止；需先完成经验证的 staging 配置。";
+}
+
 function rowFor(s: ReturnType<typeof currentWorkspaceScope>, id: string) {
   if (!s) return;
   return db
@@ -789,7 +808,22 @@ export function createBpmnModelerRouter() {
     if (!m) return res.status(404).json({ error: "not_found" });
     const publications = db.prepare(`SELECT p.id,p.version_id AS versionId,v.version,p.status,p.deployment_id AS deploymentId,p.definition_id AS processDefinitionId,p.updated_at AS updatedAt FROM bpmn_publish p JOIN bpmn_versions v ON v.id=p.version_id WHERE p.model_id=? AND p.tenant_id=? AND p.organization_id=? AND p.account_id=? ORDER BY v.version DESC`).all(m.id,s.tenantId,s.organizationId,s.accountId);
     const auditRows = db.prepare(`SELECT id,actor_id AS actorId,event,detail,created_at AS createdAt FROM bpmn_audit WHERE model_id=? AND tenant_id=? AND organization_id=? AND account_id=? ORDER BY created_at DESC,id DESC`).all(m.id,s.tenantId,s.organizationId,s.accountId);
-    return res.json({ publications, audit: auditRows });
+    const mode = engineMode(connectorCredentialConfig(s, "flowable"));
+    return res.json({ publications, audit: auditRows, engineMode: mode });
+  });
+  r.get("/bpmn-models/:id/start-context", (req, res) => {
+    const s = scope(req, res);
+    if (!s) return;
+    const model = rowFor(s, req.params.id);
+    if (!model) return res.status(404).json({ error: "not_found" });
+    const published = db.prepare(`SELECT v.id AS versionId,v.version,v.graph FROM bpmn_versions v JOIN bpmn_publish p ON p.version_id=v.id AND p.model_id=v.model_id AND p.status='published' WHERE v.model_id=? AND v.tenant_id=? AND v.organization_id=? AND v.account_id=? AND p.tenant_id=? AND p.organization_id=? AND p.account_id=? ORDER BY v.version DESC LIMIT 1`).get(model.id,s.tenantId,s.organizationId,s.accountId,s.tenantId,s.organizationId,s.accountId) as {versionId:string;version:number;graph:string}|undefined;
+    const mode = engineMode(connectorCredentialConfig(s, "flowable"));
+    const allowed = ["admin", "plm_manager"].includes(s.role);
+    const formBindings: Array<{nodeId:string;formKey:string;formVersion:number}> = published ? (() => {
+      try { const graph=JSON.parse(published.graph) as Graph; return graph.nodes.filter(n => n.type === "userTask" && typeof n.id === "string" && n.formBinding && typeof n.formBinding === "object").map(n => { const b=n.formBinding as Record<string,unknown>; return {nodeId:String(n.id),formKey:String(b.formKey ?? ""),formVersion:Number(b.formVersion)}; }).filter(b => b.formKey && Number.isInteger(b.formVersion) && b.formVersion > 0); } catch { return []; }
+    })() : [];
+    const reason = !allowed ? "需要 admin 或 plm_manager 角色。" : !published ? "尚无成功发布的 BPMN 版本。" : mode === "unconfigured" || mode === "blocked" ? engineModeReason(mode) : undefined;
+    return res.json({ canStart: allowed && Boolean(published) && (mode === "mock-test" || mode === "flowable"), ...(reason ? {reason} : {}), engineMode: mode, publishedVersion: published?.version ?? null, ...(published ? {versionId:published.versionId} : {}), formBindings });
   });
   r.get("/bpmn-models/:id/versions", (req, res) => {
     const s = scope(req, res);
@@ -822,8 +856,9 @@ export function createBpmnModelerRouter() {
       ) as Record<string, unknown> | undefined;
     if (!v) return res.status(404).json({ error: "version_not_found" });
     const cfg = connectorCredentialConfig(s, "flowable");
-    let blockedReason = engineReleaseBlocked(cfg)
-      ? "真实引擎发布已阻断：尚未独立验证 Flowable 漏洞修复或缓解。本次仅允许临时数据库及 loopback mock 验收。"
+    const mode = engineMode(cfg);
+    let blockedReason = mode === "blocked" || mode === "unconfigured"
+      ? engineModeReason(mode)
       : "";
     try {
       if (
@@ -877,6 +912,7 @@ export function createBpmnModelerRouter() {
     audit(s, actor, String(m.id), "preview", String(v.version));
     return res.json({
       version: v.version,
+      engineMode: mode,
       baselineVersion: prev?.version ?? null,
       tenantId: scopeKey(s),
       sha256: v.sha256,
@@ -900,7 +936,7 @@ export function createBpmnModelerRouter() {
       return res.status(423).json({
         error: "deployment_blocked",
         message:
-          "Real Flowable deployments are disabled; release is permitted only in mock-only test mode against loopback.",
+          "Engine release is blocked by the Flowable safety gate; configure verified staging before publishing.",
       });
     }
     if (

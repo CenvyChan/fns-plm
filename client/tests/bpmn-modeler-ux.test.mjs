@@ -50,7 +50,8 @@ test('功能设计器：模板、固定表单与权限空态契约', async t => 
       assert.match(html, /当前账户不是工作区管理员/);
       assert.match(html, /disabled=""[^>]*>保存草稿/);
       assert.match(html, /并行分支不等同于多实例会签/);
-      assert.match(html, /真实 Flowable 发布保持阻断/);
+      assert.match(html, /发布和启动受服务端安全门禁控制/);
+      assert.doesNotMatch(html, /真实 Flowable 发布保持阻断/);
     });
   } finally { await server.close(); }
 });

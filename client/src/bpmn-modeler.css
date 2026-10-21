@@ -14,3 +14,12 @@
 @media(max-width:700px){.bpmn-head{gap:8px;margin-bottom:8px;padding-bottom:8px}.bpmn-brand .bpmn-mark,.bpmn-brand small,.bpmn-brand p{display:none}.bpmn-brand h1{font-size:18px}.bpmn-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}.bpmn-actions>button:first-child{display:none}.bpmn-actions .focus-toggle{grid-column:3;grid-row:1}.bpmn-actions .bpmn-dirty{grid-column:1/3;grid-row:1}.bpmn-actions .quiet,.bpmn-actions .bpmn-template-select{display:none}.bpmn-page[data-panel="模型"] .bpmn-actions .quiet,.bpmn-page[data-panel="模型"] .bpmn-actions .bpmn-template-select{display:block}.bpmn-notice,.bpmn-alert{margin:6px 0;padding:8px 10px}.bpmn-mobile-nav{margin:8px 0}.bpmn-work .bpmn-model-fields{padding-bottom:8px}.bpmn-toolbar{margin-bottom:7px;padding:5px 0}.tool-button{min-height:32px}.toolbar-hint{display:none}.focus-mode .bpmn-canvas-wrap{height:290px;min-height:290px}.focus-mode .bpmn-canvas{height:290px}.bpmn-canvas-meta>span:nth-child(2){display:none}.focus-mode .bpmn-work{min-height:0}}
 
 .bpmn-node-picker,.bpmn-property-fields,.bpmn-flow-editor,.bpmn-field{min-width:0;max-width:100%}.bpmn-node-picker{width:100%;grid-template-columns:minmax(0,1fr)}.bpmn-node-picker select,.bpmn-field select{min-width:0;max-width:100%;text-overflow:ellipsis}.bpmn-inspector{overflow-x:hidden}.bpmn-flow-row{min-width:0;max-width:100%;grid-template-columns:minmax(0,1fr) 12px minmax(0,1fr)}.bpmn-flow-row span{min-width:0;overflow-wrap:anywhere}
+
+.custom-process-start { margin: 0 24px 16px; padding: 16px 20px; border: 1px solid #cbd5e1; border-radius: 12px; background: #f8fafc; color: #334155; }
+.custom-process-start p { margin: 8px 0; font-size: 13px; line-height: 1.6; }
+.custom-process-start small { display: block; overflow-wrap: anywhere; margin: 8px 0; }
+.custom-process-start ul { margin: 8px 0; padding-left: 22px; font-size: 13px; }
+.custom-process-start form { max-width: 680px; display: grid; gap: 10px; margin-top: 12px; }
+.custom-process-start form > label:not(.bpmn-confirm) { display: grid; gap: 5px; font-size: 13px; }
+.custom-process-start input:not([type=checkbox]), .custom-process-start textarea { width: 100%; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 7px; padding: 8px; color: #1e293b; background: white; }
+@media(max-width: 760px) { .custom-process-start { margin: 0 12px 12px; padding: 12px; } }

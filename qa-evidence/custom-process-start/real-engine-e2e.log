@@ -1,0 +1,33 @@
+PLM Momentum API listening on http://127.0.0.1:46443
+POST /auth/mobile/setup -> 201
+PLM Momentum API received SIGTERM; draining requests.
+PLM Momentum API listening on http://127.0.0.1:46443
+POST /forms -> 201
+POST /forms/customForm1de749ff57d4/publish -> 201
+POST /bpmn-models -> 201
+POST /bpmn-models/no6rO5dUzeQGBdcZWlNF2/versions -> 201
+POST /bpmn-models/no6rO5dUzeQGBdcZWlNF2/preview -> 200
+POST /bpmn-models/no6rO5dUzeQGBdcZWlNF2/publish -> 200
+GET /bpmn-models/no6rO5dUzeQGBdcZWlNF2/start-context -> 200
+PUT /forms/customForm1de749ff57d4 -> 200
+POST /forms/customForm1de749ff57d4/publish -> 201
+GET /bpmn-models/no6rO5dUzeQGBdcZWlNF2/start-context -> 200
+POST /bpmn-models/no6rO5dUzeQGBdcZWlNF2/start -> 409
+PUT /bpmn-models/no6rO5dUzeQGBdcZWlNF2 -> 200
+POST /bpmn-models/no6rO5dUzeQGBdcZWlNF2/versions -> 201
+POST /bpmn-models/no6rO5dUzeQGBdcZWlNF2/preview -> 200
+POST /bpmn-models/no6rO5dUzeQGBdcZWlNF2/publish -> 200
+POST /bpmn-models/no6rO5dUzeQGBdcZWlNF2/start -> 409
+GET /bpmn-models/no6rO5dUzeQGBdcZWlNF2/start-context -> 200
+POST /bpmn-models/no6rO5dUzeQGBdcZWlNF2/start -> 201
+POST /bpmn-models/no6rO5dUzeQGBdcZWlNF2/start -> 200
+POST /bpmn-models/no6rO5dUzeQGBdcZWlNF2/start -> 409
+GET /workflow/tasks -> 200
+GET /workflow/tasks/48c270e0-cd0c-11f1-add1-02fc00000005 -> 200
+POST /workflow/tasks/48c270e0-cd0c-11f1-add1-02fc00000005/complete -> 409
+POST /forms/customForm1de749ff57d4/versions/1/submissions -> 400
+POST /forms/customForm1de749ff57d4/versions/1/submissions -> 201
+POST /forms/customForm1de749ff57d4/versions/1/submissions -> 201
+POST /workflow/tasks/48c270e0-cd0c-11f1-add1-02fc00000005/complete -> 200
+PASS closed real Flowable history process=48c249be-cd0c-11f1-add1-02fc00000005; pinned form=customForm1de749ff57d4:v1 despite form v2 publication; rejected stale version; no integration settings PUT; no outbound connectors configured
+PLM Momentum API received SIGTERM; draining requests.
