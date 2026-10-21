@@ -40,6 +40,15 @@ test("all original workbenches remain in grouped navigation and every child has 
     "tenants",
   ])
     assert.ok(nav.pageById[id], id);
+  for (const id of ["daily-sales", "daily-purchase", "daily-sales-analysis", "daily-purchase-analysis"]) {
+    assert.ok(nav.pageById[id], id);
+    assert.equal(nav.pageById[id].parent, undefined);
+    assert.equal(nav.pageById[id].kind, id.includes("sales") ? "sales" : "purchase");
+  }
+  assert.equal(nav.pageById["daily-sales"].label, "销售日报明细");
+  assert.equal(nav.pageById["daily-sales-analysis"].label, "销售统计分析");
+  assert.equal(nav.pageById["daily-sales"].menuLabel, "日报明细");
+  assert.equal(nav.pageById["daily-sales-analysis"].menuLabel, "统计分析");
   for (const page of nav.pages) {
     assert.ok(
       nav.navigationGroups.some((group) => group.id === page.group),
@@ -69,6 +78,21 @@ test("daily list and form permissions fail closed and follow assigned business l
     nav.canAccessPage("daily-purchase-new", user("member"), purchaseOnly),
     true,
   );
+  assert.equal(nav.canAccessPage("daily-sales-analysis", user("member"), purchaseOnly), false);
+  assert.equal(nav.canAccessPage("daily-purchase-analysis", user("member"), purchaseOnly), true);
+  assert.equal(nav.canAccessPage("daily-sales-analysis", user("member"), full), true);
+});
+
+test("the four daily routes remain independent deep-link destinations and menu entries", async () => {
+  const { build } = await import("esbuild");
+  const compiledAreas = await build({ entryPoints: [new URL("../src/navigation-areas.ts", import.meta.url).pathname], bundle: true, write: false, format: "esm", platform: "node" });
+  const { navigationAreas, navigationPath } = await import(`data:text/javascript;base64,${Buffer.from(compiledAreas.outputFiles[0].text).toString("base64")}`);
+  const routeIds = ["daily-sales", "daily-sales-analysis", "daily-purchase", "daily-purchase-analysis"];
+  assert.deepEqual(routeIds.map((id) => nav.resolvePage(id)), routeIds);
+  assert.deepEqual(routeIds.map((id) => nav.pageFromSearch(`?page=${id}`)), routeIds);
+  assert.deepEqual(routeIds.map((id) => nav.pageFromSearch(`?page=${id}`, user("member"))), ["overview", "overview", "overview", "overview"]);
+  assert.deepEqual(navigationAreas.find((area) => area.id === "daily").sections.filter((section) => ["销售", "采购"].includes(section.label)).map((section) => section.pages), [["daily-sales", "daily-sales-analysis"], ["daily-purchase", "daily-purchase-analysis"]]);
+  assert.deepEqual(navigationPath("daily-sales-analysis"), ["经营日报", "销售", "销售统计分析"]);
 });
 test("daily managers can maintain masters but report definition and delivery writes remain admin-only", () => {
   for (const page of [

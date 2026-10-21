@@ -307,9 +307,9 @@ async function getJson<T>(url: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-type Props = { page: string; onNavigate: (page: string) => void };
+type Props = { page: string; onNavigate: (page: string) => void; filterScopeKey?: string };
 
-export default function DailyReportingWorkbench({ page, onNavigate }: Props) {
+export default function DailyReportingWorkbench({ page, onNavigate, filterScopeKey }: Props) {
   const [reportDate, setReportDate] = useState(initialDay);
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -1087,8 +1087,10 @@ export default function DailyReportingWorkbench({ page, onNavigate }: Props) {
   const pageTitle =
     (
       {
-        "daily-sales": "销售日报",
-        "daily-purchase": "采购日报",
+        "daily-sales": "销售日报明细",
+        "daily-purchase": "采购日报明细",
+        "daily-sales-analysis": "销售统计分析",
+        "daily-purchase-analysis": "采购统计分析",
         "daily-reconciliation": "关联分摊与三维对账",
         "daily-documents": "ERP订单、出入库、发票与往来",
         "daily-archives": "日报归档、导出与更正",
@@ -1197,11 +1199,13 @@ export default function DailyReportingWorkbench({ page, onNavigate }: Props) {
       )}
       {!loading && summary?.access && (
         <>
-          {(page === "daily-sales" || page === "daily-purchase") &&
+          {(["daily-sales", "daily-purchase", "daily-sales-analysis", "daily-purchase-analysis"].includes(page)) &&
             ((kind === "sales" ? canViewSales : canViewPurchase) ? (
               <DailyBusinessAnalysis
-                key={kind}
+                key={page}
                 kind={kind}
+                filterStorageKey={filterScopeKey ? `${filterScopeKey}:daily-filters:${page}` : undefined}
+                view={page.endsWith("-analysis") ? "analysis" : "records"}
                 date={reportDate}
                 canWrite={canWrite}
                 canManage={canManage}

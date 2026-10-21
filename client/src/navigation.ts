@@ -11,6 +11,7 @@ export type DailyAccess = {
 export type PageDefinition = {
   id: string;
   label: string;
+  menuLabel?: string;
   group: NavigationGroup;
   icon: string;
   parent?: string;
@@ -40,16 +41,34 @@ export const pages: PageDefinition[] = [
   { id: "kpi", label: "KPI 与绩效", group: "product", icon: "chart" },
   {
     id: "daily-sales",
-    label: "销售日报",
+    label: "销售日报明细",
+    menuLabel: "日报明细",
     group: "business",
     icon: "file",
     kind: "sales",
   },
   {
     id: "daily-purchase",
-    label: "采购日报",
+    label: "采购日报明细",
+    menuLabel: "日报明细",
     group: "business",
     icon: "file",
+    kind: "purchase",
+  },
+  {
+    id: "daily-sales-analysis",
+    label: "销售统计分析",
+    menuLabel: "统计分析",
+    group: "business",
+    icon: "chart",
+    kind: "sales",
+  },
+  {
+    id: "daily-purchase-analysis",
+    label: "采购统计分析",
+    menuLabel: "统计分析",
+    group: "business",
+    icon: "chart",
     kind: "purchase",
   },
   {

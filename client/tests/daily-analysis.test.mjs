@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { build } from "esbuild";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -50,7 +50,29 @@ test("daily-analysis helper transpiles dynamically and preserves filter/query/da
   assert.deepEqual(helper.analysisPreset("week", olderDate), { from: "2023-06-19", to: "2023-06-19" });
 });
 
-test("daily business analysis SSR exposes sales and purchase controls with unique tab IDs", async () => {
+test("daily analysis filter persistence is scoped, date-bound, allowlisted, and fail-safe", async () => {
+  const result = await build({ entryPoints: [join(clientDir, "src/daily-analysis-state.ts")], bundle: true, platform: "node", format: "esm", write: false, logLevel: "silent" });
+  const state = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  const values = new Map();
+  const previousStorage = globalThis.sessionStorage;
+  globalThis.sessionStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+  try {
+    const filters = { q: "invoice 42", from: "2025-01-01", to: "2025-01-15", partyName: "Acme", createdBy: "u1", currency: "USD", source: "manual" };
+    state.saveAnalysisState("tenant:user:daily-filters:daily-sales-analysis", "2025-01-15", filters);
+    assert.deepEqual(state.readAnalysisState("tenant:user:daily-filters:daily-sales-analysis", "2025-01-15"), filters);
+    assert.notDeepEqual(state.readAnalysisState("tenant:user:daily-filters:daily-sales", "2025-01-15"), filters);
+    assert.equal(state.readAnalysisState("tenant:user:daily-filters:daily-sales-analysis", "2025-01-16").q, "");
+    const stored = JSON.parse(values.get("tenant:user:daily-filters:daily-sales-analysis"));
+    assert.deepEqual(Object.keys(stored.filters).sort(), ["createdBy", "currency", "from", "partyName", "q", "source", "to"]);
+    stored.filters.q = "x".repeat(501);
+    values.set("tampered", JSON.stringify(stored));
+    assert.equal(state.readAnalysisState("tampered", "2025-01-15").q, "");
+    values.set("invalid", "{");
+    assert.equal(state.readAnalysisState("invalid", "2025-01-15").q, "");
+  } finally { globalThis.sessionStorage = previousStorage; }
+});
+
+test("daily business analysis SSR renders records and analysis as explicit views without embedded tabs", async () => {
   const dir = mkdtempSync(join(tmpdir(), "plm-daily-analysis-render-"));
   try {
     const result = await build({
@@ -61,18 +83,29 @@ test("daily business analysis SSR exposes sales and purchase controls with uniqu
 import { renderToString } from 'react-dom/server';
 import DailyBusinessAnalysis from './src/DailyBusinessAnalysis';
 const noop = () => {};
-const htmls = ['sales','purchase'].map(kind => renderToString(<DailyBusinessAnalysis kind={kind} date="2025-01-15" canWrite={false} canManage={false} revision={0} onNew={noop} onImport={noop} onDetail={noop} onEdit={noop}/>));
-for (const [index, kind] of ['sales','purchase'].entries()) {
+const views = [['sales','records'],['purchase','records'],['sales','analysis'],['purchase','analysis']];
+const htmls = views.map(([kind,view]) => renderToString(<DailyBusinessAnalysis kind={kind} view={view} date="2025-01-15" canWrite={false} canManage={false} revision={0} onNew={noop} onImport={noop} onDetail={noop} onEdit={noop}/>));
+for (const [index, [kind,view]] of views.entries()) {
+  const noun = kind === 'sales' ? '销售' : '采购';
   const html = htmls[index];
-  if (!html.includes(kind === 'sales' ? '销售日报与分析' : '采购日报与分析')) throw new Error(kind + ' title absent');
-  if (!html.includes(kind === 'sales' ? '客户名称' : '供应商名称')) throw new Error(kind + ' party filter absent');
-  if (html.includes('新增' + (kind === 'sales' ? '销售' : '采购') + '日报') || html.includes('导入往期' + (kind === 'sales' ? '销售' : '采购') + '日报')) throw new Error(kind + ' permission-gated actions visible');
+  if (!html.includes(noun + (view === 'records' ? '日报明细' : '统计分析'))) throw new Error(kind + '/' + view + ' title absent');
+  if (view === 'analysis' && !html.includes(kind === 'sales' ? '客户名称' : '供应商名称')) throw new Error(kind + ' party filter absent');
+  if (html.includes('新增' + noun + '日报') || html.includes('导入往期' + noun + '日报')) throw new Error(kind + ' permission-gated actions visible');
+  if (html.includes('records-tab') || html.includes('analysis-tab') || /role="tab"/.test(html)) throw new Error(kind + '/' + view + ' contains embedded view tabs');
   const ids = [...html.matchAll(/\\bid="([^"]+)"/g)].map(match => match[1]);
   if (new Set(ids).size !== ids.length) throw new Error(kind + ' duplicate IDs: ' + ids.join(','));
-  for (const suffix of ['records-tab','analysis-tab']) if (!html.includes('dba-' + kind + '-' + suffix)) throw new Error(kind + ' tab missing ' + suffix);
-  if (!html.includes('本周') || !html.includes('本月') || !html.includes('本年') || !html.includes('覆盖上方旧日期')) throw new Error(kind + ' presets absent');
+  if (view === 'analysis' && (!html.includes('本周') || !html.includes('本月') || !html.includes('本年') || !html.includes('覆盖上方旧日期'))) throw new Error(kind + ' presets absent');
 }
-if (new Set(htmls.flatMap(html => [...html.matchAll(/\\bid="([^"]+)"/g)].map(match => match[1]))).size !== 4) throw new Error('sales and purchase IDs are not mutually unique');
+if (htmls.length !== 4 || new Set(views.map(([kind,view]) => kind + ':' + view)).size !== 4) throw new Error('four independent route/view combinations were not rendered');
+for (const [kind,view] of views) for (const [canWrite,canManage] of [[false,false],[true,false],[false,true],[true,true]]) {
+  const noun = kind === 'sales' ? '销售' : '采购';
+  const html = renderToString(<DailyBusinessAnalysis kind={kind} view={view} date="2025-01-15" canWrite={canWrite} canManage={canManage} revision={0} onNew={noop} onImport={noop} onDetail={noop} onEdit={noop}/>).replaceAll("<!-- -->", "");
+  if (html.includes('新增' + noun + '日报') !== (view === 'records' && canWrite)) throw new Error(kind + '/' + view + ' new action scope/permission mismatch');
+  if (html.includes('导入往期' + noun + '日报') !== (view === 'records' && canManage)) throw new Error(kind + '/' + view + ' import action scope/permission mismatch');
+  if (view === 'analysis' && html.includes('dr-list-actions')) throw new Error(kind + ' analysis includes record action container');
+  if (!html.includes('应用筛选') || !html.includes('导出当前口径 Excel')) throw new Error(kind + '/' + view + ' read controls absent');
+}
+
 console.log('daily business analysis SSR checks passed');`,
       },
       bundle: true,
@@ -97,8 +130,24 @@ test("daily analysis stays embedded in the existing reporting workbench and expo
   const workbench = readFileSync(join(clientDir, "src/DailyReportingWorkbench.tsx"), "utf8");
   const component = readFileSync(join(clientDir, "src/DailyBusinessAnalysis.tsx"), "utf8");
   assert.match(workbench, /<DailyBusinessAnalysis[\s\S]*?\/>/);
-  assert.match(workbench, /page === "daily-sales" \|\| page === "daily-purchase"/);
+  assert.match(workbench, /daily-sales-analysis/);
+  assert.match(workbench, /daily-purchase-analysis/);
+  assert.match(workbench, /key=\{page\}/);
+  assert.match(workbench, /view=\{page\.endsWith\("-analysis"\) \? "analysis" : "records"\}/);
   assert.doesNotMatch(workbench, /daily-analysis-new|analysis-new/);
+  assert.doesNotMatch(component, /records-tab|analysis-tab|role="tab"|setView|activeTab/);
   assert.match(component, /const exportQuery = analysisQuery\(kind, result\.filters\)/);
   assert.doesNotMatch(component, /analysisQuery\(kind, draft\).*export/);
+});
+
+test("daily leaf filters are not editor drafts and unauthorized deep links cannot mount a tab", () => {
+  const component = readFileSync(join(clientDir, "src/DailyBusinessAnalysis.tsx"), "utf8");
+  const app = readFileSync(join(clientDir, "src/App.tsx"), "utf8");
+  assert.match(component, /role="search"/);
+  assert.doesNotMatch(component, /<form/);
+  assert.match(component, /event\.key === "Enter"/);
+  assert.match(app, /setAuthLoading\(true\); setDailyAccess\(null\); setDailyAccessReady\(false\)/);
+  assert.match(app, /const deniedDailyLeaf = Boolean\(authUser && dailyAccessReady/);
+  assert.match(app, /if \(deniedDailyLeaf\) setPage\('overview'\)/);
+  assert.match(app, /if \(authLoading \|\| \(authUser && !dailyAccessReady\) \|\| deniedDailyLeaf\) return/);
 });

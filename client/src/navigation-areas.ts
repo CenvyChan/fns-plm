@@ -11,7 +11,8 @@ export const navigationAreas = [
     { label: '绩效分析', pages: ['kpi'] },
   ] },
   { id: 'daily', label: '经营日报', sections: [
-    { label: '销售与采购记录', pages: ['daily-sales', 'daily-purchase'] },
+    { label: '销售', pages: ['daily-sales', 'daily-sales-analysis'] },
+    { label: '采购', pages: ['daily-purchase', 'daily-purchase-analysis'] },
     { label: '核对与业务分析', pages: ['daily-reconciliation', 'daily-documents', 'reports'] },
     { label: '归档与报送', pages: ['daily-archives', 'report-definitions', 'report-schedules'], collapsed: true },
     { label: '基础资料维护', pages: ['daily-parties', 'daily-rates', 'daily-assignments', 'daily-mappings', 'daily-imports'], collapsed: true },

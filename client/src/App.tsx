@@ -71,7 +71,7 @@ function Sidebar({ page, setPage, onAddTask, onCreateProject, onOpenProject, ope
         if (!sections.length) return null
         return <details className="navigation-group" key={area.id} open={!area.collapsed || sections.some(section => section.entries.some(item => item.id === activePage))}><summary className="nav-caption nav-group-toggle">{area.label}</summary>{sections.map(section => <details className="nav-section" key={section.label} open={!('collapsed' in section && section.collapsed) || section.entries.some(item => item.id === activePage)}><summary>{section.label}</summary><nav className="side-nav" aria-label={section.label}>{section.entries.map(item => {
           const Icon = icons[item.icon] ?? FileText
-          return <button key={item.id} className={`nav-item ${activePage === item.id ? 'active' : ''}`} aria-current={activePage === item.id ? 'page' : undefined} onClick={() => setPage(item.id)}><Icon size={18}/><span>{item.label}</span>{item.id === 'tasks' && <span className="nav-count">{pendingCount}</span>}</button>
+          return <button key={item.id} className={`nav-item ${activePage === item.id ? 'active' : ''}`} aria-current={activePage === item.id ? 'page' : undefined} onClick={() => setPage(item.id)}><Icon size={18}/><span>{item.menuLabel ?? item.label}</span>{item.id === 'tasks' && <span className="nav-count">{pendingCount}</span>}</button>
         })}</nav></details>)}</details>
       })}
     </div>
@@ -203,6 +203,11 @@ function App() {
     if (authUser) void apiJson<{ access: DailyAccess }>(`/api/daily-reports/summary?date=${todayISO()}`).then(result => { if (!cancelled) setDailyAccess(result.access) }).catch(() => { /* Page workbenches show the actual API error; navigation fails closed. */ }).finally(() => { if (!cancelled) setDailyAccessReady(true) })
     return () => { cancelled = true }
   }, [authUser?.id, authUser?.tenantId, authUser?.organizationId, authUser?.accountId, authUser?.role, accessRevision])
+  const deniedDailyLeaf = Boolean(authUser && dailyAccessReady && ['daily-sales', 'daily-sales-analysis', 'daily-purchase', 'daily-purchase-analysis'].includes(page) && !canAccessPage(page, authUser, dailyAccess))
+  useEffect(() => {
+    // Never mount or persist an unauthorized daily leaf during deep-link/scope restoration.
+    if (deniedDailyLeaf) setPage('overview')
+  }, [deniedDailyLeaf, page])
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 2400); return () => clearTimeout(timer) }, [toast])
   const commit = (next: WorkspaceData) => { setWorkspace(next); saveLocalWorkspace(next) }
   const handleAuthenticated = async (result: { user: AuthUser; scopes: UserScope[] }) => {
@@ -220,7 +225,7 @@ function App() {
     if (!window.dispatchEvent(new Event('workspace:before-discard', { cancelable: true }))) return
     if ((taskModal || projectModal) && !window.confirm('当前有打开的编辑表单，切换账套将关闭它。继续？')) return
     if (taskSaving || projectSaving || pendingTaskId) { setToast('请等待当前保存完成后再切换账套。'); return }
-    setAuthLoading(true); setDailyAccess(null)
+    setAuthLoading(true); setDailyAccess(null); setDailyAccessReady(false)
     setTaskModal(false); setProjectModal(false); setEditingTask(null); setEditingProject(null)
     let switched = false
     try {
@@ -303,7 +308,7 @@ function App() {
   const weekCompleted = weekTasks.filter(task => task.status === 'done').length
   const weekTaskCounts = weekDates.map(date => workspace.tasks.filter(task => task.dueDate === date).length)
 
-  if (authLoading || (authUser && !dailyAccessReady)) return <main className="session-loading"><span className="status-dot"/> 正在验证安全会话…</main>
+  if (authLoading || (authUser && !dailyAccessReady) || deniedDailyLeaf) return <main className="session-loading"><span className="status-dot"/> 正在验证安全会话…</main>
   if (!authUser) return <LoginScreen setupRequired={setupRequired} apiError={authError} onAuthenticated={handleAuthenticated} onRetry={() => { void bootstrap() }}/>
 
   return <div className="app-shell"><Sidebar page={page} setPage={p => { setPage(p); setSelectedProject(null); setMobileNav(false) }} onAddTask={openNewTask} onCreateProject={openNewProject} onOpenProject={id => { setPage('projects'); setSelectedProject(id); setMobileNav(false) }} open={mobileNav} projects={workspace.projects} pendingCount={pendingCount} user={authUser} isAdmin={authUser.role === 'admin'} dailyAccess={dailyAccess} scopes={userScopes} onSwitchScope={id => { void switchScope(id) }} weekCompleted={weekCompleted} weekTotal={weekTasks.length} onViewWeek={() => { setPage('timeline'); setMobileNav(false) }} onLogout={() => { void logout() }}/><div className="app-main"><Header page={page} query={query} setQuery={setQuery} onAddTask={openNewTask} onMenu={() => setMobileNav(!mobileNav)} user={authUser} scopes={userScopes} onSwitchScope={id => { void switchScope(id) }} onLogout={() => { void logout() }} tasks={workspace.tasks} onOpenTasks={() => setPage('tasks')}/><main className="content-area" key={`${authUser.id}:${authUser.tenantId}:${authUser.organizationId}:${authUser.accountId}:${authUser.role}`}>
@@ -328,7 +333,7 @@ function App() {
     {page === 'timeline' && <section className="timeline-layout"><div className="panel timeline-panel"><div className="panel-heading"><div><div className="panel-kicker">LOOK AHEAD</div><h2>接下来</h2></div><span className="timeline-month">{new Intl.DateTimeFormat('zh-CN', { month: 'long', year: 'numeric' }).format(new Date())}</span></div><div className="timeline-list">{upcoming.map((task, i) => <div className="timeline-item" key={task.id}><div className="timeline-date"><b>{new Date(`${task.dueDate}T12:00:00`).getDate().toString().padStart(2, '0')}</b><small>{new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(new Date(`${task.dueDate}T12:00:00`))}</small></div><div className="timeline-rail"><i style={{ background: projectsById[task.projectId ?? '']?.color ?? '#aaa' }}/>{i < upcoming.length - 1 && <span/>}</div><button className="timeline-task" onClick={() => toggleTask(task)}><div><b>{task.title}</b><span>{projectsById[task.projectId ?? '']?.name ?? '个人任务'} · {dateLabel(task.dueDate)}</span></div><span className={`priority priority-${task.priority}`}>{task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'}</span><ChevronRight size={16}/></button></div>)}</div>{!upcoming.length && <div className="empty-state"><span className="empty-icon"><CalendarDays size={22}/></span><b>接下来没有待办</b><p>为未来安排一项温柔的提醒。</p></div>}<button className="add-row" onClick={() => setTaskModal(true)}><span><Plus size={16}/></span>安排一项新任务</button></div><div className="timeline-aside"><div className="timeline-note"><div className="note-icon"><Sparkles size={17}/></div><div className="panel-kicker">A GENTLE REMINDER</div><h3>别忘了给<br/>自己留一点空间。</h3><p>安排得刚刚好，才能走得更长远。你的每一步都算数。</p><div className="note-decoration">✳</div></div><div className="panel upcoming-count"><span>未来 7 天</span><b>{upcoming.length}<small>项待办</small></b><div className="mini-week">{weekDays.map((d, i) => <span className={i === (new Date().getDay() + 6) % 7 ? 'active' : ''} key={d}><i/>{d}</span>)}</div></div></div></section>}
     {['kpi', 'materials', 'boms', 'documents'].includes(page) && <Plm page={page} workspace={workspace} onChange={commit} onToast={setToast} currentUser={authUser}/>}
     {page === 'workflow' && canAccessPage(page, authUser, dailyAccess) && <WorkflowEntry currentUser={authUser}/>}
-    {isDailyWorkbenchPage(page) && <DailyReportingWorkbench page={page} onNavigate={setPage}/>}
+    {isDailyWorkbenchPage(page) && <DailyReportingWorkbench page={page} onNavigate={setPage} filterScopeKey={scopeKey(authUser)}/>}
     {['report-definitions','report-definitions-new','report-definitions-edit'].includes(page) && canAccessPage(page, authUser, dailyAccess) && <ReportDefinitionsWorkbench key={`${authUser.tenantId}:${authUser.organizationId}:${authUser.accountId}`} page={page} onNavigate={setPage} canManage={authUser.role === 'admin'}/>}
     {(page === 'reports' || page.startsWith('report-schedules')) && isReportPage(page) && canAccessPage(page, authUser, dailyAccess) && <ReportsWorkbench page={page} onNavigate={setPage} canManage={authUser.role === 'admin'}/>}
     {isDailyImportPage(page) && canAccessPage(page, authUser, dailyAccess) && <DailyReportImport key={page} kind={page === 'daily-sales-import' ? 'sales' : 'purchase'} onNavigate={setPage}/>}
