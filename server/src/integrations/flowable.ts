@@ -215,6 +215,8 @@ export async function deployModelDefinition(
   input: { key: string; name: string; xml: string; tenantId: string },
   connection?: FlowableConfig,
 ): Promise<{ deploymentId: string; processDefinitionId: string }> {
+  if (processKeys.includes(input.key as typeof processKeys[number]))
+    throw new Error(`Reserved built-in PLM process key cannot be deployed as a custom model: ${input.key}`)
   if (engineReleaseBlocked(connection ?? {})) throw new Error("Real Flowable model publication is blocked pending independently validated mitigation; mock-only test mode is required.");
   const cfg = requireConfig(connection);
   if (

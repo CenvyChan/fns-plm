@@ -1,0 +1,5 @@
+
+> momentum-api@1.0.0 build
+> tsc && node scripts/copy-flowable-bpmn.mjs
+
+Synchronized PLM BPMN model for the Node tenant deployment adapter.

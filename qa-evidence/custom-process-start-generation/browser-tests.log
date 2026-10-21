@@ -1,0 +1,26 @@
+
+> momentum-client@1.0.0 test:browser
+> node --experimental-strip-types --test tests/*.browser.mjs
+
+Port 5173 is in use, trying another one...
+✔ browser: same-key stale success cannot replace latest immutable context or submit stale version (2248.527609ms)
+Port 5173 is in use, trying another one...
+✔ browser: same-key stale HTTP error cannot replace latest immutable context or submit stale version (1402.036086ms)
+Port 5173 is in use, trying another one...
+✔ browser: same-key stale transport error cannot replace latest immutable context or submit stale version (1455.378471ms)
+Port 5173 is in use, trying another one...
+✔ browser: same-key stale JSON error cannot replace latest immutable context or submit stale version (1406.090714ms)
+✔ browser: user scope changes cannot replace latest immutable context or submit stale version (1364.545684ms)
+✔ browser: model changes cannot replace latest immutable context or submit stale version (1327.285314ms)
+✔ browser: late POST conflict cannot trigger obsolete refresh cannot replace latest immutable context or submit stale version (1311.531965ms)
+✔ browser: published_version_changed reloads immutable flow/form versions and requires reconfirmation (2076.512327ms)
+✔ browser: failed refresh clears stale context and blocks repeat submission until reread (1339.11378ms)
+✔ browser: delayed old-model version response does not mutate the newly selected panel (2008.138079ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11185.99929

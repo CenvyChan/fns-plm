@@ -14,7 +14,7 @@ const listen = (server) =>
   );
 const close = (server) => new Promise((resolve) => server.close(resolve));
 
-test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries and mock deployment", async () => {
+test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries and test-gated deployment", async () => {
   const temp = mkdtempSync(join(tmpdir(), "plm-bpmn-test-"));
   const databaseFile = join(temp, "test.sqlite");
   const deployments = [];
@@ -141,6 +141,7 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
       (await api("/bpmn-models", "GET", undefined, { auth: false })).status,
       401,
     );
+    assert.equal((await api("/bpmn-models/missing/start-context", "GET", undefined, { auth: false })).status, 401);
     const setup = ok(
       await api(
         "/auth/mobile/setup",
@@ -213,6 +214,7 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
           type: "userTask",
           name: "管理员审核",
           assignment: { kind: "assignee", userIds: [scope.id] },
+          formBinding: { formKey: "approvalForm", formVersion: 1 },
           x: 230,
           y: 130,
         },
@@ -223,6 +225,13 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
         { id: "Flow2", source: "Review", target: "End" },
       ],
     };
+    const builtInKeys = ["materialApproval", "bomReleaseApproval", "documentReleaseApproval", "performanceReviewApproval"];
+    for (const reservedKey of builtInKeys) {
+      const collisionGraph = { ...graph, key: reservedKey };
+      const createCollision = await api("/bpmn-models", "POST", { graph: collisionGraph });
+      assert.equal(createCollision.status, 400, `create rejects reserved key ${reservedKey}`);
+      assert.ok(createCollision.data.errors.some((message) => message.includes(reservedKey)));
+    }
     const options = ok(await api("/bpmn-modeler/options"));
     assert.ok(options.users.some((u) => u.id === scope.id));
     assert.equal(
@@ -305,6 +314,14 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
       }),
     );
     assert.equal(saved.revision, 2);
+    for (const reservedKey of builtInKeys) {
+      const collisionUpdate = await api(path, "PUT", {
+        expectedRevision: saved.revision,
+        graph: { ...graph, key: reservedKey },
+      });
+      assert.equal(collisionUpdate.status, 400, `update rejects reserved key ${reservedKey}`);
+      assert.ok(collisionUpdate.data.errors.some((message) => message.includes(reservedKey)));
+    }
     assert.equal(ok(await api(path + "/validate", "POST", {})).valid, true);
     // Identity mappings must be explicitly configured through the existing scoped connector.
     ok(
@@ -366,7 +383,12 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
       sha,
       "immutable version survives restart",
     );
+    const beforePublish = ok(await api(path + "/start-context"));
+    assert.equal(beforePublish.canStart, false);
+    assert.equal(beforePublish.publishedVersion, null);
+    assert.equal(beforePublish.engineMode, "mock-test");
     const preview = ok(await api(path + "/preview", "POST", { version: 1 }));
+    assert.equal(preview.engineMode, "mock-test");
     assert.ok(preview.confirmationToken);
     assert.ok(preview.changes.length);
     assert.equal(
@@ -387,7 +409,15 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
       }),
     );
     assert.equal(deployments.length, 2);
+    const context = ok(await api(path + "/start-context"));
+    assert.equal(context.canStart, true);
+    assert.equal(context.publishedVersion, 1);
+    assert.equal(context.versionId, frozen.id);
+    assert.deepEqual(context.formBindings, [{nodeId:"Review",formKey:"approvalForm",formVersion:1}]);
+    assert.equal(context.engineMode, "mock-test");
+    assert.equal(JSON.stringify(context).includes("mock-password"), false);
     const history = ok(await api(path + "/history"));
+    assert.equal(history.engineMode, "mock-test");
     assert.equal(history.publications[0].status, "published");
     assert.ok(history.publications[0].deploymentId);
     assert.ok(history.audit.some((entry) => entry.event === "published"));
@@ -652,6 +682,7 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
       }),
     ).user;
     assert.equal((await api(path)).status, 404);
+    assert.equal((await api(path + "/start-context")).status, 404);
     assert.equal((await api(path + "/versions")).status, 404);
     assert.deepEqual(ok(await api("/bpmn-models")), []);
     assert.ok(
@@ -702,6 +733,10 @@ test("BPMN isolated HTTP lifecycle, persistence, authorization, XML boundaries a
         { auth: false },
       ),
     );
+    const deniedContext = await api(path + "/start-context", "GET", undefined, { token: login.accessToken, scope: login.user });
+    assert.equal(deniedContext.status, 200);
+    assert.equal(deniedContext.data.canStart, false);
+    assert.match(deniedContext.data.reason, /admin 或 plm_manager/);
     for (const [p, m, b] of [
       ["/bpmn-models", "POST", { graph }],
       [path, "PUT", { expectedRevision: 2, graph }],
