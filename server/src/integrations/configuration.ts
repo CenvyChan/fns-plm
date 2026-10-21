@@ -65,6 +65,13 @@ function validateConfig(provider: ConnectorProvider, config: ConnectorConfig): v
       if (!/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(formId) || !Array.isArray(fields) || fields.length > 100 || fields.some(field => typeof field !== 'string' || !/^[A-Za-z0-9_.]{1,128}$/.test(field))) throw new Error('K3Cloud formAllowlist contains invalid FormId/FieldKeys.')
     }
   }
+  if (provider === 'k3cloud' && config.materialSource !== undefined) {
+    const source = config.materialSource as Record<string, unknown>
+    const names = ['id', 'number', 'name', 'specification', 'unit', 'groupNumber', 'groupId', 'organization']
+    if (!source || typeof source !== 'object' || Array.isArray(source) || typeof source.formId !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(source.formId) || !source.fields || typeof source.fields !== 'object' || Array.isArray(source.fields)) throw new Error('K3Cloud materialSource must contain an explicit formId and field mapping.')
+    const fields = source.fields as Record<string, unknown>
+    if (Object.keys(fields).length !== names.length || names.some(name => typeof fields[name] !== 'string' || !/^[A-Za-z0-9_.]{1,128}$/.test(String(fields[name]))) || new Set(Object.values(fields)).size !== names.length) throw new Error('K3Cloud materialSource requires eight distinct mapped fields: id, number, name, specification, unit, groupNumber, groupId, organization.')
+  }
   if (provider === 'k3cloud' && config.dailyReportSources !== undefined) {
     const sources = config.dailyReportSources
     const kinds = new Set(['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable', 'sales-invoice', 'purchase-invoice'])
@@ -136,7 +143,7 @@ export function saveConnectorConfig(scope: WorkspaceScope, provider: ConnectorPr
 export function connectorSummary(scope: WorkspaceScope, provider: ConnectorProvider) {
   const row = getConnectorRow(scope, provider), config = getConnectorConfig(scope, provider), missingFields = requiredFields(provider, config), safe: Record<string, unknown> = {}
   const safeFields = provider === 'k3cloud'
-    ? ['baseUrl', 'accountId', 'username', 'organization', 'lcid', 'timeoutMs', 'formAllowlist', 'dailyReportSources', 'masterDataSources', 'k3DataSyncSchedule']
+    ? ['baseUrl', 'accountId', 'username', 'organization', 'lcid', 'timeoutMs', 'formAllowlist', 'dailyReportSources', 'masterDataSources', 'materialSource', 'k3DataSyncSchedule']
     : provider === 'flowable' ? ['baseUrl', 'username', 'timeoutMs', 'userMap', 'groupMap'] : ['webhookUrl', 'appKey', 'templateId', 'corpId', 'publicAppUrl', 'userMapping']
   for (const key of safeFields) if (config[key] !== undefined && config[key] !== '') safe[key] = config[key]
   const presentSecrets = secretFields[provider].filter(key => typeof config[key] === 'string' && String(config[key]).length > 0)

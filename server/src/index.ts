@@ -25,6 +25,7 @@ import { currentWorkspaceScope, runWithWorkspaceScope, type WorkspaceScope } fro
 import { loadScopedWorkspace, persistScopedWorkspace, type BomKind, type Entity, type Project, type Task, type Workspace } from './workspace-store.js'
 import { builtInProjectTemplates } from './project-templates.js'
 import { parseProjectPlanFile, projectTaskCsv, projectWorkbook } from './project-planning.js'
+import { createMaterialClosureRouter, isReservedCode } from './material-closure.js'
 
 type CollectionKey = 'kpiRules' | 'reviews' | 'materials' | 'boms' | 'documents' | 'salesBomSnapshots' | 'projectPhases' | 'projectMilestones' | 'projectEvents' | 'projectReports' | 'projectTemplates'
 
@@ -118,6 +119,7 @@ app.use('/api', (req: Request, res: Response, next) => {
     return res.status(500).json({ error: 'workspace_load_failed', message: '无法加载当前组织/账套工作区。' })
   }
 })
+app.use('/api/material-closure', createMaterialClosureRouter())
 app.get('/api/health', (_req: Request, res: Response) => {
   try { return res.json({ ok: true, service: 'momentum-api', dataStore: 'sqlite', database: databaseHealth() }) }
   catch { return res.status(503).json({ ok: false, service: 'momentum-api', dataStore: 'sqlite', database: { ok: false } }) }
@@ -424,6 +426,7 @@ function registerCollection(path: string, key: CollectionKey, immutable = false)
   app.get(`/api/${path}`, (_req: Request, res: Response) => res.json(list()))
   app.post(`/api/${path}`, writeAccess, (req: Request, res: Response) => {
     const body = safeFields(key, req.body)
+    if (key === 'materials' && (body.templateSourceId || body.codeState === 'reserved' || /^[123]\./.test(String(body.partNo ?? '')) || isReservedCode(currentWorkspaceScope()!, String(body.partNo ?? '')))) return res.status(409).json({ error: '可信来源复制与正式形态编码必须经 material-closure API 创建和分配，禁止客户端自授号。' })
     const error = validateEntity(key, body)
     if (error) return res.status(400).json({ error })
     if (key === 'boms' && body.lifecycle === 'released') { const releaseError = validateBomRelease(body as Entity); if (releaseError) return res.status(409).json({ error: releaseError }) }
@@ -458,6 +461,7 @@ function registerCollection(path: string, key: CollectionKey, immutable = false)
     const index = list().findIndex(entity => entity.id === req.params.id)
     if (index < 0) return res.status(404).json({ error: 'record not found' })
     const patch = safeFields(key, req.body)
+    if (key === 'materials' && (list()[index]!.templateSourceId || patch.templateSourceId || patch.codeState === 'reserved' || (patch.partNo !== undefined && (/^[123]\./.test(String(patch.partNo)) || isReservedCode(currentWorkspaceScope()!, String(patch.partNo)))))) return res.status(409).json({ error: '来源物料只允许经 material-closure API 维护；保留编码与审计来源不可覆盖。' })
     if (patch.id !== undefined) delete patch.id
     if (key === 'projectEvents' && req.authUser?.role === 'member') {
       const current = list()[index]!
