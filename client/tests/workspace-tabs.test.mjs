@@ -17,7 +17,7 @@ test('hierarchy has exactly the existing top-level pages and no create/edit shor
   assert.equal(entries.length,new Set(entries).size)
   assert.deepEqual([...entries].sort(),nav.pages.filter(p=>!p.parent).map(p=>p.id).sort())
   for (const id of entries) assert.equal(nav.pageById[id].parent,undefined)
-  assert.deepEqual(areas.navigationPath('daily-sales-new'),['经营日报','销售与采购记录','新增销售日报'])
+  assert.deepEqual(areas.navigationPath('daily-sales-new'),['经营日报','销售','新增销售日报'])
   assert.equal(areas.navigationPath('reports')[0],'经营日报')
   assert.equal(areas.navigationPath('kpi')[0],'产品与项目')
 })
@@ -26,6 +26,9 @@ test('tab families keep list/editor context together without mixing sales and pu
   assert.equal(tabs.tabId('daily-purchase-new'),'daily-purchase')
   assert.equal(tabs.tabId('report-definitions-edit'),'report-definitions')
   assert.notEqual(tabs.tabId('daily-sales-edit'),tabs.tabId('daily-purchase-edit'))
+  const routes=['daily-sales','daily-sales-analysis','daily-purchase','daily-purchase-analysis']
+  assert.deepEqual(routes.map(tabs.tabId),routes)
+  assert.equal(new Set(routes.map(tabs.tabId)).size,4)
 })
 test('storage isolation includes user, tenant, organization, account and role', () => {
   const base = tabs.scopeKey(admin)
@@ -40,6 +43,10 @@ test('restored pages are validated, deduplicated and permission-filtered; editor
   assert.deepEqual(tabs.restoreTabs('{oops',()=>true),[])
   assert.deepEqual(tabs.restoreTabs('{}',()=>true),[])
   assert.deepEqual(tabs.restoreTabs('[{"page":"daily-purchase"}]',p=>nav.canAccessPage(p,admin,null)),[])
+  const routes=['daily-sales','daily-sales-analysis','daily-purchase','daily-purchase-analysis']
+  const saved=JSON.stringify(routes.map(page=>({page,url:`/?page=${page}`})))
+  assert.deepEqual(tabs.restoreTabs(saved,()=>true).map(tab=>tab.page),routes)
+  assert.deepEqual(tabs.restoreTabs(saved,page=>nav.canAccessPage(page,{...admin,role:'member',isPlatformAdmin:false},{...full,sales:false})).map(tab=>tab.page),['daily-purchase','daily-purchase-analysis'])
 })
 test('saved URLs only retain allowed route metadata and never credentials or drafts', () => {
   const url=tabs.safeTabUrl('/?page=materials&token=private&password=private&note=draft&date=2026-10-21&definitionId=def','materials')
