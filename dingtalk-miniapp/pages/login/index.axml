@@ -1,5 +1,5 @@
 <view class="page">
-  <view class="hero"><text class="eyebrow">MOMENTUM WORKSPACE</text><text class="title">安全登录</text><text class="subtitle">优先使用钉钉企业身份进入已授权工作区</text></view>
+  <view class="hero"><text class="title">安全登录</text><text class="subtitle">优先使用钉钉企业身份进入已授权工作区</text></view>
   <view a:if="{{!pendingUser}}" class="card">
     <view a:if="{{!apiBaseConfigured}}" class="notice">工作区 API 地址尚未配置。部署时请在 app.js 的 globalData.apiBaseUrl 设置已部署服务的 HTTPS origin；地址不得包含账号、token 或路径。</view>
     <view a:elif="{{!statusLoaded}}" class="notice">正在确认服务端的钉钉免登配置…</view>

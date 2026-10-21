@@ -18,6 +18,7 @@ test('tab manager renders record identities, unsaved state, current marker and d
         const html = renderToStaticMarkup(<Manager tabs={tabs} activeId="materials" dirty={{'daily-sales':true}} label={tab => tab.id === 'materials' ? '物料 · 样例 · #instance-001' : '销售日报 · 2026-10-21 · #DR-001'} onClose={()=>{}} onCloseTabs={()=>false}/>);
         for(const expected of ['<dialog','aria-labelledby="workspace-manager-title"','type="checkbox"','销售日报 · 2026-10-21 · #DR-001','物料 · 样例 · #instance-001','未保存内容','当前页签','disabled=""','关闭所选（0）']) if(!html.includes(expected)) throw Error('Missing rendered manager contract: '+expected);
         if((html.match(/type="checkbox"/g)||[]).length!==2) throw Error('Expected checkbox per record');
+        for(const removed of ['勾选要关闭的页签。未保存页签会再次确认；取消确认将保留全部所选页签。','workspace-manager-help','aria-describedby']) if(html.includes(removed)) throw Error('Removed manager help still rendered: '+removed);
         console.log('workspace manager render passed');
       ` },
       bundle: true, platform: 'node', format: 'esm', write: false, jsx: 'automatic', logLevel: 'silent',

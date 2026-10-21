@@ -3,7 +3,7 @@ import cors from 'cors'
 import express, { type Request, type Response } from 'express'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash, randomUUID } from 'node:crypto'
-import { createReadStream, existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, mkdirSync, unlinkSync, writeFileSync, statSync, renameSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { nanoid } from 'nanoid'
@@ -27,6 +27,7 @@ import { loadScopedWorkspace, persistScopedWorkspace, type BomKind, type Entity,
 import { builtInProjectTemplates } from './project-templates.js'
 import { parseProjectPlanFile, projectTaskCsv, projectWorkbook } from './project-planning.js'
 import { createMaterialClosureRouter, isReservedCode } from './material-closure.js'
+import { createTaskCollaborationRouter, sweepTaskWorkspace, publicTask, publicWorkspace, validTaskDate } from './task-collaboration.js'
 
 type CollectionKey = 'kpiRules' | 'reviews' | 'materials' | 'boms' | 'documents' | 'salesBomSnapshots' | 'projectPhases' | 'projectMilestones' | 'projectEvents' | 'projectReports' | 'projectTemplates'
 
@@ -138,12 +139,32 @@ app.get('/api/health', (_req: Request, res: Response) => {
   try { return res.json({ ok: true, service: 'momentum-api', dataStore: 'sqlite', database: databaseHealth() }) }
   catch { return res.status(503).json({ ok: false, service: 'momentum-api', dataStore: 'sqlite', database: { ok: false } }) }
 })
-app.get('/api/workspace', (_req: Request, res: Response) => res.json(data))
+function sweepAutoAccept(): boolean { return sweepTaskWorkspace(data) }
+// Background business timer: enumerate every persisted account-scoped workspace, CAS write without any request.
+function sweepAllWorkspaces(): void {
+  const keys=db.prepare("SELECT key,value,revision FROM app_state WHERE key LIKE 'workspace:%'").all() as Array<{key:string,value:string,revision:number}>
+  for(const row of keys) try { const value=JSON.parse(row.value) as Workspace; if(!Array.isArray(value.tasks))continue; if(sweepTaskWorkspace(value)) db.transaction(()=>db.prepare('UPDATE app_state SET value=?,revision=revision+1,updated_at=? WHERE key=? AND revision=?').run(JSON.stringify(value),new Date().toISOString(),row.key,row.revision))() } catch(error) { if(error instanceof StateConflictError) continue; console.error('Workspace timer sweep failed',error) }
+}
+const taskSweepInterval = process.env.NODE_ENV === 'test' ? Math.max(25, Number(process.env.TASK_SWEEP_INTERVAL_MS) || 30000) : 30000
+const collaborationTimer=setInterval(sweepAllWorkspaces,taskSweepInterval); collaborationTimer.unref(); sweepAllWorkspaces()
+app.get('/api/workspace', (_req: Request, res: Response) => { if (sweepAutoAccept()) persist(); return res.json(publicWorkspace(data)) })
+app.get('/api/task-members', (_req: Request, res: Response) => {
+  const scope = currentWorkspaceScope()!
+  const members = db.prepare(`SELECT u.id,u.display_name AS displayName,m.role FROM tenant_memberships m JOIN users u ON u.id=m.user_id JOIN accounts a ON a.id=m.account_id AND a.tenant_id=m.tenant_id AND a.organization_id=m.organization_id JOIN organizations o ON o.id=a.organization_id AND o.tenant_id=a.tenant_id JOIN tenants t ON t.id=a.tenant_id WHERE m.tenant_id=? AND m.organization_id=? AND m.account_id=? AND m.disabled=0 AND u.disabled=0 AND a.status='active' AND o.status='active' AND t.status='active' ORDER BY u.display_name`).all(scope.tenantId,scope.organizationId,scope.accountId)
+  return res.json({members})
+})
 
-app.get('/api/tasks', (req: Request, res: Response) => listResponse(req, res, data.tasks))
+app.get('/api/tasks', (req: Request, res: Response) => { if (sweepAutoAccept()) persist(); return listResponse(req, res, data.tasks.map(publicTask)) })
 app.post('/api/tasks', (req: Request, res: Response) => {
   const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {}
   const { title, dueDate, priority = 'medium', status = 'todo', projectId, description } = body
+  const mode = body.collaborationMode
+  if (mode !== undefined && !['assignment','report'].includes(String(mode))) return res.status(400).json({error:'协作模式无效。'})
+  if (mode && (!['none','daily','weekly','monthly'].includes(String(body.recurrence ?? 'none')) || !body.receiverId || !body.assigneeId)) return res.status(400).json({error:'协作任务需要负责人、接收人及有效周期。'})
+  if (mode && (!currentAccountHasUser(String(body.receiverId)) || !currentAccountHasUser(String(body.assigneeId)))) return res.status(400).json({error:'负责人和接收人必须是当前账套有效成员。'})
+  if (mode && (!validTaskDate(dueDate) || status !== 'todo')) return res.status(400).json({ error: 'invalid_collaboration_task', message: '协作任务需要有效截止日期，并从待办状态开始。' })
+  if (mode === 'report' && body.assigneeId !== req.authUser!.id) return res.status(400).json({ error: 'invalid_reporter', message: '主动汇报必须由汇报人自行发起。' })
+  if (mode === 'assignment' && body.receiverId !== req.authUser!.id) return res.status(400).json({ error: 'invalid_receiver', message: '指派任务由指派人接收汇报。' })
   if (typeof title !== 'string' || !title.trim()) return res.status(400).json({ error: 'title is required' })
   if (body.projectId !== undefined && body.projectId !== null && body.projectId !== '' && typeof body.projectId !== 'string') return res.status(400).json({ error: 'projectId must be a string' })
   for (const key of ['phaseId', 'milestoneId', 'assigneeId'] as const) if (body[key] !== undefined && body[key] !== null && body[key] !== '' && typeof body[key] !== 'string') return res.status(400).json({ error: `${key} must be a string` })
@@ -152,16 +173,20 @@ app.post('/api/tasks', (req: Request, res: Response) => {
   if (typeof projectId === 'string' && projectId && !data.projects.some(project => project.id === projectId)) return res.status(400).json({ error: 'projectId must belong to the current account' })
   if (typeof body.phaseId === 'string' && body.phaseId && !data.projectPhases.some(phase => phase.id === body.phaseId && phase.projectId === projectId)) return res.status(400).json({ error: 'phaseId must belong to the selected project' })
   if (typeof body.milestoneId === 'string' && body.milestoneId && !data.projectMilestones.some(item => item.id === body.milestoneId && item.projectId === projectId)) return res.status(400).json({ error: 'milestoneId must belong to the selected project' })
-  const task: Task = { id: typeof body.id === 'string' ? body.id : nanoid(), title: title.trim(), dueDate: typeof dueDate === 'string' ? dueDate : new Date().toISOString().slice(0, 10), priority: ['low', 'medium', 'high'].includes(String(priority)) ? priority as Task['priority'] : 'medium', status: ['todo', 'in-progress', 'done'].includes(String(status)) ? status as Task['status'] : 'todo', ...(typeof projectId === 'string' && projectId ? { projectId } : {}), ...(typeof description === 'string' ? { description: description.slice(0,2000) } : {}), createdAt: new Date().toISOString(), ...Object.fromEntries(['startDate','assignee','assigneeId','department','phaseId','milestoneId','wbsCode','acceptanceCriteria'].filter(key => typeof body[key] === 'string').map(key => [key, String(body[key]).slice(0,2000)])), ...(['progress','estimateHours','actualHours'].filter(key => Number.isFinite(Number(body[key]))).length ? Object.fromEntries(['progress','estimateHours','actualHours'].filter(key => Number.isFinite(Number(body[key]))).map(key => [key, Number(body[key])])) : {}), ...(Array.isArray(body.dependencyIds) ? { dependencyIds: body.dependencyIds.filter((value: unknown) => typeof value === 'string').slice(0,50) } : {}) }
+  const task: Task = { id: typeof body.id === 'string' ? body.id : nanoid(), title: title.trim(), dueDate: typeof dueDate === 'string' ? dueDate : new Date().toISOString().slice(0, 10), priority: ['low', 'medium', 'high'].includes(String(priority)) ? priority as Task['priority'] : 'medium', status: ['todo', 'in-progress', 'done'].includes(String(status)) ? status as Task['status'] : 'todo', ...(typeof projectId === 'string' && projectId ? { projectId } : {}), ...(typeof description === 'string' ? { description: description.slice(0,2000) } : {}), createdAt: new Date().toISOString(), ...(mode ? {creatorId:req.authUser!.id, collaborationMode:mode, receiverId:String(body.receiverId), acceptanceStatus:mode === 'report' ? 'accepted' : 'pending', acceptBy:mode === 'assignment' ? new Date(Date.now()+2*60*60*1000).toISOString() : undefined, ...(mode === 'report' ? {acceptedAt:new Date().toISOString(),committedDueDate:typeof dueDate==='string'?dueDate:new Date().toISOString().slice(0,10)} : {}), recurrence:body.recurrence ?? 'none', reportStatus:'none', reports:[]} : {}), ...Object.fromEntries(['startDate','assignee','assigneeId','department','phaseId','milestoneId','wbsCode','acceptanceCriteria'].filter(key => typeof body[key] === 'string').map(key => [key, String(body[key]).slice(0,2000)])), ...(['progress','estimateHours','actualHours'].filter(key => Number.isFinite(Number(body[key]))).length ? Object.fromEntries(['progress','estimateHours','actualHours'].filter(key => Number.isFinite(Number(body[key]))).map(key => [key, Number(body[key])])) : {}), ...(Array.isArray(body.dependencyIds) ? { dependencyIds: body.dependencyIds.filter((value: unknown) => typeof value === 'string').slice(0,50) } : {}) }
   if (typeof task.progress === 'number' && (task.progress < 0 || task.progress > 100)) return res.status(400).json({ error: 'progress must be between 0 and 100' })
   if (data.tasks.some(item => item.id === task.id)) return res.status(409).json({ error: 'task id already exists' })
   const referenceError = validateTaskReferences({ ...task, dependencyIds: body.dependencyIds })
   if (referenceError) return res.status(400).json({ error: referenceError })
-  data.tasks.unshift(task); persist(); return res.status(201).json(task)
+  if (mode) { task.progress = 0; if (mode === 'assignment') task.acceptBy = new Date(Date.parse(task.createdAt) + 7200000).toISOString(); if (task.recurrence !== 'none') { task.seriesId = task.id; task.scheduledDueDate = task.dueDate; task.recurrenceAnchorDay = Number(task.dueDate.slice(8, 10)); task.occurrenceKey = `${task.id}:${task.dueDate}` } }
+  data.tasks.unshift(task); persist(); return res.status(201).json(publicTask(task))
 })
 app.patch('/api/tasks/:id', (req: Request, res: Response) => {
   const index = data.tasks.findIndex(task => task.id === req.params.id)
   if (index === -1) return res.status(404).json({ error: 'task not found' })
+  const task = data.tasks[index]!
+  if (task.collaborationMode && task.creatorId !== req.authUser!.id) return res.status(403).json({error:'仅创建者可修改协作任务基础信息。'})
+  if (task.collaborationMode && ['status','assigneeId','progress','reportStatus','acceptanceStatus','committedDueDate','reports','receiverId','creatorId','collaborationMode'].some(key => key in (req.body ?? {}))) return res.status(400).json({error:'协作任务的负责人和状态不能通过普通编辑修改。'})
   const allowed = ['title', 'description', 'dueDate', 'priority', 'status', 'projectId', 'startDate', 'assignee', 'assigneeId', 'department', 'phaseId', 'milestoneId', 'wbsCode', 'progress', 'estimateHours', 'actualHours', 'dependencyIds', 'acceptanceCriteria'] as const
   const patch: Record<string, unknown> = {}
   for (const key of allowed) if (key in (req.body ?? {})) patch[key] = req.body[key]
@@ -183,14 +208,18 @@ app.patch('/api/tasks/:id', (req: Request, res: Response) => {
   const candidate = { ...data.tasks[index]!, ...patch } as Task
   const referenceError = validateTaskReferences(candidate as Record<string, unknown>, patch.assigneeId !== undefined)
   if (referenceError) return res.status(400).json({ error: referenceError })
-  data.tasks[index] = candidate; persist(); return res.json(data.tasks[index])
+  if (task.collaborationMode && patch.dueDate !== undefined && !validTaskDate(patch.dueDate)) return res.status(400).json({ error: 'invalid_deadline', message: '截止日期无效。' })
+  data.tasks[index] = candidate; persist(); return res.json(publicTask(data.tasks[index]!))
 })
 app.delete('/api/tasks/:id', (req: Request, res: Response) => {
+  const currentTask = data.tasks.find(task => task.id === req.params.id)
+  if (currentTask?.collaborationMode && currentTask.creatorId !== req.authUser!.id) return res.status(403).json({error:'仅创建者可删除协作任务。'})
   if (data.tasks.some(task => task.id !== req.params.id && Array.isArray(task.dependencyIds) && task.dependencyIds.includes(req.params.id))) return res.status(409).json({ error: 'task_has_dependents', message: '该任务仍是其他任务的前置依赖，请先移除依赖关系后再删除。' })
   const before = data.tasks.length; data.tasks = data.tasks.filter(task => task.id !== req.params.id)
   if (before === data.tasks.length) return res.status(404).json({ error: 'task not found' })
   persist(); return res.status(204).end()
 })
+app.use('/api/tasks', createTaskCollaborationRouter({ workspace: () => data, persist }))
 app.get('/api/projects', (req: Request, res: Response) => listResponse(req, res, data.projects))
 app.post('/api/projects', (req: Request, res: Response) => {
   const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {}
@@ -804,6 +833,7 @@ app.post('/api/projects/:id/import-plan',requireRole('admin','plm_manager'),docu
     if(new Set(imported.tasks.map(task=>task.wbsCode)).size!==imported.tasks.length)throw new Error('导入任务中存在重复的 WBS 编码。')
     for(const task of imported.tasks){if(task.phaseCode&&!effectivePhases.has(task.phaseCode))throw new Error(`任务“${task.title}”引用了不存在的阶段编码 ${task.phaseCode}`);if(task.milestoneCode&&!effectiveMilestones.has(task.milestoneCode))throw new Error(`任务“${task.title}”引用了不存在的里程碑编码 ${task.milestoneCode}`)}
     const taskRows=data.tasks.filter(item=>item.projectId===project.id),taskByWbs=new Map(taskRows.filter(item=>item.wbsCode).map(item=>[String(item.wbsCode),item])),nextTasks:Task[]=[]
+    if (imported.tasks.some(task => taskByWbs.get(task.wbsCode)?.collaborationMode)) throw new Error('计划导入不能覆盖协作任务，请在待办中完成接手、期限回复及汇报。')
     imported.tasks.forEach((task,index)=>{const prior=taskByWbs.get(task.wbsCode),phase=task.phaseCode?effectivePhases.get(task.phaseCode):undefined,milestone=task.milestoneCode?effectiveMilestones.get(task.milestoneCode):undefined;nextTasks.push({...prior,id:prior?.id??nanoid(),title:task.title,description:task.description||prior?.description,dueDate:task.dueDate,startDate:task.startDate||prior?.startDate,priority:task.priority,status:task.status,projectId:project.id,phaseId:phase?.id,milestoneId:milestone?.id,wbsCode:task.wbsCode,assignee:task.assignee||prior?.assignee,assigneeId:prior?.assigneeId,progress:task.status==='done'?100:task.progress,estimateHours:task.estimateHours,acceptanceCriteria:task.acceptanceCriteria,createdAt:prior?.createdAt??now,updatedAt:now})})
     const oldPhases=data.projectPhases,oldMilestones=data.projectMilestones,oldTasks=data.tasks
     data.projectPhases=[...nextPhases,...phaseRows.filter(item=>!nextPhases.some(next=>next.id===item.id)),...data.projectPhases.filter(item=>item.projectId!==project.id)]
@@ -861,7 +891,7 @@ app.use('/api', (error: unknown, _req: Request, res: Response, _next: (error?: u
   if (error instanceof StateConflictError) return res.status(409).json({ error: 'workspace_conflict', message: '工作区刚被其他操作更新，请刷新后重试。' })
   if (error instanceof multer.MulterError) {
     const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400
-    return res.status(status).json({ error: 'upload_rejected', message: error.code === 'LIMIT_FILE_SIZE' ? '附件不能超过 25 MB。' : '附件上传请求格式无效。' })
+    return res.status(status).json({ error: 'upload_rejected', message: error.code === 'LIMIT_FILE_SIZE' ? '每个附件不能超过 10 MiB，最多 5 个附件。' : '附件上传请求格式无效。' })
   }
   const candidate = error as { status?: number; type?: string }
   if (candidate?.type === 'entity.too.large') return res.status(413).json({ error: 'request_too_large', message: '请求体超过 2 MB 限制。' })
@@ -876,6 +906,7 @@ let shuttingDown = false
 function shutdown(signal: string) {
   if (shuttingDown) return
   shuttingDown = true
+  clearInterval(collaborationTimer)
   console.log(`Momentum API received ${signal}; draining requests.`)
   stopIntegrationServices()
   const hardStop = setTimeout(() => { server.closeAllConnections?.(); process.exit(1) }, 15_000)

@@ -94,7 +94,7 @@ export default function LoginScreen({ setupRequired, apiError, onAuthenticated, 
         {!nativeApp && !activationMode && <div className="login-sso" title="钉钉免登仅支持在钉钉小程序客户端中完成"><span className="dingtalk-mark">钉</span><span>钉钉免登仅支持钉钉小程序</span><small>{dingtalkConfigured ? '服务端已配置' : '服务端未配置'}</small></div>}
         <p className="login-footnote">工作区数据保存在服务端；成员密码由本人设置，请勿共享密码或在公共设备保存。</p>
       </motion.div>
-      <div className="login-legal"><span>© Momentum Workspace</span><span>安全 · 协作 · 可追溯</span></div>
+      <div className="login-legal"><span>安全 · 协作 · 可追溯</span></div>
     </section>
     <aside className="login-visual">
       <div className="login-orbit orbit-one"/><div className="login-orbit orbit-two"/><div className="login-orbit orbit-three"/>
