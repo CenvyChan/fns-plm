@@ -1,0 +1,108 @@
+/* Shared operational UI layer. Import after feature styles; intentionally scoped to report/PLM surfaces. */
+:root {
+  --ui-font: 'DM Sans', 'Noto Sans SC', system-ui, sans-serif;
+  --ui-ink: #34334a;
+  --ui-text: #57566b;
+  --ui-muted: #9292a1;
+  --ui-line: #eeeeef;
+  --ui-surface: #fff;
+  --ui-surface-soft: #faf9fc;
+  --ui-accent: #8271ed;
+  --ui-accent-hover: #7160df;
+  --ui-success: #4c9b77;
+  --ui-warning: #b78143;
+  --ui-danger: #bf626e;
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-6: 24px;
+  --ui-radius: 8px;
+  --ui-focus: 0 0 0 3px rgba(130, 113, 237, .24);
+}
+.dr-section, .plm-page {
+  font-family: var(--ui-font);
+  color: var(--ui-ink);
+}
+.dr-header h2, .plm-panel-head h3 { line-height: 1.35; }
+.dr-section :is(button, input, select, textarea, a, [tabindex]):focus-visible,
+.plm-page :is(button, input, select, textarea, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+.dr-section :is(input, select, textarea), .plm-page .form-label :is(input, select, textarea) {
+  accent-color: var(--ui-accent);
+}
+.dr-section :is(.iw-table-wrap, .dr-k3-table),
+.plm-page :is(.plm-table-wrap, .bom-line-wrap) {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.dr-section :is(.iw-table-wrap, .dr-k3-table) table,
+.plm-page :is(.plm-table, .materials-table, .bom-lines-table) {
+  max-width: none;
+}
+.dr-section .dr-loading, .dr-section .iw-empty, .plm-page .plm-empty,
+.dr-section [role='status'], .plm-page [role='status'] { color: var(--ui-muted); }
+.dr-section [aria-busy='true'], .plm-page [aria-busy='true'] { cursor: progress; }
+.dr-section [aria-invalid='true'], .plm-page [aria-invalid='true'] {
+  border-color: var(--ui-danger) !important;
+}
+.dr-section :is(.dr-source-banner, .dr-warning-list), .plm-page :is(.material-blockers) {
+  line-height: 1.5;
+}
+/* Existing modal / preview primitives only; do not target chart or designer canvases. */
+.plm-page :is(.material-modal, .bom-modal, .plm-modal),
+.document-preview-modal {
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  overscroll-behavior: contain;
+}
+.document-preview-backdrop { overscroll-behavior: contain; }
+@media (max-width: 650px) {
+  .dr-section :is(.iw-table-wrap, .dr-k3-table),
+  .plm-page :is(.plm-table-wrap, .bom-line-wrap) { width: 100%; }
+  .plm-page :is(.material-modal, .bom-modal, .plm-modal), .document-preview-modal {
+    width: calc(100vw - 20px);
+    max-width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dr-section *, .plm-page * { scroll-behavior: auto; }
+}
+
+/* Shared primitives mapped to existing live workbenches, without replacing their behaviour. */
+:root { --ui-text-sm: 12px; --ui-text-base: 13px; --ui-text-title: 20px; --ui-row-space: 12px; }
+:is(.dr-section, .plm-page) { font-size: var(--ui-text-base); line-height: 1.5; }
+:is(.dr-section, .plm-page) :is(.iw-card, .plm-panel) { border-color: var(--ui-line); background: var(--ui-surface); border-radius: var(--ui-radius); }
+:is(.dr-section, .plm-page) :is(.dr-header h2, .module-banner h2) { font-size: var(--ui-text-title); }
+:is(.dr-section, .plm-page) :is(.iw-table-wrap, .plm-table-wrap) { overflow-x: auto; max-width: 100%; }
+:is(.dr-section, .plm-page) table { border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: var(--ui-text-sm); }
+:is(.dr-section, .plm-page) :is(th, td) { padding: var(--ui-row-space); border-bottom: 1px solid var(--ui-line); vertical-align: middle; }
+:is(.dr-section, .plm-page) th { color: var(--ui-text); background: var(--ui-surface-soft); font-weight: 650; text-align: left; }
+:is(.dr-section, .plm-page) tbody tr:hover { background: #f8f7fe; }
+:is(.dr-section, .plm-page) :is(.iw-button, .plm-button) { border-radius: var(--ui-radius); min-height: 34px; font-size: var(--ui-text-base); }
+:is(.dr-section, .plm-page) :is(input:not([type='checkbox']):not([type='radio']), select, textarea),
+.workspace-portal-host :is(.material-modal, .bom-modal) :is(input:not([type='checkbox']):not([type='radio']), select, textarea) { border-radius: var(--ui-radius); font-size: var(--ui-text-base); min-height: 34px; }
+:is(.dr-section, .plm-page) :is(.iw-empty, .plm-empty) { padding: var(--ui-space-6); color: var(--ui-text); text-align: center; }
+:is(.dr-section, .plm-page) :is(.iw-alert, [role='alert']) { border-left: 3px solid var(--ui-danger); border-radius: var(--ui-radius); padding: var(--ui-space-3); }
+:is(.dr-section, .plm-page) :is(.iw-notice, .dr-notice) { border-left: 3px solid var(--ui-success); padding: var(--ui-space-3); }
+.workspace-portal-host[hidden] { display: none !important; }
+.workspace-portal-host :is(.material-modal, .bom-modal, .detail-drawer) { max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); }
+.workspace-portal-host :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+@media(max-width:680px) {
+  :is(.dr-section, .plm-page) :is(th, td) { padding: 10px 12px; }
+  .workspace-portal-host :is(.material-modal, .bom-modal) { width: calc(100vw - 20px); max-width: calc(100vw - 20px); }
+}
+@media(max-width:680px) {
+  .dr-section .iw-card-head { flex-wrap: wrap; gap: var(--ui-space-3); }
+  .dr-section .iw-card-head > div { min-width: 0; max-width: 100%; }
+  .dr-section .dr-list-actions { width: auto; max-width: 100%; }
+  .dr-section .dr-list-actions .iw-button { white-space: normal; }
+  .plm-page :is(.plm-toolbar, .toolbar-actions) { flex-wrap: wrap; min-width: 0; }
+}

@@ -1,3 +1,4 @@
+import { useWorkspacePortal } from './WorkspacePortal'
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import "./confirm-dialog.css";
@@ -24,10 +25,11 @@ export default function ConfirmDialog({
   onCancel,
 }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const { portalHost, tabActive } = useWorkspacePortal();
   const id = useId();
   useEffect(() => {
     const node = dialog.current;
-    if (!open || !node) return;
+    if (!open || !tabActive || !node) return;
     const active =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
@@ -40,7 +42,7 @@ export default function ConfirmDialog({
       document.body.style.overflow = previousOverflow;
       active?.focus();
     };
-  }, [open]);
+  }, [open, tabActive]);
   if (typeof document === "undefined") return null;
   return createPortal(
     <dialog
@@ -74,6 +76,6 @@ export default function ConfirmDialog({
         </div>
       </div>
     </dialog>,
-    document.body,
+    portalHost!,
   );
 }

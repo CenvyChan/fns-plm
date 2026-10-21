@@ -1,3 +1,4 @@
+import { useWorkspacePortal } from './WorkspacePortal'
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import './material-modal-overrides.css'
@@ -15,6 +16,7 @@ const shortPath = (path?: string[]) => path?.join(' / ') || '未关联分类路�
 const labelForDimension = (family: string, value: string) => { const node = getNode(value); return node ? `${family}：${node.path.at(-1)} (${node.code})` : value }
 
 function MaterialModal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const { portalHost } = useWorkspacePortal()
   return createPortal(
     <motion.div className="modal-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={e => e.target === e.currentTarget && onClose()}>
       <motion.div className="modal-card material-modal" role="dialog" aria-modal="true" aria-labelledby="material-modal-title" initial={{ opacity: 0, y: 18, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10 }}>
@@ -22,7 +24,7 @@ function MaterialModal({ title, onClose, children }: { title: string; onClose: (
         {children}
       </motion.div>
     </motion.div>,
-    document.body,
+    portalHost!,
   )
 }
 function FormField({ label, children, help }: { label: string; children: ReactNode; help?: string }) { return <label className="form-label material-field"><span>{label}</span>{children}{help && <small>{help}</small>}</label> }
