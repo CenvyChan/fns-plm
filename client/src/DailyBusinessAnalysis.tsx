@@ -108,7 +108,7 @@ export default function DailyBusinessAnalysis({ kind, view, date, filterStorageK
   </section>;
   return <section className="iw-card dba" aria-label={title}>
     <div className="iw-card-head"><div><h2>{title}</h2><p>明细、汇总、趋势和导出使用同一筛选口径；不触发 ERP 同步。</p></div>
-      <div className="dr-list-actions">{canWrite && <button className="iw-button iw-approve" onClick={onNew}>新增{noun}日报</button>}{canManage && <button className="iw-button iw-secondary" onClick={onImport}>导入往期{noun}日报</button>}</div>
+      {view === "records" && <div className="dr-list-actions">{canWrite && <button className="iw-button iw-approve" onClick={onNew}>新增{noun}日报</button>}{canManage && <button className="iw-button iw-secondary" onClick={onImport}>导入往期{noun}日报</button>}</div>}
     </div>
     <div className="dba-filters" role="search" aria-label={`${noun}统一筛选`} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); apply(); } }}>
       <label>关键词<input value={draft.q} placeholder="客商、单号或备注" onChange={event => setField("q", event.target.value)} /></label>

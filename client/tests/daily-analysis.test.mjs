@@ -97,6 +97,15 @@ for (const [index, [kind,view]] of views.entries()) {
   if (view === 'analysis' && (!html.includes('本周') || !html.includes('本月') || !html.includes('本年') || !html.includes('覆盖上方旧日期'))) throw new Error(kind + ' presets absent');
 }
 if (htmls.length !== 4 || new Set(views.map(([kind,view]) => kind + ':' + view)).size !== 4) throw new Error('four independent route/view combinations were not rendered');
+for (const [kind,view] of views) for (const [canWrite,canManage] of [[false,false],[true,false],[false,true],[true,true]]) {
+  const noun = kind === 'sales' ? '销售' : '采购';
+  const html = renderToString(<DailyBusinessAnalysis kind={kind} view={view} date="2025-01-15" canWrite={canWrite} canManage={canManage} revision={0} onNew={noop} onImport={noop} onDetail={noop} onEdit={noop}/>).replaceAll("<!-- -->", "");
+  if (html.includes('新增' + noun + '日报') !== (view === 'records' && canWrite)) throw new Error(kind + '/' + view + ' new action scope/permission mismatch');
+  if (html.includes('导入往期' + noun + '日报') !== (view === 'records' && canManage)) throw new Error(kind + '/' + view + ' import action scope/permission mismatch');
+  if (view === 'analysis' && html.includes('dr-list-actions')) throw new Error(kind + ' analysis includes record action container');
+  if (!html.includes('应用筛选') || !html.includes('导出当前口径 Excel')) throw new Error(kind + '/' + view + ' read controls absent');
+}
+
 console.log('daily business analysis SSR checks passed');`,
       },
       bundle: true,
