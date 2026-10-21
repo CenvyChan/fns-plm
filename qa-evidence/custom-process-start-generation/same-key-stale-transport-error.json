@@ -1,0 +1,20 @@
+{
+  "scenario": {
+    "name": "same-key stale transport error",
+    "outcome": "network-error",
+    "action": "刷新测试上下文"
+  },
+  "checks": {
+    "latestFlowVersion": 9,
+    "latestFormVersion": 4,
+    "staleStateIgnored": true,
+    "reconfirmationRequired": true,
+    "requestVersions": [
+      "immutable-v7",
+      "immutable-v9"
+    ],
+    "contextRequests": 3,
+    "pageErrors": [],
+    "outboundRequests": []
+  }
+}
