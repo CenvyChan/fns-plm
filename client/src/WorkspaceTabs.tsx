@@ -5,6 +5,7 @@ import { restoreTabs, safeTabUrl, tabId, type WorkspaceTab } from './workspace-t
 import './workspace-tabs.css'
 import { WorkspacePortalContext } from './WorkspacePortal'
 import { applyViewState, readViewState, saveViewState } from './workspace-view-state'
+import WorkspaceFeedback from './WorkspaceFeedback'
 
 function Panel({ id, active, children, onDirty, storageKey }: { id: string; active: boolean; children: ReactNode; storageKey: string; onDirty: (id: string, dirty: boolean) => void }) {
   const root = useRef<HTMLDivElement>(null)
@@ -47,7 +48,7 @@ function Panel({ id, active, children, onDirty, storageKey }: { id: string; acti
   return <WorkspacePortalContext.Provider value={{ host, active }}><div ref={root} id={`workspace-panel-${id}`} role="tabpanel" aria-labelledby={`workspace-tab-${id}`} hidden={!active} className="workspace-tab-panel" onChangeCapture={event => {
     const field = event.target as HTMLElement
     if (field.closest('form, [role="dialog"], .modal-card')) onDirty(id, true)
-  }}>{children}</div></WorkspacePortalContext.Provider>
+  }}>{children}</div><WorkspaceFeedback root={root} host={host} active={active}/></WorkspacePortalContext.Provider>
 }
 
 export default function WorkspaceTabs({ page, storageKey, allowed, onNavigate, children }: { page: string; storageKey: string; allowed: (page: string) => boolean; onNavigate: (page: string, url?: string) => void; children: (page: string) => ReactNode }) {
@@ -122,9 +123,24 @@ export default function WorkspaceTabs({ page, storageKey, allowed, onNavigate, c
     markDirty(tab.id, false)
   }
   const activeId = tabId(page)
-  return <><div className="workspace-tabs" role="tablist" aria-label="已打开的工作页签">{tabs.map((tab, index) => <div className={`workspace-tab ${tab.id === activeId ? 'is-active' : ''}`} key={tab.id}><button id={`workspace-tab-${tab.id}`} type="button" role="tab" aria-selected={tab.id === activeId} aria-controls={`workspace-panel-${tab.id}`} tabIndex={tab.id === activeId ? 0 : -1} onClick={() => activate(tab)} onKeyDown={event => {
+  const rail = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const row = rail.current
+    const selected = row?.querySelector<HTMLElement>('.workspace-tab.is-active')
+    if (!row || !selected) return
+    const reveal = () => {
+      const left = selected.getBoundingClientRect().left - row.getBoundingClientRect().left + row.scrollLeft
+      if (left < row.scrollLeft) row.scrollLeft = left
+      else if (left + selected.offsetWidth > row.scrollLeft + row.clientWidth) row.scrollLeft = left + selected.offsetWidth - row.clientWidth
+    }
+    reveal()
+    const observer = new ResizeObserver(reveal)
+    observer.observe(row)
+    return () => observer.disconnect()
+  }, [activeId, tabs.length])
+  return <div className="workspace-frame"><div ref={rail} className="workspace-tabs" role="tablist" aria-label="已打开的工作页签">{tabs.map((tab, index) => <div className={`workspace-tab ${tab.id === activeId ? 'is-active' : ''}`} key={tab.id}><button id={`workspace-tab-${tab.id}`} type="button" role="tab" aria-selected={tab.id === activeId} aria-controls={`workspace-panel-${tab.id}`} tabIndex={tab.id === activeId ? 0 : -1} onClick={() => activate(tab)} onKeyDown={event => {
     const offset = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
     const target = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs.at(-1) : offset ? tabs[(index + offset + tabs.length) % tabs.length] : undefined
     if (target) { event.preventDefault(); activate(target); document.getElementById(`workspace-tab-${target.id}`)?.focus() }
-  }}>{pageById[tab.id]?.label ?? tab.id}{dirty[tab.id] && <span className="workspace-dirty" aria-label="未保存"> ·</span>}</button><button type="button" className="workspace-tab-close" aria-label={`关闭${pageById[tab.id]?.label ?? tab.id}页签`} onClick={() => close(tab)}><X size={13}/></button></div>)}</div>{Object.values(dirty).some(Boolean) && <div className="workspace-unsaved" role="status">有未保存内容；切换页签会保留，关闭页签、刷新或切换账套前请先保存。</div>}{tabs.filter(tab => mounted.has(tab.id) || tab.id === activeId).map(tab => <Panel storageKey={storageKey} key={tab.id} id={tab.id} active={tab.id === activeId} onDirty={markDirty}>{children(tab.id === activeId ? page : tab.page)}</Panel>)}</>
+  }}>{pageById[tab.id]?.label ?? tab.id}{dirty[tab.id] && <span className="workspace-dirty" aria-label="未保存"> ·</span>}</button><button type="button" className="workspace-tab-close" aria-label={`关闭${pageById[tab.id]?.label ?? tab.id}页签`} onClick={() => close(tab)}><X size={13}/></button></div>)}</div>{Object.values(dirty).some(Boolean) && <div className="workspace-unsaved" role="status">有未保存内容；切页保留，关闭、刷新或切换账套前请保存。</div>}{tabs.filter(tab => mounted.has(tab.id) || tab.id === activeId).map(tab => <Panel storageKey={storageKey} key={tab.id} id={tab.id} active={tab.id === activeId} onDirty={markDirty}>{children(tab.id === activeId ? page : tab.page)}</Panel>)}</div>
 }

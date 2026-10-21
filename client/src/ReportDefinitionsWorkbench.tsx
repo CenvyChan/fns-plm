@@ -245,7 +245,7 @@ export default function ReportDefinitionsWorkbench({
         </div>
       )}
       {notice && (
-        <div className="iw-alert" role="status">
+        <div className="iw-alert" role="status" data-feedback="transient">
           {notice}
         </div>
       )}

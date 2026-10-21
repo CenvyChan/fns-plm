@@ -106,3 +106,99 @@
   .dr-section .dr-list-actions .iw-button { white-space: normal; }
   .plm-page :is(.plm-toolbar, .toolbar-actions) { flex-wrap: wrap; min-width: 0; }
 }
+
+/* Compact hierarchy overrides for existing operational surfaces. */
+.plm-page { gap: 12px; }
+.plm-page .module-banner {
+  min-height: 0;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius);
+  background: var(--ui-surface);
+  box-shadow: none;
+}
+.plm-page .module-banner::after { display: none; }
+.plm-page .module-banner-icon {
+  width: 34px; height: 34px; border-color: var(--ui-line);
+  border-radius: var(--ui-radius); background: var(--ui-surface-soft);
+  color: var(--ui-accent); box-shadow: none;
+}
+.plm-page .module-banner .plm-overline { display: none; }
+.plm-page .module-banner h2 { margin: 0 0 2px; font-size: 18px; letter-spacing: -.25px; }
+.plm-page .module-banner p { color: var(--ui-text); font-size: 12px; line-height: 1.45; }
+.plm-page .banner-number { padding: 0; }
+.plm-page .banner-number b { font-size: 21px; color: var(--ui-ink); }
+.plm-page .banner-number small { margin-top: 2px; font-size: 10px; }
+:is(.dr-section, .plm-page) :is(.iw-card, .plm-panel) { box-shadow: none; }
+.dr-section { gap: 11px; margin-bottom: 16px; }
+.dr-header { align-items: center; gap: 12px; }
+.dr-header h2 { margin: 0; font-size: 18px; }
+.dr-header p { margin-top: 3px; }
+.dr-header :is(.dr-overline, .plm-overline, .iw-eyebrow) { font-size: 8px; letter-spacing: .7px; }
+.dr-source-banner { gap: 8px; padding: 8px 11px; border-radius: 7px; }
+.dr-source-banner b, .dr-source-banner span { font-size: 10px; }
+@media (max-width: 680px) {
+  .plm-page { gap: 10px; }
+  .plm-page .module-banner { align-items: flex-start; gap: 9px; padding: 11px 12px; }
+  .plm-page .module-banner-icon { width: 30px; height: 30px; }
+  .plm-page .module-banner h2 { font-size: 16px; }
+  .plm-page .module-banner p { font-size: 11px; }
+  .plm-page .banner-number { margin-left: auto; white-space: nowrap; }
+  .plm-page .banner-number b { font-size: 18px; }
+  .dr-header { align-items: flex-start; flex-wrap: wrap; }
+  .dr-header-actions { width: 100%; }
+  .dr-source-banner { align-items: flex-start; }
+  .dr-source-banner > div { min-width: 0; }
+}
+
+/* Titles belong to the work surface, not another nested hero card. */
+.workspace-tab-panel .plm-page .module-banner { padding: 0 0 12px; border: 0; border-bottom: 1px solid var(--ui-line); border-radius: 0; }
+.dr-header .iw-eyebrow { display: none; } /* redundant bilingual section ornament */
+.dr-section .dr-source-banner { padding: 8px 10px; box-shadow: none; border-color: #eee4c4; background: #fffcf2; }
+.dr-section .dr-source-banner > div { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 2px; }
+.dr-section .dr-source-banner b { font-size: 12px; font-weight: 600; }
+.dr-section .dr-source-banner span { font-size: 12px; line-height: 1.5; }
+
+/* Administrative/report surfaces use the same calm hierarchy, without hiding security copy. */
+.workspace-tab-panel :is(.users-heading, .tenant-admin-heading, .connector-heading, .iw-heading) { margin-bottom: 16px; gap: 12px; }
+.workspace-tab-panel :is(.users-heading, .tenant-admin-heading, .connector-heading, .iw-heading) :is(h1, h2) { margin: 0 0 5px; font-size: 20px; line-height: 1.4; letter-spacing: -.3px; }
+.workspace-tab-panel :is(.users-heading, .tenant-admin-heading, .connector-heading, .iw-heading) p { margin: 0; font-size: 12px; line-height: 1.6; }
+.workspace-tab-panel :is(.users-overline, .tenant-admin-overline, .connector-overline, .iw-heading > div > .iw-eyebrow) { display: none; }
+.workspace-tab-panel .tenant-scope-banner { padding: 10px 12px; border-radius: 8px; background: #f7fafc; box-shadow: none; }
+.workspace-tab-panel .tenant-scope-banner b { font-size: 12px; }
+.workspace-tab-panel .tenant-scope-banner span { line-height: 1.5; }
+.workspace-tab-panel .plm-hero.kpi-hero { padding: 18px; min-height: 0; border-radius: 8px; box-shadow: none; }
+.workspace-tab-panel .plm-hero.kpi-hero h2 { font-size: 20px; }
+.dr-section .dr-source-banner:not(.dr-mock) { background: #f6faf8; border-color: #deebe4; }
+@media (max-width: 680px) {
+  .workspace-tab-panel :is(.users-heading, .tenant-admin-heading, .connector-heading, .iw-heading) { flex-wrap: wrap; }
+  .workspace-tab-panel :is(.users-heading, .tenant-admin-heading, .connector-heading, .iw-heading) :is(h1, h2) { font-size: 18px; }
+}
+
+/* Nested history grids must shrink around their independently scrollable table. */
+.dr-section :is(.dr-admin-import-history, .dr-admin-import-history > [role='tabpanel'], .dr-admin-batches) { min-width: 0; max-width: 100%; }
+.workspace-tab-panel .plm-hero.kpi-hero { background: #fff; border: 0; border-bottom: 1px solid var(--ui-line); border-radius: 0; padding: 0 0 12px; gap: 12px; }
+.workspace-tab-panel .kpi-hero .plm-overline { display: none; }
+.workspace-tab-panel .kpi-hero h2 { margin: 0 0 5px; }
+.workspace-tab-panel .kpi-hero .hero-stat { padding: 0; }
+.workspace-tab-panel .kpi-hero .hero-stat > b { font-size: 22px; }
+
+.workspace-tab-panel .dr-admin { min-width: 0; padding: 0; border: 0; box-shadow: none; }
+.workspace-tab-panel .dr-admin > .iw-card-head { padding: 0 0 12px; }
+.workspace-tab-panel .dr-admin > .iw-card-head h1 { margin: 0; font-size: 20px; line-height: 1.4; }
+.workspace-tab-panel .dr-admin > .iw-card-head .iw-eyebrow { display: none; }
+.dr-admin :is(.dr-admin-import-history, .dr-admin-import-history > [role='tabpanel'], .dr-admin-batches) { min-width: 0; max-width: 100%; }
+.dr-admin .iw-table-wrap { max-width: 100%; overflow-x: auto; }
+
+/* Only designer chrome: canvas, inspector controls and modelling rules stay untouched. */
+.workspace-tab-panel .workflow-entry-tabs { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 16px; padding: 0; border-bottom: 1px solid var(--ui-line); }
+.workspace-tab-panel .workflow-entry-tabs > button { border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 8px 2px 10px; background: none; font: inherit; font-size: 13px; color: var(--ui-text); cursor: pointer; }
+.workspace-tab-panel .workflow-entry-tabs > button.active { border-bottom-color: var(--ui-accent); color: #5f4eaa; font-weight: 600; }
+.workspace-tab-panel .workflow-entry-tabs > button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.workspace-tab-panel .fd-workspace-switch { padding: 0 0 10px; }
+.workspace-tab-panel :is(.fd-page, .bpmn-page) { padding: 0; }
+.workspace-tab-panel :is(.fd-head, .bpmn-head) { margin: 0 0 14px; padding: 0 0 12px; }
+.workspace-tab-panel :is(.fd-head, .bpmn-head) h1 { font-size: 20px; margin: 0 0 4px; }
+.workspace-tab-panel :is(.fd-eyebrow, .bpmn-brand small) { display: none; }
+@media (max-width: 680px) { .workspace-tab-panel .workflow-entry-tabs > button { min-height: 44px; } }
