@@ -1,0 +1,191 @@
+✖ legacy arrays remain compatible; explicit pagination bounds the response (1999.00464ms)
+✖ search is case-insensitive, filtered before pagination, and returns exact totals (51.524372ms)
+✖ malformed, repeated, nested and excessive list input is rejected (52.92616ms)
+✖ all common workspace list endpoints support the same opt-in contract (20.516547ms)
+✖ tenant, organization and sibling-account searches cannot leak home data (18.97245ms)
+✖ an explicitly unauthorized login account is denied rather than silently replaced (59.889975ms)
+✔ a role downgrade takes effect on the next request with the existing token (99.647455ms)
+✖ membership disable invalidates this account without logging out unrelated accounts (89.075925ms)
+✔ tenant, organization and account status changes reject existing sessions immediately (11.557432ms)
+✖ successful workspace mutations have actor/scope audit; rejected mutations do not (53.552347ms)
+✖ workspace mutation rolls back if its audit insertion fails (35.875508ms)
+✖ 10k-row scoped search records local latency and bounded response bytes (55.101622ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 2
+ℹ fail 10
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6671.90938
+
+✖ failing tests:
+
+test at tests/tenant-performance.test.mjs:85:1
+✖ legacy arrays remain compatible; explicit pagination bounds the response (1999.00464ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + undefined
+  - 10000
+  
+      at TestContext.<anonymous> (file:///workspace/plm-tenant-performance-20261021/server/tests/tenant-performance.test.mjs:89:42)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 10000,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/tenant-performance.test.mjs:93:1
+✖ search is case-insensitive, filtered before pagination, and returns exact totals (51.524372ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  undefined !== 100
+  
+      at TestContext.<anonymous> (file:///workspace/plm-tenant-performance-20261021/server/tests/tenant-performance.test.mjs:95:44)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 100,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/tenant-performance.test.mjs:101:1
+✖ malformed, repeated, nested and excessive list input is rejected (52.92616ms)
+  AssertionError [ERR_ASSERTION]: page=0
+  
+  200 !== 400
+  
+      at TestContext.<anonymous> (file:///workspace/plm-tenant-performance-20261021/server/tests/tenant-performance.test.mjs:103:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 400,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/tenant-performance.test.mjs:106:1
+✖ all common workspace list endpoints support the same opt-in contract (20.516547ms)
+  AssertionError [ERR_ASSERTION]: projects
+      at TestContext.<anonymous> (file:///workspace/plm-tenant-performance-20261021/server/tests/tenant-performance.test.mjs:109:52)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/tenant-performance.test.mjs:113:1
+✖ tenant, organization and sibling-account searches cannot leak home data (18.97245ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  undefined !== 0
+  
+      at TestContext.<anonymous> (file:///workspace/plm-tenant-performance-20261021/server/tests/tenant-performance.test.mjs:118:47)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/tenant-performance.test.mjs:124:1
+✖ an explicitly unauthorized login account is denied rather than silently replaced (59.889975ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  200 !== 403
+  
+      at TestContext.<anonymous> (file:///workspace/plm-tenant-performance-20261021/server/tests/tenant-performance.test.mjs:126:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 403,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/tenant-performance.test.mjs:134:1
+✖ membership disable invalidates this account without logging out unrelated accounts (89.075925ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  401 !== 200
+  
+      at TestContext.<anonymous> (file:///workspace/plm-tenant-performance-20261021/server/tests/tenant-performance.test.mjs:143:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 401,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/tenant-performance.test.mjs:153:1
+✖ successful workspace mutations have actor/scope audit; rejected mutations do not (53.552347ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(event)
+  
+      at TestContext.<anonymous> (file:///workspace/plm-tenant-performance-20261021/server/tests/tenant-performance.test.mjs:158:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/tenant-performance.test.mjs:166:1
+✖ workspace mutation rolls back if its audit insertion fails (35.875508ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  201 !== 500
+  
+      at TestContext.<anonymous> (file:///workspace/plm-tenant-performance-20261021/server/tests/tenant-performance.test.mjs:169:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 201,
+    expected: 500,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/tenant-performance.test.mjs:174:1
+✖ 10k-row scoped search records local latency and bounded response bytes (55.101622ms)
+  TypeError: Cannot read properties of undefined (reading 'length')
+      at TestContext.<anonymous> (file:///workspace/plm-tenant-performance-20261021/server/tests/tenant-performance.test.mjs:181:70)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)

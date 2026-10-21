@@ -1,0 +1,55 @@
+✔ accepts a minimal valid generated BPMN document (8.79348ms)
+✔ parallel gateway XML is allowlisted only as a bare BPMN node (4.175911ms)
+✔ rejects XML declarations, external entities, and external URLs (0.572575ms)
+✔ rejects dangerous BPMN elements, namespaces, attributes and executable content (2.491557ms)
+✔ rejects malformed XML and comment-obscured unsafe payloads (2.47748ms)
+✔ production/default gate blocks release; test mock is limited to loopback (0.590143ms)
+✔ verified staging release flag permits only the exact patched staging URL (0.431899ms)
+✔ diff includes changed process, assignment, layout, conditions, added and removed nodes and flows (1.106422ms)
+✔ candidateGroups accepts only scoped deterministic role IDs (4.97956ms)
+✔ Flowable form key round-trips only immutable pinned form identities (2.154797ms)
+▶ forms end-to-end with verified sessions, immutable versions, authorization and tenant/org/account isolation
+  ✔ real authentication, scope headers, role checks and same-origin guard (240.786775ms)
+  ✔ save, refresh and publish immutable version one, then edit and publish version two (450.129453ms)
+  ✔ tenant, organization and account isolation, including scoped real user and customer lookups (422.835322ms)
+  ✔ server rejects forged execution contexts, process/actor/scope properties and version drift (195.0973ms)
+  ✔ server revalidates all field types, rules, scoped selections and canonical events (204.908965ms)
+  ✔ submission persists exact scope, PLM actor, process and immutable version and is access controlled (36.190361ms)
+  ✔ malicious DSL configuration and arbitrary actions cannot be persisted (33.547883ms)
+✔ forms end-to-end with verified sessions, immutable versions, authorization and tenant/org/account isolation (1745.708104ms)
+{"providers":["K3Cloud mock","Flowable mock","DingTalk callback mock"],"internalScopes":2,"connectorDefaultTripleBinding":"passed","dingtalkSsoRequiresEachScopeLayer":"passed","k3cloudSessionAndCacheIsolation":"passed","missingOrForgedScopeHeadersRejectedBeforeProviderCall":"passed","flowableCandidateGroupsScopedPerAccount":"passed","dingtalkIdentityAndCallbackScopeBinding":"passed","realEnterpriseServicesContacted":false}
+✔ K3Cloud cache, Flowable identity, and DingTalk callbacks stay bound to complete tenant/org/account scope with mocks only (4432.610666ms)
+✔ Node tenant-deployment BPMN stays in sync with the standalone Flowable engine model (1427.470514ms)
+✔ tenant data, mobile authentication, role enforcement, and connector secrets stay isolated (597.739085ms)
+✔ project workbench template, scoped plans/files, atomic KPI set, and dual-review flow (644.480125ms)
+✔ controlled document revisions, private file access, and upload RBAC stay scoped (231.289815ms)
+✔ tenant, organization, and account scope plus core API reference and RBAC matrix stay isolated (810.854673ms)
+✔ project plan XLSX export can be imported without losing phases, milestones, or task relationships (490.840852ms)
+✔ project task CSV export/import preserves quoting and validates required dates (2.474896ms)
+✔ project plan import rejects impossible calendar dates and reversed date ranges (204.532074ms)
+✔ report definitions are scoped, role-safe, validated, versioned and preview existing daily rows only (3896.799424ms)
+✔ legacy arrays remain compatible; explicit pagination bounds the response (2471.668061ms)
+✔ search is case-insensitive, filtered before pagination, and returns exact totals (82.467862ms)
+✔ malformed, repeated, nested and excessive list input is rejected (234.859173ms)
+✔ all common workspace list endpoints support the same opt-in contract (285.373579ms)
+✔ tenant, organization and sibling-account searches cannot leak home data (63.014727ms)
+✔ an explicitly unauthorized login account is denied rather than silently replaced (61.589919ms)
+✔ a role downgrade takes effect on the next request with the existing token (82.637419ms)
+✔ membership, activation-reset and scope creation roll back when mandatory audit fails (199.160893ms)
+✔ membership and scope audit records contain correct actor and affected workspace (1.497325ms)
+✔ membership disable invalidates this account without logging out unrelated accounts (99.748162ms)
+✔ tenant, organization and account status changes reject existing sessions immediately (15.019975ms)
+✔ global user disable and membership disable deny the next request without a server restart (6.532149ms)
+✔ successful workspace mutations have actor/scope audit; rejected mutations do not (56.67402ms)
+✔ workspace mutation rolls back if its audit insertion fails (52.022106ms)
+✔ project attachment deletion is audited; audit failure preserves metadata and bytes (134.285451ms)
+✔ 10k-row scoped search records local latency and bounded response bytes (201.209018ms)
+ℹ LOCAL_ONLY rows=10000 samples=10 p50_ms=18.59 max_ms=24.97 response_bytes=2737; not a production SLA
+ℹ tests 44
+ℹ suites 0
+ℹ pass 44
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 9069.579926
