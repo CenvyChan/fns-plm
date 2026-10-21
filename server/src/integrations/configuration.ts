@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid'
 import { db, decryptConfig, encryptConfig, getConnectorRow } from '../database.js'
 import { K3_MASTER_DATA_FIELDS } from '../k3cloud-master-data.js'
 import type { WorkspaceScope } from '../scope.js'
+import { materialSourceFingerprint } from '../material-source-identity.js'
 
 export type ConnectorProvider = 'k3cloud' | 'flowable' | 'dingtalk'
 export type ConnectorConfig = Record<string, unknown>
@@ -65,6 +66,13 @@ function validateConfig(provider: ConnectorProvider, config: ConnectorConfig): v
       if (!/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(formId) || !Array.isArray(fields) || fields.length > 100 || fields.some(field => typeof field !== 'string' || !/^[A-Za-z0-9_.]{1,128}$/.test(field))) throw new Error('K3Cloud formAllowlist contains invalid FormId/FieldKeys.')
     }
   }
+  if (provider === 'k3cloud' && config.materialSource !== undefined) {
+    const source = config.materialSource as Record<string, unknown>
+    const names = ['id', 'number', 'name', 'specification', 'unit', 'groupNumber', 'groupId', 'organization']
+    if (!source || typeof source !== 'object' || Array.isArray(source) || typeof source.formId !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(source.formId) || !source.fields || typeof source.fields !== 'object' || Array.isArray(source.fields)) throw new Error('K3Cloud materialSource must contain an explicit formId and field mapping.')
+    const fields = source.fields as Record<string, unknown>
+    if (Object.keys(fields).length !== names.length || names.some(name => typeof fields[name] !== 'string' || !/^[A-Za-z0-9_.]{1,128}$/.test(String(fields[name]))) || new Set(Object.values(fields)).size !== names.length) throw new Error('K3Cloud materialSource requires eight distinct mapped fields: id, number, name, specification, unit, groupNumber, groupId, organization.')
+  }
   if (provider === 'k3cloud' && config.dailyReportSources !== undefined) {
     const sources = config.dailyReportSources
     const kinds = new Set(['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable', 'sales-invoice', 'purchase-invoice'])
@@ -116,27 +124,37 @@ function validateConfig(provider: ConnectorProvider, config: ConnectorConfig): v
 }
 
 export function saveConnectorConfig(scope: WorkspaceScope, provider: ConnectorProvider, incoming: ConnectorConfig, updatedBy: string): { revision: number; updatedAt: string } {
-  const previous = getConnectorRow(scope, provider)
-  const conflicting = db.prepare(`SELECT id,tenant_id AS tenantId,organization_id AS organizationId FROM connector_configs WHERE account_id=? AND provider=?`).get(scope.accountId, provider) as { id: string; tenantId: string; organizationId: string } | undefined
-  if (conflicting && (conflicting.tenantId !== scope.tenantId || conflicting.organizationId !== scope.organizationId)) throw new Error('connector_scope_mismatch')
-  const existing = previous ? decryptConfig<ConnectorConfig>(previous.encryptedConfig) : envConfig(scope, provider)
-  const next: ConnectorConfig = { ...existing, ...incoming }
-  for (const key of secretFields[provider]) if (incoming[key] === '' || incoming[key] === undefined) next[key] = existing[key] ?? ''
-  const clear = Array.isArray(incoming.clearSecrets) ? incoming.clearSecrets.filter((key): key is string => typeof key === 'string') : []
-  for (const key of clear) if (secretFields[provider].includes(key)) next[key] = ''
-  delete next.clearSecrets
-  validateConfig(provider, next)
-  const now = new Date().toISOString(), revision = (previous?.revision ?? 0) + 1
-  db.prepare(`INSERT INTO connector_configs(id,tenant_id,organization_id,account_id,provider,encrypted_config,revision,updated_by,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(account_id,provider) DO UPDATE SET tenant_id=excluded.tenant_id,organization_id=excluded.organization_id,encrypted_config=excluded.encrypted_config,revision=excluded.revision,updated_by=excluded.updated_by,updated_at=excluded.updated_at`)
-    .run(previous?.id ?? nanoid(), scope.tenantId, scope.organizationId, scope.accountId, provider, encryptConfig(next), revision, updatedBy, now)
-  return { revision, updatedAt: now }
+  return db.transaction(() => {
+    const previous = getConnectorRow(scope, provider)
+    const conflicting = db.prepare(`SELECT id,tenant_id AS tenantId,organization_id AS organizationId FROM connector_configs WHERE account_id=? AND provider=?`).get(scope.accountId, provider) as { id: string; tenantId: string; organizationId: string } | undefined
+    if (conflicting && (conflicting.tenantId !== scope.tenantId || conflicting.organizationId !== scope.organizationId)) throw new Error('connector_scope_mismatch')
+    const existing = previous ? decryptConfig<ConnectorConfig>(previous.encryptedConfig) : envConfig(scope, provider)
+    const next: ConnectorConfig = { ...existing, ...incoming }
+    for (const key of secretFields[provider]) if (incoming[key] === '' || incoming[key] === undefined) next[key] = existing[key] ?? ''
+    const clear = Array.isArray(incoming.clearSecrets) ? incoming.clearSecrets.filter((key): key is string => typeof key === 'string') : []
+    for (const key of clear) if (secretFields[provider].includes(key)) next[key] = ''
+    delete next.clearSecrets
+    validateConfig(provider, next)
+    if (provider === 'k3cloud') {
+      // Track identity at configuration changes, not just successful scans: A -> B -> A
+      // without an intermediate refresh must not revive drafts. Credentials are excluded.
+      const identity = (config: ConnectorConfig): string | null => { try { return materialSourceFingerprint(config) } catch { return null } }
+      const previousIdentity = identity(existing), nextIdentity = identity(next)
+      delete next.materialSourceEpoch
+      if (nextIdentity) next.materialSourceEpoch = nextIdentity === previousIdentity && typeof existing.materialSourceEpoch === 'string' && existing.materialSourceEpoch ? existing.materialSourceEpoch : nanoid()
+    }
+    const now = new Date().toISOString(), revision = (previous?.revision ?? 0) + 1
+    db.prepare(`INSERT INTO connector_configs(id,tenant_id,organization_id,account_id,provider,encrypted_config,revision,updated_by,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(account_id,provider) DO UPDATE SET tenant_id=excluded.tenant_id,organization_id=excluded.organization_id,encrypted_config=excluded.encrypted_config,revision=excluded.revision,updated_by=excluded.updated_by,updated_at=excluded.updated_at`)
+      .run(previous?.id ?? nanoid(), scope.tenantId, scope.organizationId, scope.accountId, provider, encryptConfig(next), revision, updatedBy, now)
+    return { revision, updatedAt: now }
+  }).immediate()
 }
 
 export function connectorSummary(scope: WorkspaceScope, provider: ConnectorProvider) {
   const row = getConnectorRow(scope, provider), config = getConnectorConfig(scope, provider), missingFields = requiredFields(provider, config), safe: Record<string, unknown> = {}
   const safeFields = provider === 'k3cloud'
-    ? ['baseUrl', 'accountId', 'username', 'organization', 'lcid', 'timeoutMs', 'formAllowlist', 'dailyReportSources', 'masterDataSources', 'k3DataSyncSchedule']
+    ? ['baseUrl', 'accountId', 'username', 'organization', 'lcid', 'timeoutMs', 'formAllowlist', 'dailyReportSources', 'masterDataSources', 'materialSource', 'k3DataSyncSchedule']
     : provider === 'flowable' ? ['baseUrl', 'username', 'timeoutMs', 'userMap', 'groupMap'] : ['webhookUrl', 'appKey', 'templateId', 'corpId', 'publicAppUrl', 'userMapping']
   for (const key of safeFields) if (config[key] !== undefined && config[key] !== '') safe[key] = config[key]
   const presentSecrets = secretFields[provider].filter(key => typeof config[key] === 'string' && String(config[key]).length > 0)

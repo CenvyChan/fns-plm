@@ -40,7 +40,7 @@ const activeK3DataCron = new Map<string, ReturnType<typeof cron.schedule>>()
 const allowedProcessKeys = new Set(['materialApproval', 'bomReleaseApproval', 'documentReleaseApproval', 'performanceReviewApproval'])
 const providerFields: Record<ConnectorProvider, Set<string>> = {
   flowable: new Set(['baseUrl', 'username', 'password', 'timeoutMs', 'userMap', 'groupMap', 'clearSecrets']),
-  k3cloud: new Set(['baseUrl', 'accountId', 'username', 'organization', 'appId', 'appSecret', 'password', 'lcid', 'timeoutMs', 'formAllowlist', 'dailyReportSources', 'masterDataSources', 'k3DataSyncSchedule', 'clearSecrets']),
+  k3cloud: new Set(['baseUrl', 'accountId', 'username', 'organization', 'appId', 'appSecret', 'password', 'lcid', 'timeoutMs', 'formAllowlist', 'dailyReportSources', 'masterDataSources', 'materialSource', 'k3DataSyncSchedule', 'clearSecrets']),
   dingtalk: new Set(['webhookUrl', 'webhookSecret', 'cardCallbackSecret', 'appKey', 'appSecret', 'templateId', 'corpId', 'publicAppUrl', 'userMapping', 'clearSecrets']),
 }
 

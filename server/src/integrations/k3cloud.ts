@@ -144,12 +144,12 @@ function queryCacheKey(config: NormalizedConfig, input: K3CloudQueryInput, field
   return `k3cloud:v2:${digest}`
 }
 
-export async function queryK3Cloud(input: K3CloudQueryInput, connection?: Partial<K3CloudConfig>, scopeKey = ''): Promise<K3CloudQueryResult> {
+export async function queryK3Cloud(input: K3CloudQueryInput, connection?: Partial<K3CloudConfig>, scopeKey = '', options: { fresh?: boolean } = {}): Promise<K3CloudQueryResult> {
   const config = getConfig(connection)
   if (!config) throw new Error('K3Cloud is not fully configured')
   const key = configKey(config, scopeKey), { fields, filter, startRow } = validateQuery(input), cacheKey = queryCacheKey(config, input, fields, filter, startRow, scopeKey)
   try {
-    const cached = await cacheGet(cacheKey)
+    const cached = options.fresh ? null : await cacheGet(cacheKey)
     if (cached) { const parsed = JSON.parse(cached) as { rawRows: unknown[][] }; if (Array.isArray(parsed.rawRows)) return mapRows(fields, parsed.rawRows, true) }
   } catch { /* Cache is optional: keep the read-only ERP query available. */ }
   try {
