@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "./api";
 import DetailDrawer from "./DetailDrawer";
+import DailyBusinessAnalysis from "./DailyBusinessAnalysis";
 import "./daily-reporting.css";
 
 type Kind = "sales" | "purchase";
@@ -497,9 +498,6 @@ export default function DailyReportingWorkbench({ page, onNavigate }: Props) {
   useEffect(() => {
     void loadData();
   }, [loadData]);
-  useEffect(() => {
-    setPageNo(1);
-  }, [reportDate, page.includes("purchase")]);
   useEffect(() => {
     void loadPartyOptions(form.type);
   }, [form.type, loadPartyOptions]);
@@ -1085,23 +1083,7 @@ export default function DailyReportingWorkbench({ page, onNavigate }: Props) {
     page === "daily-sales-edit" ||
     page === "daily-purchase-edit";
   const kind: Kind = page.includes("purchase") ? "purchase" : "sales";
-  const formPage = kind === "sales" ? "daily-sales-new" : "daily-purchase-new";
-  const [query, setQuery] = useState("");
-  const [pageNo, setPageNo] = useState(1);
   const formMissingEdit = page.endsWith("-edit") && !editingId;
-  const filteredReports = reports.filter(
-    (r) =>
-      r.type === kind &&
-      (!query ||
-        `${r.partyName} ${r.documentNo} ${r.note}`
-          .toLowerCase()
-          .includes(query.toLowerCase())),
-  );
-  const pageSize = 10;
-  const pageReports = filteredReports.slice(
-    (pageNo - 1) * pageSize,
-    pageNo * pageSize,
-  );
   const pageTitle =
     (
       {
@@ -1217,152 +1199,22 @@ export default function DailyReportingWorkbench({ page, onNavigate }: Props) {
         <>
           {(page === "daily-sales" || page === "daily-purchase") &&
             ((kind === "sales" ? canViewSales : canViewPurchase) ? (
-              <section className="iw-card">
-                <div className="iw-card-head">
-                  <div>
-                    <h2>{reportType(kind)}日报列表</h2>
-                    <p>
-                      当前筛选共 {filteredReports.length} 条；数量{" "}
-                      {filteredReports
-                        .reduce((n, r) => n + Number(r.quantity || 0), 0)
-                        .toLocaleString("zh-CN")}
-                      ；CNY{" "}
-                      {money(
-                        filteredReports.reduce((n, r) => n + r.amountCny, 0),
-                      )}
-                      ；原币{" "}
-                      {Object.entries(
-                        filteredReports.reduce<Record<string, number>>(
-                          (a, r) => ({
-                            ...a,
-                            [r.currency]:
-                              (a[r.currency] || 0) + r.originalAmount,
-                          }),
-                          {},
-                        ),
-                      )
-                        .map(([c, v]) => `${currencyMoney(v, c)}`)
-                        .join(" · ") || "—"}
-                      ；日期 {reportDate}。
-                    </p>
-                  </div>
-                  <div className="dr-list-actions">
-                    {canWrite &&
-                      (kind === "sales" ? canViewSales : canViewPurchase) && (
-                        <button
-                          className="iw-button iw-approve"
-                          onClick={() => {
-                            setEditingId(null);
-                            setForm(defaultForm(reportDate, kind));
-                            onNavigate(formPage);
-                          }}
-                        >
-                          新增{reportType(kind)}日报
-                        </button>
-                      )}
-                    {canManage &&
-                      (kind === "sales" ? canViewSales : canViewPurchase) && (
-                        <button
-                          className="iw-button iw-secondary"
-                          onClick={() =>
-                            onNavigate(
-                              kind === "sales"
-                                ? "daily-sales-import"
-                                : "daily-purchase-import",
-                            )
-                          }
-                        >
-                          导入往期{reportType(kind)}日报
-                        </button>
-                      )}
-                  </div>
-                </div>
-                <div className="dr-list-filters">
-                  <label>
-                    关键词
-                    <input
-                      value={query}
-                      onChange={(e) => {
-                        setQuery(e.target.value);
-                        setPageNo(1);
-                      }}
-                      placeholder="客商、单号或备注"
-                    />
-                  </label>
-                </div>
-                <div className="iw-table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>日期</th>
-                        <th>单据编号</th>
-                        <th>客户 / 供应商</th>
-                        <th>数量</th>
-                        <th>币种金额</th>
-                        <th>CNY金额</th>
-                        <th>备注</th>
-                        <th>操作</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pageReports.map((r) => (
-                        <tr key={r.id}>
-                          <td>{r.date}</td>
-                          <td>{r.documentNo || "—"}</td>
-                          <td>{r.partyName}</td>
-                          <td>{r.quantity}</td>
-                          <td>
-                            {r.currency}{" "}
-                            {currencyMoney(r.originalAmount, r.currency)}
-                          </td>
-                          <td>{money(r.amountCny)}</td>
-                          <td>{r.note || "—"}</td>
-                          <td>
-                            <button
-                              className="iw-button iw-secondary iw-small"
-                              onClick={() => setDetailReport(r)}
-                            >
-                              查看详情
-                            </button>{" "}
-                            {r.canEdit && canWrite && (
-                              <button
-                                className="iw-button iw-secondary iw-small"
-                                onClick={() => goEdit(r)}
-                              >
-                                编辑
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {!pageReports.length && (
-                    <div className="iw-empty">当前筛选没有日报记录。</div>
-                  )}
-                </div>
-                <div className="dr-pagination">
-                  <span>
-                    第 {pageNo} /{" "}
-                    {Math.max(1, Math.ceil(filteredReports.length / pageSize))}{" "}
-                    页
-                  </span>
-                  <button
-                    className="iw-button iw-secondary iw-small"
-                    disabled={pageNo <= 1}
-                    onClick={() => setPageNo(pageNo - 1)}
-                  >
-                    上一页
-                  </button>
-                  <button
-                    className="iw-button iw-secondary iw-small"
-                    disabled={pageNo * pageSize >= filteredReports.length}
-                    onClick={() => setPageNo(pageNo + 1)}
-                  >
-                    下一页
-                  </button>
-                </div>
-              </section>
+              <DailyBusinessAnalysis
+                key={kind}
+                kind={kind}
+                date={reportDate}
+                canWrite={canWrite}
+                canManage={canManage}
+                revision={reports}
+                onNew={() => {
+                  setEditingId(null);
+                  setForm(defaultForm(reportDate, kind));
+                  onNavigate(kind === "sales" ? "daily-sales-new" : "daily-purchase-new");
+                }}
+                onImport={() => onNavigate(kind === "sales" ? "daily-sales-import" : "daily-purchase-import")}
+                onDetail={setDetailReport}
+                onEdit={goEdit}
+              />
             ) : (
               <div className="iw-card" role="alert">
                 无权查看该业务日报列表。
