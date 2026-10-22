@@ -19,6 +19,7 @@ import {
 import { apiFetch } from "./api";
 import DetailDrawer from "./DetailDrawer";
 import DailyBusinessAnalysis from "./DailyBusinessAnalysis";
+import MonthlyDailyReport from "./MonthlyDailyReport";
 import { dailyReportTabTitle, useWorkspaceTabIdentity } from "./workspace-tab-identity.tsx";
 import "./daily-reporting.css";
 
@@ -311,6 +312,11 @@ async function getJson<T>(url: string): Promise<T> {
 type Props = { page: string; onNavigate: (page: string) => void; filterScopeKey?: string };
 
 export default function DailyReportingWorkbench({ page, onNavigate, filterScopeKey }: Props) {
+  if (page === "daily-reconciliation") return <MonthlyDailyReport key={filterScopeKey} filterScopeKey={filterScopeKey} />;
+  return <DailyReportingDetailWorkbench page={page} onNavigate={onNavigate} filterScopeKey={filterScopeKey} />;
+}
+
+function DailyReportingDetailWorkbench({ page, onNavigate, filterScopeKey }: Props) {
   const [reportDate, setReportDate] = useState(initialDay);
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -1083,7 +1089,7 @@ export default function DailyReportingWorkbench({ page, onNavigate, filterScopeK
         "daily-purchase": "采购日报明细",
         "daily-sales-analysis": "销售统计分析",
         "daily-purchase-analysis": "采购统计分析",
-        "daily-reconciliation": "关联分摊与三维对账",
+        "daily-reconciliation": "月度采销汇总",
         "daily-documents": "ERP订单、出入库、发票与往来",
         "daily-archives": "日报归档、导出与更正",
       } as Record<string, string>
@@ -1417,7 +1423,7 @@ export default function DailyReportingWorkbench({ page, onNavigate, filterScopeK
                   <li><b>数量与单据编号</b><span>数量为必填；单据编号可用于后续检索。</span></li>
                   <li><b>币种、原币金额与汇率</b><span>金额填写原币金额。新增 USD 日报按当月汇率配置处理；历史编辑与其他币种按现有规则校验，折算以服务端保存结果为准。</span></li>
                 </ul>
-                <div className="dr-link-explainer"><b>关联分摊与三维对账</b><p>请先保存日报，再前往“关联分摊与三维对账”处理与 K3 明细的关联及分摊。本页未保存前不会生成关联，也不支持在新增页选单。</p></div>
+                <div className="dr-link-explainer"><b>月度采销汇总</b><p>保存后可在“月度采销汇总”按月份查看每天的采购费用、销售数据及月度合计。月报按日报业务日期汇总，不使用关联分摊金额。</p></div>
                 <div className="dr-required-note"><span>*</span> 带星号的字段为必填项，保存时仍按系统校验与权限执行。</div>
               </aside>
               </div>

@@ -127,7 +127,7 @@ export const pages: PageDefinition[] = [
   },
   {
     id: "daily-reconciliation",
-    label: "数据核对与关联",
+    label: "月度采销汇总",
     group: "reporting",
     icon: "activity",
   },

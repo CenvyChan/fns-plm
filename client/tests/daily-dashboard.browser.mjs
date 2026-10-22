@@ -139,23 +139,7 @@ test('daily dashboard, record pagination and entry stay on scoped local fixtures
     await goto('daily-purchase-analysis');
     await page.getByRole('region',{name:'采购统计分析结果',exact:true}).waitFor();
     assert.equal(await page.getByRole('heading',{name:'供应商排名（前10）',exact:true}).count(),1);
-    await page.setViewportSize({width:1440,height:1100});
-    await goto('daily-reconciliation');
-    await page.locator('.dr-recon-grid').waitFor();
-    assert.match(await page.locator('.dr-recon-scope-note').innerText(),/尚不包含按自然月逐日核对明细/);
-    const difference = page.locator('.dr-recon-card').filter({hasText:'销售月/年差额'});
-    assert.match(await difference.innerText(),/月累计差额（截至所选日期）/);
-    assert.match(await difference.innerText(),/10,864.00/);
-    assert.match(await difference.innerText(),/9,000.00/);
-    assert.match(await difference.innerText(),/1,864.00/);
-    await screenshot({path:`${evidence}/reconciliation-desktop.png`,fullPage:true});
-    completeReconciliation = false;
-    await goto('daily-reconciliation');
-    await page.locator('.dr-recon-grid').waitFor();
-    assert.match(await difference.innerText(),/数据不完整/);
-    assert.match(await difference.innerText(),/待判定/);
-    assert.doesNotMatch(await difference.innerText(),/1,864.00/);
-    await screenshot({path:`${evidence}/reconciliation-incomplete.png`,fullPage:true});
+    // Monthly reconciliation now has its own full-calendar regression in monthly-daily-report.browser.mjs.
     access = {...access,canWrite:false,canManage:false};
     await goto('daily-sales');
     await page.getByRole('region',{name:'销售日报明细表',exact:true}).waitFor();

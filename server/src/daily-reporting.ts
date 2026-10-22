@@ -750,6 +750,119 @@ function parseImportCsv(text: string): unknown[][] {
 export function createDailyReportRouter(): Router {
   const router = Router()
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024, files: 1, fields: 0 } })
+  const monthlyResponse = (req: Request, res: import('express').Response, excel: boolean) => {
+    const month = req.query.month
+    if (typeof month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return res.status(400).json({ error: 'month 必须为有效 YYYY-MM。' })
+    const [year, monthNumber] = month.split('-').map(Number)
+    if (year! < 2000 || year! > 2999) return res.status(400).json({ error: 'month 必须在 2000-2999 年范围内。' })
+    const daysInMonth = new Date(Date.UTC(year!, monthNumber!, 0)).getUTCDate()
+    if (!Number.isFinite(daysInMonth) || new Date(Date.UTC(year!, monthNumber! - 1, 1)).toISOString().slice(0, 7) !== month) return res.status(400).json({ error: 'month 必须为有效 YYYY-MM。' })
+    const scope = scopeFromRequest(req), state = readDailyReportState(scope), access = reportingAccess(scope, req)
+    if (!access.sales && !access.purchase) return res.status(403).json({ error: 'daily_reporting_access_denied', message: '当前成员没有日报查看权限。' })
+    const round = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
+    const sumDecimal = (values: string[]): string => {
+      let coefficient = 0n, scale = 0
+      for (const text of values) {
+        const part = decimalParts(text)
+        if (!part) continue
+        if (part.scale > scale) { coefficient *= 10n ** BigInt(part.scale - scale); scale = part.scale }
+        coefficient += part.coefficient * 10n ** BigInt(scale - part.scale)
+      }
+      const divisor = 10n ** BigInt(scale), negative = coefficient < 0n, absolute = negative ? -coefficient : coefficient
+      const cents = (absolute * 100n + divisor / 2n) / divisor
+      return `${negative && cents !== 0n ? '-' : ''}${(cents / 100n).toString()}.${(cents % 100n).toString().padStart(2, '0')}`
+    }
+    const moneyNumber = (values: string[]) => Number(sumDecimal(values))
+    const permittedTypes: DailyKind[] = (['sales', 'purchase'] as const).filter(type => access[type])
+    const kindFor = (type: DailyKind) => type === 'sales' ? 'shipment' : 'purchase-receipt'
+    const k3AvailableByType: Partial<Record<DailyKind, boolean>> = {}
+    for (const type of permittedTypes) {
+      const kind = kindFor(type)
+      const metaHasKind = Boolean(state.k3Sync && Object.prototype.hasOwnProperty.call(state.k3Sync.rowCounts ?? {}, kind))
+      const hasHeader = state.k3HistoricalHeaders.some(header => header.type === type)
+      const hasTypeSnapshot = state.k3Rows.some(row => row.type === type && row.kind === kind && ['k3cloud', 'history-import', 'local-mock'].includes(row.source))
+      k3AvailableByType[type] = metaHasKind || hasHeader || hasTypeSnapshot
+    }
+    const days: Array<Record<string, unknown> & { date: string }> = Array.from({ length: daysInMonth }, (_, index) => {
+      const date = `${month}-${String(index + 1).padStart(2, '0')}`
+      const output: Record<string, unknown> & { date: string } = { date }
+      for (const type of permittedTypes) {
+        const reports = state.reports.filter(report => !report.deletedAt && report.type === type && report.date === date)
+        const system = { count: reports.length, quantity: Math.round(reports.reduce((sum, report) => sum + Number(report.quantity || 0), 0) * 1_000_000) / 1_000_000, amountCny: moneyNumber(reports.map(report => String(report.amountCnyExact ?? report.amountCny ?? 0))) }
+        const kind = kindFor(type)
+        const headers = state.k3HistoricalHeaders.filter(header => header.active && header.type === type && header.kind === kind && header.date === date && !/(反审核|未审核|未审批|删除|作废)/.test(header.status ?? ''))
+        const headerById = new Map(headers.map(header => [header.id, header]))
+        const knownHeaderIds = new Set(state.k3HistoricalHeaders.map(header => header.id))
+        const eligible = state.k3Rows.filter(row => row.active && row.type === type && row.kind === kind && row.date === date && !/(反审核|未审核|未审批|删除|作废)/.test(row.status ?? '') && (!row.legacyHeaderId || (headerById.has(row.legacyHeaderId) && knownHeaderIds.has(row.legacyHeaderId))))
+        let count = headers.length, quantity = headers.reduce((sum, header) => sum + Number(header.totalQuantityExact || 0), 0)
+        const amountParts = headers.map(header => header.totalAmountExact || '0')
+        const ordinary = eligible.filter(row => !row.legacyHeaderId || !headerById.has(row.legacyHeaderId))
+        const documents = new Map<string, K3SnapshotRow[]>()
+        for (const row of ordinary) {
+          const identity = `${row.kind}:${row.billNo || row.erpId || row.id}`
+          const group = documents.get(identity) ?? []; group.push(row); documents.set(identity, group)
+        }
+        count += documents.size
+        for (const lines of documents.values()) {
+          quantity += lines.reduce((sum, row) => sum + Number(row.quantityExact ?? row.quantity ?? 0), 0)
+          amountParts.push(...lines.map(row => String(row.amountCnyExact ?? row.amountCny ?? 0)))
+        }
+        const k3 = { count, quantity: Math.round(quantity * 1_000_000) / 1_000_000, amountCny: moneyNumber(amountParts) }
+        const available = k3AvailableByType[type] ?? false
+        output[type] = { system, k3, difference: available ? round(system.amountCny - k3.amountCny) : null }
+      }
+      return output
+    })
+    const totals: Partial<Record<DailyKind, { system: { count: number; quantity: number; amountCny: number }; k3: { count: number; quantity: number; amountCny: number }; difference: number | null }>> = {}
+    for (const type of permittedTypes) {
+      const sums = (key: 'system' | 'k3') => days.reduce((acc, day) => {
+        const value = (day[type] as { system: { count: number; quantity: number; amountCny: number }; k3: { count: number; quantity: number; amountCny: number } })[key]
+        acc.count += value.count; acc.quantity += value.quantity; acc.amountCnyParts.push(String(value.amountCny)); return acc
+      }, { count: 0, quantity: 0, amountCnyParts: [] as string[] })
+      const systemRaw = sums('system'), k3Raw = sums('k3')
+      const system = { count: systemRaw.count, quantity: Math.round(systemRaw.quantity * 1_000_000) / 1_000_000, amountCny: moneyNumber(systemRaw.amountCnyParts) }
+      const k3 = { count: k3Raw.count, quantity: Math.round(k3Raw.quantity * 1_000_000) / 1_000_000, amountCny: moneyNumber(k3Raw.amountCnyParts) }
+      totals[type] = { system, k3, difference: k3AvailableByType[type] ? round(system.amountCny - k3.amountCny) : null }
+    }
+    const k3Available = permittedTypes.some(type => k3AvailableByType[type])
+    const result = { month, days, totals, access, mockEnabled: state.mockEnabled, notice: k3Available ? (state.mockEnabled ? '当前为本地演示快照，不代表真实ERP数据。' : '') : '当前账套未导入或无ERP快照；K3显示0仅表示无快照，不代表实际费用为0。', amountBasis: '系统按已保存日报日期、数量及人民币金额汇总（优先精确金额）；K3按有效销售出库/采购入库快照汇总，已迁移单据优先使用单据头金额与数量，普通快照按行汇总并按ERP单据身份去重；不按关联分摊。数量按原记录单位汇总，不同单位可能不可直接比较。此报表仅读取已有数据，不触发 ERP。', k3Available, k3AvailableByType }
+    if (!excel) return res.json(result)
+    void (async () => {
+      type MonthlyBusiness = NonNullable<(typeof totals)[DailyKind]>
+      const workbook = new ExcelJS.Workbook()
+      const summarySheet = workbook.addWorksheet('采销逐日汇总')
+      summarySheet.addRow(['日期', ...permittedTypes.flatMap(type => {
+        const label = type === 'sales' ? '销售' : '采购'
+        return [`${label}笔数`, `${label}数量`, type === 'sales' ? '销售金额CNY' : '采购费用CNY']
+      })])
+      const summaryValues = (row: Partial<Record<DailyKind, MonthlyBusiness>>) => permittedTypes.flatMap(type => {
+        const metric = row[type]!.system
+        return [metric.count, metric.quantity, metric.amountCny]
+      })
+      for (const day of days) summarySheet.addRow([day.date, ...summaryValues(day as Partial<Record<DailyKind, MonthlyBusiness>>)])
+      summarySheet.addRow(['月度合计', ...summaryValues(totals)])
+      for (const type of permittedTypes) {
+        const sheet = workbook.addWorksheet(type === 'sales' ? '销售逐日核对' : '采购逐日核对')
+        const values = (row: MonthlyBusiness) => [row.system.count, row.system.quantity, row.system.amountCny,
+          k3AvailableByType[type] ? row.k3.count : null,
+          k3AvailableByType[type] ? row.k3.quantity : null,
+          k3AvailableByType[type] ? row.k3.amountCny : null, row.difference]
+        sheet.addRow(['日期', '系统笔数', '系统数量', '系统金额CNY', '金蝶单据数', '金蝶数量', '金蝶金额CNY', '金额差CNY'])
+        for (const day of days) sheet.addRow([day.date, ...values(day[type] as MonthlyBusiness)])
+        sheet.addRow(['月度合计', ...values(totals[type]!)])
+      }
+      for (const sheet of workbook.worksheets) {
+        sheet.addRow(['说明', result.amountBasis]); sheet.addRow(['提示', result.notice || '金蝶侧为已保存快照，不代表实时数据。未提供快照的核对列留空。'])
+        sheet.columns.forEach(column => { column.width = 20 })
+        sheet.getRow(1).font = { bold: true }
+        sheet.views = [{ state: 'frozen', ySplit: 1 }]
+      }
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); res.setHeader('Content-Disposition', `attachment; filename="monthly-daily-${month}.xlsx"`); res.send(Buffer.from(await workbook.xlsx.writeBuffer()))
+    })().catch(error => { if (!res.headersSent) res.status(500).json({ error: 'monthly_export_failed', message: error instanceof Error ? error.message : '导出失败。' }) })
+  }
+  router.get('/daily-reports/monthly', (req, res) => monthlyResponse(req, res, false))
+  router.get('/daily-reports/monthly/export.xlsx', (req, res) => monthlyResponse(req, res, true))
+
   router.get('/daily-reports/imports', requireRole('admin', 'plm_manager'), (req, res) => {
     const scope = scopeFromRequest(req)
     const batches = readDailyReportState(scope).importBatches ?? []
