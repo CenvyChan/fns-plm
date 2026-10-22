@@ -1,0 +1,769 @@
+{
+  "layoutSamples": [
+    {
+      "page": "daily-sales",
+      "viewportWidth": 1920,
+      "frameLeft": 244,
+      "frameRight": 1920,
+      "frameTop": 56,
+      "left": 244,
+      "right": 1920,
+      "top": 56,
+      "width": 1676,
+      "mainLeft": 244,
+      "mainRight": 1920,
+      "sideRight": 244,
+      "barBottom": 56,
+      "scrollWidth": 1920,
+      "innerWidth": 1920
+    },
+    {
+      "page": "daily-sales",
+      "viewportWidth": 1440,
+      "frameLeft": 244,
+      "frameRight": 1440,
+      "frameTop": 56,
+      "left": 244,
+      "right": 1440,
+      "top": 56,
+      "width": 1196,
+      "mainLeft": 244,
+      "mainRight": 1440,
+      "sideRight": 244,
+      "barBottom": 56,
+      "scrollWidth": 1440,
+      "innerWidth": 1440
+    },
+    {
+      "page": "daily-sales",
+      "viewportWidth": 900,
+      "frameLeft": 0,
+      "frameRight": 900,
+      "frameTop": 56,
+      "left": 0,
+      "right": 900,
+      "top": 56,
+      "width": 900,
+      "mainLeft": 0,
+      "mainRight": 900,
+      "sideRight": 0,
+      "barBottom": 56,
+      "scrollWidth": 900,
+      "innerWidth": 900
+    },
+    {
+      "page": "daily-sales",
+      "viewportWidth": 390,
+      "frameLeft": 0,
+      "frameRight": 390,
+      "frameTop": 52,
+      "left": 0,
+      "right": 390,
+      "top": 52,
+      "width": 390,
+      "mainLeft": 0,
+      "mainRight": 390,
+      "sideRight": 0,
+      "barBottom": 52,
+      "scrollWidth": 390,
+      "innerWidth": 390
+    },
+    {
+      "page": "daily-sales",
+      "viewportWidth": 360,
+      "frameLeft": 0,
+      "frameRight": 360,
+      "frameTop": 52,
+      "left": 0,
+      "right": 360,
+      "top": 52,
+      "width": 360,
+      "mainLeft": 0,
+      "mainRight": 360,
+      "sideRight": 0,
+      "barBottom": 52,
+      "scrollWidth": 360,
+      "innerWidth": 360
+    },
+    {
+      "page": "daily-purchase",
+      "viewportWidth": 1920,
+      "frameLeft": 244,
+      "frameRight": 1920,
+      "frameTop": 56,
+      "left": 244,
+      "right": 1920,
+      "top": 56,
+      "width": 1676,
+      "mainLeft": 244,
+      "mainRight": 1920,
+      "sideRight": 244,
+      "barBottom": 56,
+      "scrollWidth": 1920,
+      "innerWidth": 1920
+    },
+    {
+      "page": "daily-purchase",
+      "viewportWidth": 1440,
+      "frameLeft": 244,
+      "frameRight": 1440,
+      "frameTop": 56,
+      "left": 244,
+      "right": 1440,
+      "top": 56,
+      "width": 1196,
+      "mainLeft": 244,
+      "mainRight": 1440,
+      "sideRight": 244,
+      "barBottom": 56,
+      "scrollWidth": 1440,
+      "innerWidth": 1440
+    },
+    {
+      "page": "daily-purchase",
+      "viewportWidth": 900,
+      "frameLeft": 0,
+      "frameRight": 900,
+      "frameTop": 56,
+      "left": 0,
+      "right": 900,
+      "top": 56,
+      "width": 900,
+      "mainLeft": 0,
+      "mainRight": 900,
+      "sideRight": 0,
+      "barBottom": 56,
+      "scrollWidth": 900,
+      "innerWidth": 900
+    },
+    {
+      "page": "daily-purchase",
+      "viewportWidth": 390,
+      "frameLeft": 0,
+      "frameRight": 390,
+      "frameTop": 52,
+      "left": 0,
+      "right": 390,
+      "top": 52,
+      "width": 390,
+      "mainLeft": 0,
+      "mainRight": 390,
+      "sideRight": 0,
+      "barBottom": 52,
+      "scrollWidth": 390,
+      "innerWidth": 390
+    },
+    {
+      "page": "daily-purchase",
+      "viewportWidth": 360,
+      "frameLeft": 0,
+      "frameRight": 360,
+      "frameTop": 52,
+      "left": 0,
+      "right": 360,
+      "top": 52,
+      "width": 360,
+      "mainLeft": 0,
+      "mainRight": 360,
+      "sideRight": 0,
+      "barBottom": 52,
+      "scrollWidth": 360,
+      "innerWidth": 360
+    },
+    {
+      "page": "materials",
+      "viewportWidth": 1920,
+      "frameLeft": 244,
+      "frameRight": 1920,
+      "frameTop": 56,
+      "left": 244,
+      "right": 1920,
+      "top": 56,
+      "width": 1676,
+      "mainLeft": 244,
+      "mainRight": 1920,
+      "sideRight": 244,
+      "barBottom": 56,
+      "scrollWidth": 1920,
+      "innerWidth": 1920
+    },
+    {
+      "page": "materials",
+      "viewportWidth": 1440,
+      "frameLeft": 244,
+      "frameRight": 1440,
+      "frameTop": 56,
+      "left": 244,
+      "right": 1440,
+      "top": 56,
+      "width": 1196,
+      "mainLeft": 244,
+      "mainRight": 1440,
+      "sideRight": 244,
+      "barBottom": 56,
+      "scrollWidth": 1440,
+      "innerWidth": 1440
+    },
+    {
+      "page": "materials",
+      "viewportWidth": 900,
+      "frameLeft": 0,
+      "frameRight": 900,
+      "frameTop": 56,
+      "left": 0,
+      "right": 900,
+      "top": 56,
+      "width": 900,
+      "mainLeft": 0,
+      "mainRight": 900,
+      "sideRight": 0,
+      "barBottom": 56,
+      "scrollWidth": 900,
+      "innerWidth": 900
+    },
+    {
+      "page": "materials",
+      "viewportWidth": 390,
+      "frameLeft": 0,
+      "frameRight": 390,
+      "frameTop": 52,
+      "left": 0,
+      "right": 390,
+      "top": 52,
+      "width": 390,
+      "mainLeft": 0,
+      "mainRight": 390,
+      "sideRight": 0,
+      "barBottom": 52,
+      "scrollWidth": 390,
+      "innerWidth": 390
+    },
+    {
+      "page": "materials",
+      "viewportWidth": 360,
+      "frameLeft": 0,
+      "frameRight": 360,
+      "frameTop": 52,
+      "left": 0,
+      "right": 360,
+      "top": 52,
+      "width": 360,
+      "mainLeft": 0,
+      "mainRight": 360,
+      "sideRight": 0,
+      "barBottom": 52,
+      "scrollWidth": 360,
+      "innerWidth": 360
+    },
+    {
+      "page": "settings",
+      "viewportWidth": 1920,
+      "frameLeft": 244,
+      "frameRight": 1920,
+      "frameTop": 56,
+      "left": 244,
+      "right": 1920,
+      "top": 56,
+      "width": 1676,
+      "mainLeft": 244,
+      "mainRight": 1920,
+      "sideRight": 244,
+      "barBottom": 56,
+      "scrollWidth": 1920,
+      "innerWidth": 1920
+    },
+    {
+      "page": "settings",
+      "viewportWidth": 1440,
+      "frameLeft": 244,
+      "frameRight": 1440,
+      "frameTop": 56,
+      "left": 244,
+      "right": 1440,
+      "top": 56,
+      "width": 1196,
+      "mainLeft": 244,
+      "mainRight": 1440,
+      "sideRight": 244,
+      "barBottom": 56,
+      "scrollWidth": 1440,
+      "innerWidth": 1440
+    },
+    {
+      "page": "settings",
+      "viewportWidth": 900,
+      "frameLeft": 0,
+      "frameRight": 900,
+      "frameTop": 56,
+      "left": 0,
+      "right": 900,
+      "top": 56,
+      "width": 900,
+      "mainLeft": 0,
+      "mainRight": 900,
+      "sideRight": 0,
+      "barBottom": 56,
+      "scrollWidth": 900,
+      "innerWidth": 900
+    },
+    {
+      "page": "settings",
+      "viewportWidth": 390,
+      "frameLeft": 0,
+      "frameRight": 390,
+      "frameTop": 52,
+      "left": 0,
+      "right": 390,
+      "top": 52,
+      "width": 390,
+      "mainLeft": 0,
+      "mainRight": 390,
+      "sideRight": 0,
+      "barBottom": 52,
+      "scrollWidth": 390,
+      "innerWidth": 390
+    },
+    {
+      "page": "settings",
+      "viewportWidth": 360,
+      "frameLeft": 0,
+      "frameRight": 360,
+      "frameTop": 52,
+      "left": 0,
+      "right": 360,
+      "top": 52,
+      "width": 360,
+      "mainLeft": 0,
+      "mainRight": 360,
+      "sideRight": 0,
+      "barBottom": 52,
+      "scrollWidth": 360,
+      "innerWidth": 360
+    }
+  ],
+  "viewports": [
+    1920,
+    1440,
+    900,
+    390,
+    360
+  ],
+  "pages": [
+    "daily-sales",
+    "daily-purchase",
+    "materials",
+    "settings"
+  ],
+  "requests": [
+    {
+      "path": "/api/auth/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/api/workspace",
+      "method": "GET"
+    },
+    {
+      "path": "/api/workspace",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/summary",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/summary",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/snapshots",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reporting/party-options",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reporting/exchange-rates",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/k3-lines",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/summary",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/snapshots",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reporting/party-options",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reporting/exchange-rates",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/k3-lines",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/api/workspace",
+      "method": "GET"
+    },
+    {
+      "path": "/api/workspace",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/summary",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/summary",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/snapshots",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reporting/party-options",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reporting/exchange-rates",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/k3-lines",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/summary",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/snapshots",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reporting/party-options",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reporting/exchange-rates",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/k3-lines",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/api/workspace",
+      "method": "GET"
+    },
+    {
+      "path": "/api/workspace",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/summary",
+      "method": "GET"
+    },
+    {
+      "path": "/api/material-closure/source",
+      "method": "GET"
+    },
+    {
+      "path": "/api/material-closure/source",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/api/workspace",
+      "method": "GET"
+    },
+    {
+      "path": "/api/workspace",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/summary",
+      "method": "GET"
+    },
+    {
+      "path": "/api/integrations/settings",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/sync-status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/form-catalog",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/master-data",
+      "method": "GET"
+    },
+    {
+      "path": "/api/integrations/settings",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/sync-status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/form-catalog",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/master-data",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/api/workspace",
+      "method": "GET"
+    },
+    {
+      "path": "/api/workspace",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/summary",
+      "method": "GET"
+    },
+    {
+      "path": "/api/integrations/settings",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/sync-status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/form-catalog",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/master-data",
+      "method": "GET"
+    },
+    {
+      "path": "/api/integrations/settings",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/sync-status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/form-catalog",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/master-data",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET"
+    },
+    {
+      "path": "/api/workspace",
+      "method": "GET"
+    },
+    {
+      "path": "/api/workspace",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/summary",
+      "method": "GET"
+    },
+    {
+      "path": "/api/integrations/settings",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/sync-status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/form-catalog",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/master-data",
+      "method": "GET"
+    },
+    {
+      "path": "/api/integrations/settings",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/sync-status",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/form-catalog",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/master-data",
+      "method": "GET"
+    },
+    {
+      "path": "/api/integrations/settings/flowable/test",
+      "method": "POST"
+    },
+    {
+      "path": "/api/integrations/settings/flowable/test",
+      "method": "POST"
+    },
+    {
+      "path": "/api/integrations/settings",
+      "method": "GET"
+    },
+    {
+      "path": "/api/k3cloud/sync-status",
+      "method": "GET"
+    }
+  ],
+  "prohibitedWrites": [],
+  "errors": [],
+  "flowable": {
+    "missingFieldsDisable": true,
+    "savedSecretEnables": true,
+    "dirtyDraftDisables": true,
+    "refreshRestoresSavedState": true,
+    "successAndFailureMocked": true
+  },
+  "mode": "All API/network isolated fixtures; no real Flowable/ERP tested"
+}

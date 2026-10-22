@@ -1,0 +1,79 @@
+/* The shell owns navigation; pages get one small inner gutter, not three nested ones. */
+.app-shell {
+  --workspace-header-height: 56px;
+}
+.app-shell .app-main {
+  min-width: 0;
+}
+.app-shell .topbar {
+  height: var(--workspace-header-height);
+  padding: 0 16px;
+}
+.app-shell .content-area {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+  max-width: none;
+  min-height: calc(100dvh - var(--workspace-header-height));
+  margin: 0;
+  padding: 0;
+}
+.content-area > .workspace-frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+}
+.workspace-frame > .workspace-tabs-toolbar {
+  min-height: 34px;
+  padding: 4px 12px;
+}
+.workspace-frame > .workspace-tabs {
+  flex-shrink: 0;
+  border-radius: 0;
+}
+.workspace-frame > .workspace-tab-panel {
+  flex: 1;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 0;
+}
+.workspace-tab-panel > .connector-page,
+.workspace-tab-panel > .iw-page {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+.workspace-tab-panel > .iw-page {
+  padding: 0;
+}
+.content-area > .page-footer {
+  height: auto;
+  min-height: 32px;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 12px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 680px) {
+  .app-shell {
+    --workspace-header-height: 52px;
+  }
+  .app-shell .topbar {
+    padding: 0 12px;
+  }
+  .workspace-frame > .workspace-tab-panel {
+    padding: 8px;
+  }
+  .workspace-frame > .workspace-tabs {
+    top: var(--workspace-header-height);
+  }
+  .content-area > .page-footer {
+    flex-wrap: wrap;
+    padding: 8px;
+  }
+}

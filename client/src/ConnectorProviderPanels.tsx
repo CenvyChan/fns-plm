@@ -1,3 +1,4 @@
+import { flowableMissingFieldLabels, flowableRestContextHint } from './flowable-settings-diagnostics'
 import { JsonField, SecretField, TextField } from './ConnectorFields'
 
 type ProviderPanelProps = {
@@ -9,6 +10,7 @@ type ProviderPanelProps = {
 }
 
 type FlowablePanelProps = ProviderPanelProps & {
+  missingFields: string[]
   userMapText: string
   onUserMapChange: (value: string) => void
   groupMapText: string
@@ -25,14 +27,21 @@ export function FlowableSettingsPanel({
   onUserMapChange,
   groupMapText,
   onGroupMapChange,
+  missingFields,
 }: FlowablePanelProps) {
+  const restContextHint = flowableRestContextHint(draft.baseUrl ?? '')
   return (
     <section className="connector-fields" aria-label="Flowable 审批引擎配置">
       <div className="connector-help">
         <b>审批引擎连接</b>
-        <span>使用 Flowable REST API；每个账套首次发起真实流程时，服务端会按 tenantId 部署 PLM BPMN 定义。用户映射用于登录身份绑定；候选组映射按当前组织与账套隔离。</span>
+        <span>PLM 内部流程业务通过外部 Flowable 引擎 REST API 执行。REST Base URL 应指向 REST context（通常路径为 <code>/flowable-rest/service</code>），不是单独的 Process API 路径；具体 host 由部署方提供。每个账套首次发起真实流程时，服务端会按 tenantId 部署 PLM BPMN 定义。用户/候选组映射按业务身份隔离。</span>
       </div>
-      <TextField label="REST API Base URL" value={draft.baseUrl ?? ''} onChange={value => onValueChange('baseUrl', value)} placeholder="http://127.0.0.1:8090/flowable-rest/process-api" />
+      <TextField label="REST API Base URL" value={draft.baseUrl ?? ''} onChange={value => onValueChange('baseUrl', value)} placeholder="https://<Flowable-host>/flowable-rest/service" />
+      {restContextHint && <small role="status">{restContextHint}</small>}
+      {missingFields.length > 0 && <div className="connector-error" role="status" aria-label="Flowable 缺失必填字段">
+        <b>尚不能测试连接，缺少必填字段：</b> {flowableMissingFieldLabels(missingFields).join('、')}。请补齐并加密保存后再测试。
+      </div>}
+      {secrets.password && !clearSecrets.includes('password') && <small role="status">Basic Auth 密码已加密保存；出于安全原因不回显。输入新密码可替换。</small>}
       <TextField label="服务账号" value={draft.username ?? ''} onChange={value => onValueChange('username', value)} placeholder="flowable-admin" />
       <SecretField
         label="Basic Auth 密码"

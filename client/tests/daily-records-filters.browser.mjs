@@ -88,6 +88,9 @@ test('sales and purchase filters use real API dates, multi-select identities and
       await setRange('2024-03-01','2024-03-07');await run(click('前7天'),{from:'2024-02-23',to:'2024-02-29'});assert.equal(applied.summary.count,2)
       await setRange('2023-12-31','2023-12-31');await run(click('后7天'),{from:'2024-01-07',to:'2024-01-07'});assert.equal(applied.summary.count,1)
       await run(click('重置'),{from:'2024-03-01',to:'2024-03-01'})
+      const presets=await page.evaluate(()=>{const now=new Date(),day=value=>`${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`,week=new Date(now.getFullYear(),now.getMonth(),now.getDate());week.setDate(week.getDate()-((week.getDay()+6)%7));return [{name:'本周',from:day(week),to:day(now)},{name:'本月',from:day(new Date(now.getFullYear(),now.getMonth(),1)),to:day(now)},{name:'本年',from:day(new Date(now.getFullYear(),0,1)),to:day(now)}]})
+      for(const preset of presets){await run(click(preset.name),{from:preset.from,to:preset.to});assert.equal(await page.getByLabel('开始日期',{exact:true}).inputValue(),preset.from);assert.equal(await page.getByLabel('结束日期',{exact:true}).inputValue(),preset.to)}
+      await run(click('重置'),{from:'2024-03-01',to:'2024-03-01'})
       await choose('录入人',['张三','李四']);await choose('币种',['CNY','USD']);await run(click('应用筛选'));assert.deepEqual(applied.filters.createdBy.sort(),['alice','bob']);assert.deepEqual(applied.filters.currency.sort(),['CNY','USD']);assert.equal(applied.summary.count,3)
       await choose('币种',['CNY']);await run(click('应用筛选'));assert.equal(applied.summary.count,1);assert.equal(applied.reports[0].createdBy,'alice')
       await choose('录入人',['李四']);await choose('币种',['USD']);await run(click('应用筛选'));assert.equal(applied.summary.count,1);assert.equal(applied.reports[0].createdBy,'bob')
@@ -105,7 +108,7 @@ test('sales and purchase filters use real API dates, multi-select identities and
       await page.getByRole('button',{name:'录入人筛选',exact:true}).click();assert.equal(await page.getByRole('group',{name:'录入人多选',exact:true}).getByRole('checkbox').count(),5);await screenshot(`${kind}-multi-select`);await page.getByRole('button',{name:'录入人筛选',exact:true}).press('Escape')
       for(const width of [768,390,360]){await page.setViewportSize({width,height:1000});await page.evaluate(()=>Promise.all(document.getAnimations().map(a=>a.finished.catch(()=>{}))));assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`${kind} page fits ${width}`);if(width===390)await screenshot(`${kind}-mobile`)}
       assert.equal(await page.locator('.workspace-unsaved').count(),0)
-      results.push({kind,defaultRows:6,multiSelectRows:3,exportRows:expected.reports.length,exportAmount:expected.summary.amountCny,dateRollAcrossLeapMonth:true,dateRollAcrossYear:true,legacyRecorderSeparatedFromImporter:true,viewportWidths:[1550,768,390,360]})
+      results.push({kind,defaultRows:6,multiSelectRows:3,exportRows:expected.reports.length,exportAmount:expected.summary.amountCny,presetButtonsApplyActualDateRanges:true,dateRollAcrossLeapMonth:true,dateRollAcrossYear:true,legacyRecorderSeparatedFromImporter:true,viewportWidths:[1550,768,390,360]})
     }
     assert.deepEqual(writes,[]);assert.deepEqual(pageErrors,[]);assert.ok(apiRequests.every(r=>!/(sync|refresh-mock)/.test(r.path)))
     assert.ok(apiRequests.filter(r=>r.path.includes('/analysis')).every(r=>!new URLSearchParams(r.query).has('source')))

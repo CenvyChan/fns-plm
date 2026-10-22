@@ -7,6 +7,7 @@
       "multiSelectRows": 3,
       "exportRows": 2,
       "exportAmount": 110.4,
+      "presetButtonsApplyActualDateRanges": true,
       "dateRollAcrossLeapMonth": true,
       "dateRollAcrossYear": true,
       "legacyRecorderSeparatedFromImporter": true,
@@ -23,6 +24,7 @@
       "multiSelectRows": 3,
       "exportRows": 2,
       "exportAmount": 110.4,
+      "presetButtonsApplyActualDateRanges": true,
       "dateRollAcrossLeapMonth": true,
       "dateRollAcrossYear": true,
       "legacyRecorderSeparatedFromImporter": true,
@@ -75,6 +77,26 @@
     {
       "path": "/api/daily-reports/analysis",
       "query": "?type=sales&from=2024-01-07&to=2024-01-07",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-03-01&to=2024-03-01",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2026-10-19&to=2026-10-22",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2026-10-01&to=2026-10-22",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2026-01-01&to=2026-10-22",
       "method": "GET"
     },
     {
@@ -150,6 +172,26 @@
     {
       "path": "/api/daily-reports/analysis",
       "query": "?type=purchase&from=2024-01-07&to=2024-01-07",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-03-01&to=2024-03-01",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2026-10-19&to=2026-10-22",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2026-10-01&to=2026-10-22",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2026-01-01&to=2026-10-22",
       "method": "GET"
     },
     {

@@ -6,6 +6,7 @@ import './navigation.css'
 import './design-system.css'
 import './workspace-tabs.css'
 import './overview-metrics.css'
+import './workspace-layout.css'
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

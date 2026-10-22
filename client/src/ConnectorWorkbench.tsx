@@ -6,6 +6,7 @@ import { K3CloudDirectoryPanel, K3CloudQueryPanel, type K3MasterDataKind, type K
 import { K3CloudFormsPanel, type K3FormCatalogItem, type K3FormMetadata, type K3MappingTarget } from './K3CloudFormsPanel'
 import { FlowableSettingsPanel, DingTalkSettingsPanel } from './ConnectorProviderPanels'
 import { K3CloudConnectionPanel, K3CloudMappingPanel } from './K3CloudSettings'
+import { flowableTestDisabledReason } from './flowable-settings-diagnostics'
 
 type Provider = 'flowable' | 'k3cloud' | 'dingtalk'
 type Summary = { provider: Provider; configured: boolean; missingFields: string[]; config: Record<string, unknown>; secrets: Record<string, boolean>; revision: number; updatedAt: string | null; source: string }
@@ -27,6 +28,7 @@ const emptyProviders = { flowable: { provider: 'flowable', configured: false, mi
 export default function ConnectorWorkbench() {
   const [providers, setProviders] = useState<Record<Provider, Summary>>(emptyProviders)
   const [active, setActive] = useState<Provider>('flowable')
+  const [flowableDraftDirty, setFlowableDraftDirty] = useState(false)
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [allowlistText, setAllowlistText] = useState('{}')
   const [dailySourcesText, setDailySourcesText] = useState('{}')
@@ -125,6 +127,7 @@ export default function ConnectorWorkbench() {
     setGroupMapText(JSON.stringify(config.groupMap ?? {}, null, 2))
     setDingtalkMapText(JSON.stringify(config.userMapping ?? {}, null, 2))
     setClearSecrets([]); setTestResult(null); setNotice('')
+    setFlowableDraftDirty(false)
     setQueryFormId(''); setQueryFields([]); setQueryResult(null); setQueryError('')
   }, [active, current?.revision, loading])
 
@@ -132,8 +135,8 @@ export default function ConnectorWorkbench() {
     if (!availableForms.includes(queryFormId)) { setQueryFormId(availableForms[0] ?? ''); setQueryFields([]) }
   }, [availableForms.join('\0'), queryFormId])
 
-  const setValue = (key: string, value: string) => setDraft(previous => ({ ...previous, [key]: value }))
-  const toggleClear = (key: string) => setClearSecrets(previous => previous.includes(key) ? previous.filter(item => item !== key) : [...previous, key])
+  const setValue = (key: string, value: string) => { if (active === 'flowable') setFlowableDraftDirty(true); setDraft(previous => ({ ...previous, [key]: value })) }
+  const toggleClear = (key: string) => { if (active === 'flowable') setFlowableDraftDirty(true); setClearSecrets(previous => previous.includes(key) ? previous.filter(item => item !== key) : [...previous, key]) }
 
   const save = async () => {
     setSaving(true); setError(''); setNotice(''); setTestResult(null)
@@ -167,7 +170,7 @@ export default function ConnectorWorkbench() {
       }
       const result = await apiJson<{ settings: Summary }>(`/api/integrations/settings/${active}`, jsonRequest('PUT', config))
       setProviders(previous => ({ ...previous, [active]: result.settings })); setDraft(previous => Object.fromEntries(Object.entries(previous).filter(([key]) => !secretFields[active].includes(key))))
-      setClearSecrets([]); setNotice('连接器配置已加密保存；密钥不会再次显示。')
+      setClearSecrets([]); if (active === 'flowable') setFlowableDraftDirty(false); setNotice('连接器配置已加密保存；密钥不会再次显示。')
       if (active === 'k3cloud') {
         try { setK3SyncStatus(await apiJson<K3SyncStatus>('/api/k3cloud/sync-status')) }
         catch { setRefreshNotice('配置已保存，但计划状态未能刷新；请点击“刷新”重新核对。') }
@@ -283,7 +286,7 @@ export default function ConnectorWorkbench() {
       <div className="connector-status-strip">
         <span><i className="status-dot"/>当前账套</span>
         <b>配置修改仅作用于所选组织/账套</b>
-        <small>环境变量配置作为新账套默认值；加密账套配置优先。</small>
+        <small>环境配置仅在匹配默认账套范围时回退；加密账套配置优先。</small>
       </div>
 
       <div className="connector-layout">
@@ -341,14 +344,15 @@ export default function ConnectorWorkbench() {
               {active === 'flowable' && (
                 <FlowableSettingsPanel
                   draft={draft}
+                  missingFields={current?.missingFields ?? ['baseUrl', 'username', 'password']}
                   secrets={currentSecrets}
                   clearSecrets={clearSecrets}
                   onValueChange={setValue}
                   onToggleClear={toggleClear}
                   userMapText={userMapText}
-                  onUserMapChange={setUserMapText}
+                  onUserMapChange={value => { setUserMapText(value); setFlowableDraftDirty(true) }}
                   groupMapText={groupMapText}
-                  onGroupMapChange={setGroupMapText}
+                  onGroupMapChange={value => { setGroupMapText(value); setFlowableDraftDirty(true) }}
                 />
               )}
               {active === 'k3cloud' && k3Section === 'connection' && (
@@ -450,10 +454,11 @@ export default function ConnectorWorkbench() {
               {active !== 'k3cloud' && error && <div className="connector-error" role="alert">{error}</div>}
               {active !== 'k3cloud' && notice && <div className="connector-notice" role="status"><CheckCircle2 size={15}/>{notice}</div>}
               {active !== 'k3cloud' && testResult && <div className="connector-test-result"><Activity size={15}/>{testResult.message ?? (testResult.connected || testResult.ok ? '连接成功。' : '测试完成。')}</div>}
-              {active !== 'k3cloud' && !current?.configured && <div className="connector-help" role="status">当前连接器尚未配置完整；请先填写并加密保存有效配置，再执行测试。</div>}
+              {active === 'flowable' && (flowableTestDisabledReason(current?.missingFields ?? ['baseUrl', 'username', 'password'], flowableDraftDirty) || !current?.configured) && <div className="connector-help" role="status">{flowableTestDisabledReason(current?.missingFields ?? ['baseUrl', 'username', 'password'], flowableDraftDirty) ?? '测试连接禁用：当前配置尚未完整，请补齐并加密保存后测试。'}</div>}
+              {active === 'dingtalk' && !current?.configured && <div className="connector-help" role="status">当前连接器尚未配置完整；请先填写并加密保存有效配置，再执行测试。</div>}
               {active !== 'k3cloud' && (
                 <div className="connector-actions">
-                  <button className="secondary-button" onClick={() => void test()} disabled={testing || saving || !current?.configured}>
+                  <button className="secondary-button" onClick={() => void test()} disabled={testing || saving || !current?.configured || (active === 'flowable' && flowableDraftDirty)}>
                     {active === 'dingtalk' ? <Send size={15}/> : <Activity size={15}/>}
                     {testing ? '测试中…' : active === 'dingtalk' ? '发送测试消息' : '测试连接'}
                   </button>
