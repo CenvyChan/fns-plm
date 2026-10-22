@@ -1,0 +1,17 @@
+
+> momentum-api@1.0.0 build
+> tsc && node scripts/copy-flowable-bpmn.mjs
+
+Synchronized PLM BPMN model for the Node tenant deployment adapter.
+✔ analysis API filters, saved historical values, trends, options and XLSX stay consistent (1901.357606ms)
+✔ daily reports stay scoped and complete the mock reconciliation, immutable snapshot, correction and export flow (4614.712413ms)
+✔ historical daily import validates CSV/XLSX and commits atomically within the authenticated scope (1181.278302ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11948.747715
+COMMAND_EXIT=0

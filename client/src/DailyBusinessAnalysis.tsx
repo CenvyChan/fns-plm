@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, RefreshCw } from "lucide-react";
+import { Download, RefreshCw, Filter, Boxes, Banknote, CircleDollarSign, Sigma, FileText } from "lucide-react";
 import { apiFetch } from "./api";
 import { analysisFilterError, analysisPreset, analysisQuery, emptyAnalysisFilters, type AnalysisFilters, type AnalysisKind } from "./daily-analysis";
 import "./daily-business-analysis.css";
+import DailyAnalysisCharts from "./DailyAnalysisCharts";
 import { readAnalysisState, saveAnalysisState } from "./daily-analysis-state";
 
 export type AnalysisReport = {
@@ -41,6 +42,8 @@ export default function DailyBusinessAnalysis({ kind, view, date, filterStorageK
   const [applied, setApplied] = useState(() => readAnalysisState(filterStorageKey, date));
   const [result, setResult] = useState<Analysis | null>(null);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [jumpPage, setJumpPage] = useState("");
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
@@ -98,28 +101,46 @@ export default function DailyBusinessAnalysis({ kind, view, date, filterStorageK
     } catch (cause) { setError(cause instanceof Error ? cause.message : "导出失败。"); }
     finally { setExporting(false); }
   }
-  const pageCount = Math.max(1, Math.ceil((result?.reports.length ?? 0) / 10));
-  const pageReports = result?.reports.slice((page - 1) * 10, page * 10) ?? [];
+  const pageCount = Math.max(1, Math.ceil((result?.reports.length ?? 0) / pageSize));
+  const pageReports = result?.reports.slice((page - 1) * pageSize, page * pageSize) ?? [];
   const setField = (field: keyof AnalysisFilters, value: string) => setDraft(current => ({ ...current, [field]: value }));
-  const groupTable = (title: string, rows: Array<Aggregate & { period?: string; label?: string }>) => <section className="dba-group" aria-label={title}>
-    <h3>{title}</h3><div className="iw-table-wrap"><table><thead><tr><th>{title.includes("排名") ? "客商" : "期间"}</th><th>记录数</th><th>数量</th><th>人民币金额</th></tr></thead><tbody>
-      {rows.map(row => <tr key={row.period ?? row.label}><td>{row.period ?? row.label}</td><td>{row.count}</td><td>{decimal(row.quantity)}</td><td>¥{money(row.amountCny)}</td></tr>)}
-    </tbody></table>{!rows.length && <p className="iw-empty">当前筛选没有数据。</p>}</div>
-  </section>;
-  return <section className="iw-card dba" aria-label={title}>
+  const summaryCards = result && <div className="dba-summary" aria-label="当前口径汇总">{[
+        { label: "记录数", value: result.summary.count, note: "全部筛选记录，不限当前分页", Icon: FileText },
+        { label: "数量（混合单位）", value: decimal(result.summary.quantity), note: "可能包含不同单位，仅供参考", Icon: Boxes },
+        { label: "CNY 原币", value: `¥${money(result.summary.cnyAmount)}`, note: "仅人民币原币金额", Icon: CircleDollarSign },
+        { label: "USD 原币", value: `$${money(result.summary.usdAmount)}`, note: "仅美元原币金额", Icon: Banknote },
+        { label: "折合人民币", value: `¥${money(result.summary.amountCny)}`, note: "保存金额合计，不重算历史汇率", Icon: Sigma },
+      ].map(({ label, value, note, Icon }) => <div key={label} className={label === "折合人民币" ? "dba-kpi dba-kpi-key" : "dba-kpi"}><span className="dba-kpi-label">{label}<Icon size={16} aria-hidden="true" /></span><strong>{value}</strong><small>{note}</small></div>)}</div>;
+  const pagination = result && <div className="dr-pagination dba-pagination" aria-label="日报分页">
+    <span>第 {page} / {pageCount} 页 · 共 {result.summary.count} 条；汇总包含全部筛选记录</span>
+    <button type="button" className="iw-button iw-secondary iw-small" disabled={page <= 1} onClick={() => setPage(1)}>首页</button>
+    <button type="button" className="iw-button iw-secondary iw-small" disabled={page <= 1} onClick={() => setPage(value => value - 1)}>上一页</button>
+    <button type="button" className="iw-button iw-secondary iw-small" disabled={page >= pageCount} onClick={() => setPage(value => value + 1)}>下一页</button>
+    <button type="button" className="iw-button iw-secondary iw-small" disabled={page >= pageCount} onClick={() => setPage(pageCount)}>末页</button>
+    <label>每页<select aria-label="每页条数" value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }}>{[10, 20, 50].map(size => <option key={size} value={size}>{size}</option>)}</select>条</label>
+    <label>跳至<input aria-label="跳转页码" type="number" min={1} max={pageCount} step={1} value={jumpPage} onChange={event => setJumpPage(event.target.value)} /></label>
+    <button type="button" className="iw-button iw-secondary iw-small" disabled={!/^\d+$/.test(jumpPage) || Number(jumpPage) < 1 || Number(jumpPage) > pageCount} onClick={() => { setPage(Number(jumpPage)); setJumpPage(""); }}>跳转</button>
+  </div>;
+  return <section className={`iw-card dba ${view === "analysis" ? "dba-dashboard" : ""}`} aria-label={title}>
     <div className="iw-card-head"><div><h2>{title}</h2><p>明细、汇总、趋势和导出使用同一筛选口径；不触发 ERP 同步。</p></div>
       {view === "records" && <div className="dr-list-actions">{canWrite && <button className="iw-button iw-approve" onClick={onNew}>新增{noun}日报</button>}{canManage && <button className="iw-button iw-secondary" onClick={onImport}>导入往期{noun}日报</button>}</div>}
     </div>
+    {!loading && view === "records" && summaryCards}
     <div className="dba-filters" role="search" aria-label={`${noun}统一筛选`} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); apply(); } }}>
+      <div className="dba-date-row">
+        <div className="dba-presets" aria-label="时间范围快捷选择">{([['month', '本月'], ['week', '本周'], ['year', '本年']] as const).map(([value, label]) => <button key={value} className="iw-button iw-secondary iw-small" type="button" onClick={() => preset(value)}>{label}</button>)}</div>
+        <label>开始日期<input type="date" value={draft.from} onChange={event => setField("from", event.target.value)} /></label>
+        <label>结束日期<input type="date" value={draft.to} onChange={event => setField("to", event.target.value)} /></label>
+        <span className="dba-filter-help">快捷范围截至今天，覆盖上方旧日期。</span>
+      </div>
+      <div className="dba-dimension-row">
       <label>关键词<input value={draft.q} placeholder="客商、单号或备注" onChange={event => setField("q", event.target.value)} /></label>
-      <label>开始日期<input type="date" value={draft.from} onChange={event => setField("from", event.target.value)} /></label>
-      <label>结束日期<input type="date" value={draft.to} onChange={event => setField("to", event.target.value)} /></label>
       <label>{kind === "sales" ? "客户名称" : "供应商名称"}<input value={draft.partyName} placeholder="按名称包含匹配" onChange={event => setField("partyName", event.target.value)} /></label>
       <label>录入人<select value={draft.createdBy} onChange={event => setField("createdBy", event.target.value)}><option value="">全部录入人</option>{result?.options.people.map(person => <option key={person.id} value={person.id}>{person.label}</option>)}</select></label>
       <label>币种<select value={draft.currency} onChange={event => setField("currency", event.target.value)}><option value="">全部币种</option><option value="CNY">CNY</option><option value="USD">USD</option></select></label>
       <label>来源<select value={draft.source} onChange={event => setField("source", event.target.value)}><option value="">全部来源</option><option value="manual">手工日报</option><option value="history-import">历史导入</option></select></label>
-      <div className="dba-filter-actions"><button className="iw-button iw-approve" type="button" onClick={apply}>应用筛选</button><button className="iw-button iw-secondary" type="button" onClick={() => { const next = emptyAnalysisFilters(date); saveAnalysisState(filterStorageKey, date, next); setDraft(next); setApplied(next); setValidation(""); setRefresh(value => value + 1); }}>重置</button></div>
-      <div className="dba-presets" aria-label="时间范围快捷选择">{([['week', '本周'], ['month', '本月'], ['year', '本年']] as const).map(([value, label]) => <button key={value} className="iw-button iw-secondary iw-small" type="button" onClick={() => preset(value)}>{label}</button>)}<span>快捷范围截至今天，覆盖上方旧日期。</span></div>
+      <div className="dba-filter-actions"><button className="iw-button iw-approve" type="button" onClick={apply}><Filter size={14} />应用筛选</button><button className="iw-button iw-secondary" type="button" onClick={() => { const next = emptyAnalysisFilters(date); saveAnalysisState(filterStorageKey, date, next); setDraft(next); setApplied(next); setValidation(""); setRefresh(value => value + 1); }}>重置</button></div>
+      </div>
     </div>
     {validation && <p role="alert" className="iw-alert iw-error">{validation}</p>}
     {error && <div role="alert" className="iw-alert iw-error">{error}<button type="button" className="iw-button iw-secondary iw-small" onClick={() => setRefresh(value => value + 1)}>重试</button></div>}
@@ -128,10 +149,11 @@ export default function DailyBusinessAnalysis({ kind, view, date, filterStorageK
     {loading && <p role="status" className="iw-empty">正在加载当前筛选的日报与分析…</p>}
     {!loading && result && <>
       <p className="dba-basis" data-testid="analysis-applied-filters">已应用：{result.filters.q ? `关键词“${result.filters.q}” · ` : ""}{result.filters.from || "不限"} 至 {result.filters.to || "不限"} · {result.filters.partyName || "全部客商"} · {result.filters.currency || "全部币种"} · {result.filters.source === "manual" ? "手工日报" : result.filters.source === "history-import" ? "历史导入" : "全部来源"} · {result.filters.createdBy ? result.options.people.find(person => person.id === result.filters.createdBy)?.label || result.filters.createdBy : "全部录入人"}。修改筛选后请点击“应用筛选”，导出以此处已应用条件为准。</p>
-      <div className="dba-summary" aria-label="当前口径汇总">{[["记录数", result.summary.count], ["数量（混合单位）", decimal(result.summary.quantity)], ["CNY 原币", `¥${money(result.summary.cnyAmount)}`], ["USD 原币", `$${money(result.summary.usdAmount)}`], ["折合人民币", `¥${money(result.summary.amountCny)}`]].map(([label, value]) => <div key={String(label)}><span>{label}</span><strong>{value}</strong></div>)}</div>
+      {view === "analysis" && summaryCards}
+
       <p className="dba-basis">{result.notice} {result.amountBasis}</p>
-      {view === "records" ? <div role="region" aria-label={`${noun}日报明细表`}><div className="iw-table-wrap"><table><thead><tr><th>日期</th><th>单据编号</th><th>客户 / 供应商</th><th>数量</th><th>原币金额</th><th>人民币金额</th><th>录入人</th><th>操作</th></tr></thead><tbody>{pageReports.map(row => <tr key={row.id}><td>{row.date}</td><td>{row.documentNo || "—"}</td><td>{row.partyName}</td><td>{decimal(row.quantity)}</td><td>{row.currency} {money(row.originalAmount)}</td><td>¥{money(row.amountCny)}</td><td>{row.createdByName || "—"}</td><td><button type="button" className="iw-button iw-secondary iw-small" onClick={() => onDetail(row)}>查看详情</button>{row.canEdit && canWrite && <button type="button" className="iw-button iw-secondary iw-small" onClick={() => onEdit(row)}>编辑</button>}</td></tr>)}</tbody></table>{!pageReports.length && <div className="iw-empty">当前筛选没有日报记录。</div>}</div><div className="dr-pagination"><span>第 {page} / {pageCount} 页 · 共 {result.summary.count} 条；汇总包含全部筛选记录</span><button type="button" className="iw-button iw-secondary iw-small" disabled={page <= 1} onClick={() => setPage(value => value - 1)}>上一页</button><button type="button" className="iw-button iw-secondary iw-small" disabled={page >= pageCount} onClick={() => setPage(value => value + 1)}>下一页</button></div></div>
-        : <div role="region" aria-label={`${noun}统计分析结果`} className="dba-groups">{groupTable("按日趋势", result.dailyTrend)}{groupTable("按月趋势", result.monthlyTrend)}{groupTable("客商排名（前 10）", result.counterpartRank)}</div>}
+      {view === "records" ? <div role="region" aria-label={`${noun}日报明细表`} className="dba-records">{pagination}<div className="iw-table-wrap"><table><thead><tr><th>日期</th><th>单据编号</th><th>客户 / 供应商</th><th className="dba-number">数量</th><th>币种</th><th className="dba-number">原币金额</th><th className="dba-number">折合人民币</th><th>录入人</th><th>操作</th></tr></thead><tbody>{pageReports.map(row => <tr key={row.id}><td>{row.date}</td><td>{row.documentNo || "—"}</td><td>{row.partyName}</td><td className="dba-number">{decimal(row.quantity)}</td><td><span className={`dba-currency ${row.currency === "USD" ? "dba-currency-usd" : ""}`}>{row.currency}</span></td><td className="dba-number">{money(row.originalAmount)}</td><td className="dba-number dba-amount">¥{money(row.amountCny)}</td><td>{row.createdByName || "—"}</td><td><button type="button" className="iw-button iw-secondary iw-small" onClick={() => onDetail(row)}>查看详情</button>{row.canEdit && canWrite && <button type="button" className="iw-button iw-secondary iw-small" onClick={() => onEdit(row)}>编辑</button>}</td></tr>)}</tbody></table>{!pageReports.length && <div className="iw-empty">当前筛选没有日报记录。</div>}</div>{pagination}</div>
+        : <div role="region" aria-label={`${noun}统计分析结果`}><DailyAnalysisCharts kind={kind} dailyTrend={result.dailyTrend} monthlyTrend={result.monthlyTrend} counterpartRank={result.counterpartRank} /></div>}
     </>}
   </section>;
 }

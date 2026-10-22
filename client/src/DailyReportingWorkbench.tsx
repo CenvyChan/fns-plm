@@ -906,33 +906,19 @@ export default function DailyReportingWorkbench({ page, onNavigate, filterScopeK
           </>
         ) : dimension === 2 ? (
           <>
-            <span>
-              月累计差额{" "}
-              <strong>
-                {value.monthDifference.isComplete
-                  ? money(value.monthDifference.difference)
-                  : "待判定"}
-              </strong>
-            </span>
-            <span>
-              月系统 / K3{" "}
-              <strong>
-                {value.monthDifference.isComplete
-                  ? `${money(value.monthDifference.systemAmount)} / ${money(value.monthDifference.k3Amount)}`
-                  : "数据不完整"}
-              </strong>
-            </span>
-            <span>
-              年累计差额{" "}
-              <strong>
-                {value.yearDifference.isComplete
-                  ? money(value.yearDifference.difference)
-                  : "待判定"}
-              </strong>
-            </span>
-            <small>
-              差额 = 手工日报系统金额 − 同期间 K3Cloud 金额；缺数据不按零判定。
-            </small>
+            <div className="dr-difference-period">
+              <b>月累计差额（截至所选日期）</b>
+              <span>系统金额 <strong>{value.monthDifference.isComplete ? money(value.monthDifference.systemAmount) : "数据不完整"}</strong></span>
+              <span>K3 金额 <strong>{value.monthDifference.isComplete ? money(value.monthDifference.k3Amount) : "数据不完整"}</strong></span>
+              <span>差额 <strong>{value.monthDifference.isComplete ? money(value.monthDifference.difference) : "待判定"}</strong></span>
+            </div>
+            <div className="dr-difference-period">
+              <b>年累计差额（截至所选日期）</b>
+              <span>系统金额 <strong>{value.yearDifference.isComplete ? money(value.yearDifference.systemAmount) : "数据不完整"}</strong></span>
+              <span>K3 金额 <strong>{value.yearDifference.isComplete ? money(value.yearDifference.k3Amount) : "数据不完整"}</strong></span>
+              <span>差额 <strong>{value.yearDifference.isComplete ? money(value.yearDifference.difference) : "待判定"}</strong></span>
+            </div>
+            <small>差额 = 手工日报系统金额 − 同期间 K3Cloud 金额；缺数据不按零判定。</small>
           </>
         ) : (
           <>
@@ -1246,7 +1232,8 @@ export default function DailyReportingWorkbench({ page, onNavigate, filterScopeK
                 </button>
               </section>
             ) : (
-              <section className="iw-card">
+              <div className="dr-entry-layout">
+              <section className="iw-card dr-entry-card">
                 <div className="iw-card-head">
                   <button
                     className="iw-button iw-secondary iw-small"
@@ -1286,14 +1273,16 @@ export default function DailyReportingWorkbench({ page, onNavigate, filterScopeK
                         )}
                       </div>
                     )}
+                    <div className="dr-form-section-title dr-wide">填报信息 <span>* 为必填项</span></div>
                     <label>
                       类型
                       <input value={reportType(kind)} disabled />
                     </label>
                     <label>
-                      业务日期
+                      <span className="dr-field-caption">业务日期 <span className="dr-required-star" aria-hidden="true">*</span></span>
                       <input
                         type="date"
+                        aria-label="业务日期"
                         value={form.date}
                         onChange={(e) => changeForm("date", e.target.value)}
                         required
@@ -1301,9 +1290,10 @@ export default function DailyReportingWorkbench({ page, onNavigate, filterScopeK
                     </label>
                     {masterDataConfigured ? (
                       <label className="dr-wide">
-                        客户 / 供应商
+                        <span className="dr-field-caption">客户 / 供应商 <span className="dr-required-star" aria-hidden="true">*</span></span>
                         <select
-                          value={form.partyId}
+                          aria-label="客户 / 供应商"
+                        value={form.partyId}
                           onChange={(e) => selectParty(e.target.value)}
                           required
                         >
@@ -1320,9 +1310,10 @@ export default function DailyReportingWorkbench({ page, onNavigate, filterScopeK
                       </label>
                     ) : (
                       <label className="dr-wide">
-                        客户 / 供应商
+                        <span className="dr-field-caption">客户 / 供应商 <span className="dr-required-star" aria-hidden="true">*</span></span>
                         <input
-                          value={form.partyName}
+                          aria-label="客户 / 供应商"
+                        value={form.partyName}
                           onChange={(e) =>
                             changeForm("partyName", e.target.value)
                           }
@@ -1340,15 +1331,17 @@ export default function DailyReportingWorkbench({ page, onNavigate, filterScopeK
                       />
                     </label>
                     <label>
-                      数量
+                      <span className="dr-field-caption">数量 <span className="dr-required-star" aria-hidden="true">*</span></span>
                       <input
                         type="number"
                         step="0.001"
+                        aria-label="数量"
                         value={form.quantity}
                         onChange={(e) => changeForm("quantity", e.target.value)}
                         required
                       />
                     </label>
+                    <div className="dr-form-section-title dr-wide">金额与汇率 <span>按原币填写金额；汇率遵循现有录入规则</span></div>
                     <label>
                       币种
                       <select
@@ -1361,10 +1354,11 @@ export default function DailyReportingWorkbench({ page, onNavigate, filterScopeK
                       </select>
                     </label>
                     <label>
-                      原币金额
+                      <span className="dr-field-caption">原币金额 <span className="dr-required-star" aria-hidden="true">*</span></span>
                       <input
                         type="number"
                         step="0.01"
+                        aria-label="原币金额"
                         value={form.originalAmount}
                         onChange={(e) =>
                           changeForm("originalAmount", e.target.value)
@@ -1373,10 +1367,11 @@ export default function DailyReportingWorkbench({ page, onNavigate, filterScopeK
                       />
                     </label>
                     <label>
-                      汇率
+                      <span className="dr-field-caption">汇率 <span className="dr-required-star" aria-hidden="true">*</span></span>
                       <input
                         type="number"
                         step="0.000001"
+                        aria-label="汇率"
                         value={form.exchangeRate}
                         onChange={(e) =>
                           changeForm("exchangeRate", e.target.value)
@@ -1414,6 +1409,18 @@ export default function DailyReportingWorkbench({ page, onNavigate, filterScopeK
                   <p>当前用户没有日报写入权限。</p>
                 )}
               </section>
+              <aside className="iw-card dr-entry-aside" aria-label="填报检查与关联说明">
+                <div className="dr-aside-heading"><span className="dr-aside-icon">✓</span><div><h3>填报检查</h3><p>保存前请核对以下信息</p></div></div>
+                <ul className="dr-check-list">
+                  <li><b>业务日期</b><span>选择这笔业务实际发生日期。</span></li>
+                  <li><b>客户 / 供应商</b><span>选择当前账套中已分配的客商；未配置主数据时按现有方式录入名称。</span></li>
+                  <li><b>数量与单据编号</b><span>数量为必填；单据编号可用于后续检索。</span></li>
+                  <li><b>币种、原币金额与汇率</b><span>金额填写原币金额。新增 USD 日报按当月汇率配置处理；历史编辑与其他币种按现有规则校验，折算以服务端保存结果为准。</span></li>
+                </ul>
+                <div className="dr-link-explainer"><b>关联分摊与三维对账</b><p>请先保存日报，再前往“关联分摊与三维对账”处理与 K3 明细的关联及分摊。本页未保存前不会生成关联，也不支持在新增页选单。</p></div>
+                <div className="dr-required-note"><span>*</span> 带星号的字段为必填项，保存时仍按系统校验与权限执行。</div>
+              </aside>
+              </div>
             ))}
           {page === "daily-reconciliation" && (
             <>
@@ -1457,6 +1464,7 @@ export default function DailyReportingWorkbench({ page, onNavigate, filterScopeK
                     ? `当前日报：${selectedReport.date} · ${selectedReport.partyName}`
                     : "业务权限汇总"}
                 </h3>
+                <p className="dr-recon-scope-note">当前提供截至所选日期的累计对账；尚不包含按自然月逐日核对明细。</p>
                 <div className="dr-recon-grid">
                   {canViewSales &&
                     reconciliationCard(
