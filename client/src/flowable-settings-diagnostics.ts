@@ -17,7 +17,7 @@ export function flowableTestDisabledReason(fields: string[], hasUnsavedChanges =
 export function flowableRestContextHint(value: string): string | null {
   let path = ''
   try { path = new URL(value).pathname.replace(/\/+$/, '') } catch { return null }
-  if (path.endsWith('/flowable-rest/process-api')) return '该示例路径不适合作为 REST Base URL；请使用部署提供的 REST context，通常为 /flowable-rest/service。'
+  if (path.endsWith('/flowable-rest/process-api')) return '这是本项目内置 Spring Boot Flowable 服务的路径；当前隔离标准 REST 容器使用 /flowable-rest/service。'
   if (path.endsWith('/flowable-rest/service')) return null
-  return '请确认 Base URL 指向 Flowable REST context（通常路径为 /flowable-rest/service），而非仅含进程 API 的子路径。'
+  return '请按目标部署方式填写 REST context：本项目内置 Spring Boot 服务使用 /flowable-rest/process-api，标准 Flowable REST 容器使用 /flowable-rest/service。'
 }

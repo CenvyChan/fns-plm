@@ -34,7 +34,7 @@ export function FlowableSettingsPanel({
     <section className="connector-fields" aria-label="Flowable 审批引擎配置">
       <div className="connector-help">
         <b>审批引擎连接</b>
-        <span>PLM 内部流程业务通过外部 Flowable 引擎 REST API 执行。REST Base URL 应指向 REST context（通常路径为 <code>/flowable-rest/service</code>），不是单独的 Process API 路径；具体 host 由部署方提供。每个账套首次发起真实流程时，服务端会按 tenantId 部署 PLM BPMN 定义。用户/候选组映射按业务身份隔离。</span>
+        <span>PLM 内部流程业务通过独立的 Flowable 引擎 REST API 执行。当前隔离标准 REST 容器使用 <code>/flowable-rest/service</code>；本项目内置 Spring Boot Flowable 服务使用 <code>/flowable-rest/process-api</code>。请按目标实例的部署方式填写完整 Base URL，主机和端口由部署方提供。每个账套首次发起真实流程时，服务端会按 tenantId 部署 PLM BPMN 定义。用户/候选组映射按业务身份隔离。</span>
       </div>
       <TextField label="REST API Base URL" value={draft.baseUrl ?? ''} onChange={value => onValueChange('baseUrl', value)} placeholder="https://<Flowable-host>/flowable-rest/service" />
       {restContextHint && <small role="status">{restContextHint}</small>}

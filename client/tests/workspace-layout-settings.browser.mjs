@@ -100,12 +100,14 @@ test('workspace layout and Flowable settings remain local across desktop and nar
       await testButton.click(); await page.getByText('本地模拟连接成功',{exact:true}).waitFor();await shot('flowable-test-success');
       testMode='fail'; await testButton.click(); await page.locator('.connector-test-result',{hasText:'本地模拟连接失败'}).waitFor();
     }
-    await page.getByRole('textbox',{name:'REST API Base URL',exact:true}).fill('https://changed.example.test/flowable-rest/service');
+    await page.getByRole('textbox',{name:'REST API Base URL',exact:true}).fill('https://changed.example.test/flowable-rest/process-api');
     assert.equal(await testButton.isDisabled(),true,'unsaved URL must not test saved connection');
     await page.getByText(/测试连接禁用：当前草稿尚未保存/).waitFor();await shot('flowable-unsaved');
     assert.equal((await page.getByRole('textbox',{name:'REST API Base URL',exact:true}).getAttribute('placeholder')).includes('/flowable-rest/service'),true);
-    assert.equal((await page.locator('body').innerText()).includes('process-api'),false);
+    await page.getByText(/本项目内置 Spring Boot Flowable 服务的路径.*当前隔离标准 REST 容器使用 \/flowable-rest\/service/).waitFor();
+    assert.equal((await page.locator('body').innerText()).includes('process-api'),true);
     assert.equal((await page.locator('body').innerText()).includes('8090'),false);
+    await page.getByRole('textbox',{name:'REST API Base URL',exact:true}).fill('https://changed.example.test/flowable-rest/service');
     await page.getByRole('button',{name:'刷新',exact:true}).click();
     await page.waitForFunction(()=>{const button=[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='测试连接');return button&&!button.disabled});
     assert.equal(await page.getByRole('textbox',{name:'REST API Base URL',exact:true}).inputValue(),'http://flowable.example.test/flowable-rest/service');
