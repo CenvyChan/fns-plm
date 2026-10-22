@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { X, PanelsTopLeft } from 'lucide-react'
+import { createPortal } from 'react-dom'
 import { pageById } from './navigation'
 import { restoreTabs, safeTabUrl, tabId, type WorkspaceTab, TAB_WARNING_THRESHOLD, planTabClose } from './workspace-tabs'
 import './workspace-tabs.css'
@@ -53,7 +54,7 @@ function Panel({ id, active, children, onDirty, onTitle, storageKey }: { id: str
   }}>{children}</div><WorkspaceFeedback root={root} host={host} active={active}/></WorkspacePortalContext.Provider>
 }
 
-export default function WorkspaceTabs({ page, storageKey, allowed, onNavigate, children, externalDirty = {}, onTabsClosed }: { page: string; storageKey: string; allowed: (page: string) => boolean; onNavigate: (page: string, url?: string) => void; children: (page: string) => ReactNode; externalDirty?: Record<string, boolean>; onTabsClosed?: (ids: string[]) => void }) {
+export default function WorkspaceTabs({ page, storageKey, allowed, onNavigate, children, externalDirty = {}, onTabsClosed, managerTarget }: { page: string; storageKey: string; allowed: (page: string) => boolean; onNavigate: (page: string, url?: string) => void; children: (page: string) => ReactNode; externalDirty?: Record<string, boolean>; onTabsClosed?: (ids: string[]) => void; managerTarget?: HTMLElement | null }) {
   // Access loading is handled by the parent before mounting this security-scoped tree.
   const [tabs, setTabs] = useState<WorkspaceTab[]>(() => {
     let saved: string | null = null
@@ -153,7 +154,7 @@ export default function WorkspaceTabs({ page, storageKey, allowed, onNavigate, c
     observer.observe(row)
     return () => observer.disconnect()
   }, [activeId, tabs.length, titles[activeId]])
-  return <div className="workspace-frame"><div className="workspace-tabs-toolbar"><span>{tabs.length >= TAB_WARNING_THRESHOLD ? `已打开 ${tabs.length} 个页签，建议关闭暂不使用的页签。` : `已打开 ${tabs.length} 个页签`}</span><button type="button" className="outline-button workspace-manage-button" onClick={() => setManagerOpen(true)}><PanelsTopLeft size={15}/>管理页签（{tabs.length}）</button></div>{tabs.length >= TAB_WARNING_THRESHOLD && <div className="workspace-tabs-warning" role="status">页签较多：切换不会关闭后台页签；请使用“管理页签”多选整理。</div>}<div ref={rail} className="workspace-tabs" role="tablist" aria-label="已打开的工作页签">{tabs.map((tab, index) => <div className={`workspace-tab ${tab.id === activeId ? 'is-active' : ''}`} key={tab.id}><button id={`workspace-tab-${tab.id}`} type="button" role="tab" aria-selected={tab.id === activeId} title={label(tab)} aria-controls={`workspace-panel-${tab.id}`} tabIndex={tab.id === activeId ? 0 : -1} onClick={() => activate(tab)} onKeyDown={event => {
+  return <div className="workspace-frame">{managerTarget && createPortal(<button type="button" className="workspace-manage-button" aria-label={`管理页签，已打开 ${tabs.length} 个页签`} aria-haspopup="dialog" aria-expanded={managerOpen} aria-controls={managerOpen ? 'workspace-manager' : undefined} title={tabs.length >= TAB_WARNING_THRESHOLD ? `已打开 ${tabs.length} 个页签，建议关闭暂不使用的页签` : '管理已打开页签'} onClick={() => setManagerOpen(true)}><PanelsTopLeft size={15}/><span>页签</span><b>{tabs.length}</b></button>, managerTarget)}{tabs.length >= TAB_WARNING_THRESHOLD && <div className="workspace-tabs-warning" role="status">页签较多：切换不会关闭后台页签；请使用“管理页签”多选整理。</div>}<div ref={rail} className="workspace-tabs" role="tablist" aria-label="已打开的工作页签">{tabs.map((tab, index) => <div className={`workspace-tab ${tab.id === activeId ? 'is-active' : ''}`} key={tab.id}><button id={`workspace-tab-${tab.id}`} type="button" role="tab" aria-selected={tab.id === activeId} title={label(tab)} aria-controls={`workspace-panel-${tab.id}`} tabIndex={tab.id === activeId ? 0 : -1} onClick={() => activate(tab)} onKeyDown={event => {
     const offset = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
     const target = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs.at(-1) : offset ? tabs[(index + offset + tabs.length) % tabs.length] : undefined
     if (target) { event.preventDefault(); activate(target); document.getElementById(`workspace-tab-${target.id}`)?.focus() }

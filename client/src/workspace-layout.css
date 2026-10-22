@@ -28,10 +28,6 @@
   border: 0;
   border-radius: 0;
 }
-.workspace-frame > .workspace-tabs-toolbar {
-  min-height: 34px;
-  padding: 4px 12px;
-}
 .workspace-frame > .workspace-tabs {
   flex-shrink: 0;
   border-radius: 0;
@@ -75,5 +71,31 @@
   .content-area > .page-footer {
     flex-wrap: wrap;
     padding: 8px;
+  }
+}
+
+/* Keep the tab counter and bell reachable without squeezing the account selector. */
+.app-shell .topbar .breadcrumbs { min-width: 0; overflow: hidden; }
+.app-shell .topbar .breadcrumbs b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell .topbar-actions { flex: none; gap: 10px; }
+.app-shell .topbar .notification-button { display: grid; flex: none; }
+@media (max-width: 1100px) {
+  .app-shell .topbar .searchbox { display: none; }
+}
+@media (max-width: 680px) {
+  .app-shell .topbar-actions { gap: 5px; min-width: 0; }
+  .app-shell .topbar .breadcrumbs { flex: 1; }
+  .app-shell .topbar .account-scope-wrap { max-width: 76px; min-width: 0; }
+  .app-shell .topbar .account-scope-wrap select { max-width: 76px; min-width: 0; }
+  .app-shell .topbar .top-avatar { display: none; }
+  .workspace-manage-button { gap: 4px; padding: 5px 6px; }
+  .workspace-manage-button > span { display: none; }
+}
+@media (max-width: 680px) {
+  .app-shell .topbar .notification-popover {
+    position: fixed;
+    top: calc(var(--workspace-header-height) + 8px);
+    right: 12px;
+    width: min(340px, calc(100vw - 24px));
   }
 }

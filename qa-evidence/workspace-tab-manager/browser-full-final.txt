@@ -1,0 +1,28 @@
+8:50:08 PM [vite] (client) Re-optimizing dependencies because vite config has changed
+✔ browser: same-key stale success cannot replace latest immutable context or submit stale version (2032.060752ms)
+✔ browser: same-key stale HTTP error cannot replace latest immutable context or submit stale version (1115.060862ms)
+✔ browser: same-key stale transport error cannot replace latest immutable context or submit stale version (1114.726784ms)
+✔ browser: same-key stale JSON error cannot replace latest immutable context or submit stale version (1099.730381ms)
+✔ browser: user scope changes cannot replace latest immutable context or submit stale version (1154.515324ms)
+✔ browser: model changes cannot replace latest immutable context or submit stale version (1115.351308ms)
+✔ browser: late POST conflict cannot trigger obsolete refresh cannot replace latest immutable context or submit stale version (1116.015426ms)
+✔ browser: published_version_changed reloads immutable flow/form versions and requires reconfirmation (1144.17757ms)
+✔ browser: failed refresh clears stale context and blocks repeat submission until reread (907.250807ms)
+✔ browser: delayed old-model version response does not mutate the newly selected panel (1516.229747ms)
+8:50:21 PM [vite] (client) Re-optimizing dependencies because vite config has changed
+✔ daily dashboard, record pagination and entry stay on scoped local fixtures (11482.359128ms)
+✔ sales and purchase filters use real API dates, multi-select identities and matching Excel exports (18358.949019ms)
+✔ monthly report shows a full month of purchases and sales without allocation or live ERP calls (6900.6616ms)
+✔ overview metrics retain colors and stay aligned on desktop and mobile (4903.632461ms)
+✔ task creation, copy cleanup, shared placeholders and collaboration actions (13901.442221ms)
+✔ workspace layout and Flowable settings remain local across desktop and narrow viewports (16314.789927ms)
+✔ topbar tab label sits next to a usable bell, without a content banner or overflow (7953.263769ms)
+✔ relocated trigger uses existing close planning, draft confirmation and retained panels (2150.929438ms)
+ℹ tests 18
+ℹ suites 0
+ℹ pass 18
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 99677.499645
