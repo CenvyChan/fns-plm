@@ -1117,22 +1117,37 @@ export function createDailyReportRouter(): Router {
   const analysisPayload = (req: Request, type: DailyKind) => {
     const scope = scopeFromRequest(req), state = readDailyReportState(scope), access = reportingAccess(scope, req)
     if (!access[type]) return { denied: true as const }
-    const filterKeys = ['from', 'to', 'partyName', 'createdBy', 'currency', 'source', 'q']
-    if (filterKeys.some(key => req.query[key] !== undefined && typeof req.query[key] !== 'string')) return { invalid: true as const }
+    const recordingPerson = (row: DailyReport) => {
+      const legacyId = row.legacyUserId?.trim() || row.legacyUsername?.trim()
+      if (legacyId) return { id: `legacy:${encodeURIComponent(row.legacyCompanyCode || '')}:${encodeURIComponent(legacyId)}`, label: `${row.legacyUserName?.trim() || row.legacyUsername?.trim() || legacyId}（历史）` }
+      return { id: row.createdBy || '', label: row.createdByName?.trim() || row.createdBy || '' }
+    }
+    const scalarKeys = ['from', 'to', 'partyName', 'source', 'q']
+    if (scalarKeys.some(key => req.query[key] !== undefined && typeof req.query[key] !== 'string')) return { invalid: true as const }
+    const selectedValues = (key: 'createdBy' | 'currency', limit: number): string[] | null => {
+      const value = req.query[key]
+      if (value === undefined) return []
+      const values = Array.isArray(value) ? value : [value]
+      if (values.length > limit || values.some(item => typeof item !== 'string' || !item.trim())) return null
+      return [...new Set(values.map(item => String(item).trim()))]
+    }
+    const createdBy = selectedValues('createdBy', 50), currency = selectedValues('currency', 2)
+    if (!createdBy || !currency || currency.some(value => !['CNY', 'USD'].includes(value))) return { invalid: true as const }
     const raw = (key: string) => typeof req.query[key] === 'string' ? String(req.query[key]).trim() : ''
-    const from = raw('from'), to = raw('to'), partyName = raw('partyName'), createdBy = raw('createdBy')
-    const currency = raw('currency'), source = raw('source'), q = raw('q')
+    const from = raw('from'), to = raw('to'), partyName = raw('partyName')
+    const source = raw('source'), q = raw('q')
     if ((from && !validDay(from)) || (to && !validDay(to)) || (from && to && from > to)
-      || (currency && !['CNY', 'USD'].includes(currency)) || (source && !['manual', 'history-import'].includes(source))) return { invalid: true as const }
+      || (source && !['manual', 'history-import'].includes(source))) return { invalid: true as const }
     const filters = { type, from, to, partyName, createdBy, currency, source, q }
     const all = liveReports(state).filter(row => row.type === type)
     const rows = all.filter(row => (!from || row.date >= from) && (!to || row.date <= to)
-      && (!partyName || row.partyName.includes(partyName)) && (!createdBy || row.createdBy === createdBy)
-      && (!currency || row.currency === currency) && (!source || row.source === source)
+      && (!partyName || row.partyName.includes(partyName)) && (!createdBy.length || createdBy.includes(recordingPerson(row).id))
+      && (!currency.length || currency.includes(row.currency)) && (!source || row.source === source)
       && (!q || `${row.partyName} ${row.documentNo} ${row.note}`.toLowerCase().includes(q.toLowerCase())))
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
     const reports = rows.map(report => ({
       ...report,
+      recordedByName: recordingPerson(report).label,
       canEdit: req.authUser?.role === 'admin' || req.authUser?.role === 'plm_manager'
         || (req.authUser?.role === 'member' && !partyForReport(scope, req, report.type, report.partyId).error),
       allocatedAmount: reportAllocation(state, report.id),
@@ -1160,7 +1175,14 @@ export function createDailyReportRouter(): Router {
       .sort((a, b) => a.label.localeCompare(b.label)).map(({ label, ...values }) => ({ period: label, ...values }))
     const counterpartRank = grouped(row => row.partyName)
       .sort((a, b) => b.amountCny - a.amountCny || a.label.localeCompare(b.label)).slice(0, 10)
-    const people = [...new Map(all.map(row => [row.createdBy, { id: row.createdBy, label: row.createdByName || row.createdBy }])).values()]
+    const peopleById = new Map<string, { id: string; label: string }>()
+    for (const row of all) {
+      const person = recordingPerson(row)
+      if (!person.id.trim()) continue
+      const current = peopleById.get(person.id)
+      if (!current || current.label === current.id && person.label !== person.id) peopleById.set(person.id, person)
+    }
+    const people = [...peopleById.values()]
       .sort((a, b) => a.label.localeCompare(b.label))
     return {
       filters, reports, summary, dailyTrend: trend(row => row.date), monthlyTrend: trend(row => row.date.slice(0, 7)),
@@ -1192,11 +1214,14 @@ export function createDailyReportRouter(): Router {
       for (const [key, value] of Object.entries(result.summary)) summary.addRow([key, value, labels[key as keyof typeof labels]])
       summary.addRow(['数据来源', result.notice]); summary.addRow(['金额与数量口径', result.amountBasis])
       const filterLabels = { type: '业务线', from: '开始日期', to: '结束日期', partyName: '客商名称包含', createdBy: '录入人 ID', currency: '币种', source: '来源', q: '关键词' }
-      for (const [key, value] of Object.entries(result.filters)) summary.addRow([filterLabels[key as keyof typeof filterLabels], safeCell(value || '不限')])
+      for (const [key, value] of Object.entries(result.filters)) {
+        const display = Array.isArray(value) ? value.join(', ') : value
+        summary.addRow([filterLabels[key as keyof typeof filterLabels], safeCell(display || '不限')])
+      }
       detail.addRow(['日期', '客商', '单号', '数量', '币种', '原币', '汇率', '人民币', '录入人', '来源', 'ID'])
       for (const row of result.reports) detail.addRow([
         row.date, row.partyName, row.documentNo, row.quantity, row.currency, row.originalAmount,
-        row.exchangeRate, row.amountCny, row.createdByName || row.createdBy, row.source, row.id,
+        row.exchangeRate, row.amountCny, row.recordedByName, row.source, row.id,
       ].map(safeCell))
       summary.columns.forEach(column => { column.width = 32 }); detail.columns.forEach(column => { column.width = 22 })
       summary.getRow(1).font = { bold: true }; detail.getRow(1).font = { bold: true }

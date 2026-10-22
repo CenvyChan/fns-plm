@@ -8,70 +8,52 @@ import test from "node:test";
 
 const clientDir = resolve(import.meta.dirname, "..");
 
-test("daily-analysis helper transpiles dynamically and preserves filter/query/date contracts", async () => {
-  const result = await build({
-    entryPoints: [join(clientDir, "src/daily-analysis.ts")],
-    bundle: true,
-    platform: "node",
-    format: "esm",
-    write: false,
-    logLevel: "silent",
-  });
-  const source = result.outputFiles[0].text;
-  const helper = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
-  const filters = {
-    q: " 单号 & note ", from: "2024-02-29", to: "2024-03-01", partyName: " Acme & Sons/東京? #1 ",
-    createdBy: "user+ops@example.com", currency: "USD & CNY", source: "history/import",
-  };
-  const query = helper.analysisQuery("sales", filters);
-  const params = new URLSearchParams(query);
-  assert.equal(params.get("type"), "sales");
-  assert.equal(params.get("q"), "单号 & note");
-  assert.equal(params.get("partyName"), "Acme & Sons/東京? #1");
-  assert.equal(params.get("createdBy"), "user+ops@example.com");
-  assert.equal(params.get("currency"), "USD & CNY");
-  assert.equal(params.get("source"), "history/import");
-  assert.match(query, /%E6%9D%B1%E4%BA%AC/);
-
+test("daily-analysis encodes multi-select filters and shifts both endpoints by seven actual days", async () => {
+  const result = await build({ entryPoints: [join(clientDir, "src/daily-analysis.ts")], bundle: true, platform: "node", format: "esm", write: false, logLevel: "silent" });
+  const helper = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  const filters = { q: " 单号 & note ", from: "2024-02-29", to: "2024-03-01", partyName: " Acme & Sons/東京? #1 ", createdBy: ["user+ops@example.com", "u2", "u2"], currency: ["USD", "CNY"], source: "history-import" };
+  const query = helper.analysisQuery("sales", filters), params = new URLSearchParams(query);
+  assert.equal(params.get("type"), "sales"); assert.equal(params.get("q"), "单号 & note"); assert.equal(params.get("partyName"), "Acme & Sons/東京? #1");
+  assert.deepEqual(params.getAll("createdBy"), ["user+ops@example.com", "u2"]); assert.deepEqual(params.getAll("currency"), ["USD", "CNY"]); assert.equal(params.has("source"), false);
   const snapshot = helper.emptyAnalysisFilters("2024-02-29");
-  assert.deepEqual(snapshot, { q: "", from: "2024-02-29", to: "2024-02-29", partyName: "", createdBy: "", currency: "", source: "" });
-  assert.notEqual(snapshot, helper.emptyAnalysisFilters("2024-02-29"));
-  assert.equal(helper.analysisQuery("purchase", { ...snapshot, partyName: "  ", createdBy: "\t", currency: "", source: "" }), "type=purchase&from=2024-02-29&to=2024-02-29");
+  assert.deepEqual(snapshot, { q: "", from: "2024-02-29", to: "2024-02-29", partyName: "", createdBy: [], currency: [] });
+  assert.notEqual(snapshot.createdBy, helper.emptyAnalysisFilters("2024-02-29").createdBy);
+  assert.equal(helper.analysisQuery("purchase", snapshot), "type=purchase&from=2024-02-29&to=2024-02-29");
   assert.equal(helper.analysisFilterError({ ...snapshot, from: "2023-02-29" }), "请输入有效日期。");
   assert.equal(helper.analysisFilterError({ ...snapshot, to: "2024-02-30" }), "请输入有效日期。");
   assert.equal(helper.analysisFilterError({ ...snapshot, from: "2024-03-02", to: "2024-03-01" }), "开始日期不能晚于结束日期。");
   assert.equal(helper.analysisFilterError({ ...snapshot, from: "2024-02-29", to: "2024-03-01" }), "");
-
+  assert.deepEqual(helper.shiftAnalysisRange({ from: "2024-03-01", to: "2024-03-07" }, -7, "2024-03-01"), { from: "2024-02-23", to: "2024-02-29" });
+  assert.deepEqual(helper.shiftAnalysisRange({ from: "2024-12-28", to: "2025-01-03" }, 7, "2024-03-01"), { from: "2025-01-04", to: "2025-01-10" });
+  assert.deepEqual(helper.shiftAnalysisRange({ from: "", to: "2024-03-01" }, -7, "2024-03-01"), { from: "2024-02-23", to: "2024-02-23" });
+  assert.deepEqual(helper.shiftAnalysisRange({ from: "", to: "" }, 7, "2024-02-29"), { from: "2024-03-07", to: "2024-03-07" });
   const today = new Date(2025, 0, 1, 12);
   assert.deepEqual(helper.analysisPreset("week", today), { from: "2024-12-30", to: "2025-01-01" });
   assert.deepEqual(helper.analysisPreset("month", today), { from: "2025-01-01", to: "2025-01-01" });
   assert.deepEqual(helper.analysisPreset("year", today), { from: "2025-01-01", to: "2025-01-01" });
-  const olderDate = new Date(2023, 5, 19, 12);
-  assert.deepEqual(helper.analysisPreset("week", olderDate), { from: "2023-06-19", to: "2023-06-19" });
 });
-
-test("daily analysis filter persistence is scoped, date-bound, allowlisted, and fail-safe", async () => {
+test("multi-select state stays scoped and migrates legacy single values without reapplying removed source", async () => {
   const result = await build({ entryPoints: [join(clientDir, "src/daily-analysis-state.ts")], bundle: true, platform: "node", format: "esm", write: false, logLevel: "silent" });
   const state = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
-  const values = new Map();
-  const previousStorage = globalThis.sessionStorage;
+  const values = new Map(), previousStorage = globalThis.sessionStorage;
   globalThis.sessionStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
   try {
-    const filters = { q: "invoice 42", from: "2025-01-01", to: "2025-01-15", partyName: "Acme", createdBy: "u1", currency: "USD", source: "manual" };
-    state.saveAnalysisState("tenant:user:daily-filters:daily-sales-analysis", "2025-01-15", filters);
-    assert.deepEqual(state.readAnalysisState("tenant:user:daily-filters:daily-sales-analysis", "2025-01-15"), filters);
-    assert.notDeepEqual(state.readAnalysisState("tenant:user:daily-filters:daily-sales", "2025-01-15"), filters);
-    assert.equal(state.readAnalysisState("tenant:user:daily-filters:daily-sales-analysis", "2025-01-16").q, "");
-    const stored = JSON.parse(values.get("tenant:user:daily-filters:daily-sales-analysis"));
-    assert.deepEqual(Object.keys(stored.filters).sort(), ["createdBy", "currency", "from", "partyName", "q", "source", "to"]);
-    stored.filters.q = "x".repeat(501);
-    values.set("tampered", JSON.stringify(stored));
-    assert.equal(state.readAnalysisState("tampered", "2025-01-15").q, "");
-    values.set("invalid", "{");
-    assert.equal(state.readAnalysisState("invalid", "2025-01-15").q, "");
+    const filters = { q: "invoice 42", from: "2025-01-01", to: "2025-01-15", partyName: "Acme", createdBy: ["u1", "u2"], currency: ["USD", "CNY"] };
+    const key = "tenant:user:daily-filters:daily-sales";
+    state.saveAnalysisState(key, "2025-01-15", { ...filters, source: "manual" });
+    assert.deepEqual(state.readAnalysisState(key, "2025-01-15"), filters);
+    assert.notDeepEqual(state.readAnalysisState("other-scope", "2025-01-15"), filters);
+    assert.equal(state.readAnalysisState(key, "2025-01-16").q, "");
+    const stored = JSON.parse(values.get(key)); assert.equal("source" in stored.filters, false);
+    values.set("legacy", JSON.stringify({ date: "2025-01-15", filters: { ...filters, createdBy: "u1", currency: "USD", source: "history-import" } }));
+    assert.deepEqual(state.readAnalysisState("legacy", "2025-01-15"), { ...filters, createdBy: ["u1"], currency: ["USD"] });
+    for (const mutation of [{ q: "x".repeat(501) }, { createdBy: [{ invalid: true }] }, { currency: ["EUR"] }, { createdBy: Array(101).fill("u") }]) {
+      values.set("tampered", JSON.stringify({ ...stored, filters: { ...stored.filters, ...mutation } }));
+      assert.equal(state.readAnalysisState("tampered", "2025-01-15").q, "");
+    }
+    values.set("invalid", "{"); assert.equal(state.readAnalysisState("invalid", "2025-01-15").q, "");
   } finally { globalThis.sessionStorage = previousStorage; }
 });
-
 test("daily business analysis SSR renders records and analysis as explicit views without embedded tabs", async () => {
   const dir = mkdtempSync(join(tmpdir(), "plm-daily-analysis-render-"));
   try {
@@ -92,9 +74,11 @@ for (const [index, [kind,view]] of views.entries()) {
   if (view === 'analysis' && !html.includes(kind === 'sales' ? '客户名称' : '供应商名称')) throw new Error(kind + ' party filter absent');
   if (html.includes('新增' + noun + '日报') || html.includes('导入往期' + noun + '日报')) throw new Error(kind + ' permission-gated actions visible');
   if (html.includes('records-tab') || html.includes('analysis-tab') || /role="tab"/.test(html)) throw new Error(kind + '/' + view + ' contains embedded view tabs');
+  if (html.includes('刷新当前口径') || html.includes('全部来源') || html.includes('明细、汇总、趋势和导出使用同一筛选口径')) throw new Error(kind + ' obsolete header controls remain');
+  if (!html.includes('录入人筛选') || !html.includes('币种筛选')) throw new Error(kind + ' multi-select controls absent');
   const ids = [...html.matchAll(/\\bid="([^"]+)"/g)].map(match => match[1]);
   if (new Set(ids).size !== ids.length) throw new Error(kind + ' duplicate IDs: ' + ids.join(','));
-  if (view === 'analysis' && (!html.includes('本周') || !html.includes('本月') || !html.includes('本年') || !html.includes('覆盖上方旧日期'))) throw new Error(kind + ' presets absent');
+  if (view === 'analysis' && (!html.includes('本周') || !html.includes('本月') || !html.includes('本年') || !html.includes('前7天') || !html.includes('后7天'))) throw new Error(kind + ' presets absent');
 }
 if (htmls.length !== 4 || new Set(views.map(([kind,view]) => kind + ':' + view)).size !== 4) throw new Error('four independent route/view combinations were not rendered');
 for (const [kind,view] of views) for (const [canWrite,canManage] of [[false,false],[true,false],[false,true],[true,true]]) {

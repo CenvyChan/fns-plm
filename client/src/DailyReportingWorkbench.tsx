@@ -1080,6 +1080,7 @@ function DailyReportingDetailWorkbench({ page, onNavigate, filterScopeKey }: Pro
     page === "daily-purchase-new" ||
     page === "daily-sales-edit" ||
     page === "daily-purchase-edit";
+  const isBusinessView = ["daily-sales", "daily-purchase", "daily-sales-analysis", "daily-purchase-analysis"].includes(page);
   const kind: Kind = page.includes("purchase") ? "purchase" : "sales";
   const formMissingEdit = page.endsWith("-edit") && !editingId;
   const pageTitle =
@@ -1121,11 +1122,10 @@ function DailyReportingDetailWorkbench({ page, onNavigate, filterScopeKey }: Pro
   );
   return (
     <section className="dr-section" aria-label={pageTitle}>
-      <header className="dr-header">
+      {!isBusinessView && <header className="dr-header">
         <div>
           <div className="iw-eyebrow">日报管理 / DAILY REPORTING</div>
           <h2>{pageTitle}</h2>
-          <p>按日期记录销售与采购日报，关联 ERP 快照并进行可追溯对账。</p>
         </div>
         <div className="dr-header-actions">
           {!isForm && (
@@ -1170,8 +1170,8 @@ function DailyReportingDetailWorkbench({ page, onNavigate, filterScopeKey }: Pro
             </button>
           )}
         </div>
-      </header>
-      {sourceBanner}
+      </header>}
+      {!isBusinessView && sourceBanner}
       {error && (
         <div className="iw-alert iw-error" role="alert">
           {error}

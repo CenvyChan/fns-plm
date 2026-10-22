@@ -47,6 +47,7 @@ test('daily dashboard, record pagination and entry stay on scoped local fixtures
       else if (url.pathname === '/api/daily-reports/analysis') {
         if (failAnalysis) return route.fulfill({ status: 503, json: { message: '本地模拟加载失败' } });
         const filters = Object.fromEntries(['type','from','to','partyName','createdBy','currency','source','q'].map(key => [key, url.searchParams.get(key) || '']));
+        filters.createdBy = url.searchParams.getAll('createdBy'); filters.currency = url.searchParams.getAll('currency');
         const rows = filters.partyName === '无匹配' ? [] : fixtureReports;
         data = { reports: rows, filters, summary: { ...aggregate(rows), cnyAmount: rows.filter(r => r.currency === 'CNY').reduce((a,r) => a+r.originalAmount,0), usdAmount: rows.filter(r => r.currency === 'USD').reduce((a,r) => a+r.originalAmount,0) }, dailyTrend: rows.length ? [{period:'2026-10-01',count:2,quantity:3,amountCny:400},{period:'2026-10-09',count:4,quantity:8,amountCny:1200},{period:'2026-10-21',count:19,quantity:314,amountCny:aggregate(rows).amountCny-1600}] : [], monthlyTrend: rows.length ? [{period:'2026-10', ...aggregate(rows)}] : [], counterpartRank: [...rows].sort((a,b) => b.amountCny - a.amountCny || a.partyName.localeCompare(b.partyName)).slice(0,10).map(r => ({label:r.partyName,...aggregate([r])})), options: { people: [{id:user.id,label:user.displayName}] }, mockEnabled:true, notice:'本地界面回归夹具；非真实业务数据。', amountBasis:'人民币按保存金额合计；不重算历史汇率。' };
       }
@@ -85,7 +86,7 @@ test('daily dashboard, record pagination and entry stay on scoped local fixtures
     await page.getByRole('button',{name:'重置',exact:true}).click();
     await page.locator('.dac-card circle').first().waitFor();
     failAnalysis = true;
-    await page.getByRole('button',{name:'刷新当前口径',exact:true}).click();
+    await page.getByRole('button',{name:'应用筛选',exact:true}).click();
     await page.getByRole('alert').filter({hasText:'本地模拟加载失败'}).waitFor();
     assert.equal(await page.locator('.dac-card').count(),0);
     failAnalysis = false;

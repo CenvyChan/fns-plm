@@ -1,16 +1,32 @@
 .dba { min-width: 0; }
-.dba-filters { display: grid; gap: 14px; margin: 18px 0 0; padding: 18px; border: 1px solid var(--border, #e4e5ed); border-radius: 14px; background: var(--card, #fff); }
-.dba-date-row { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
-.dba-date-row label { flex: 0 1 180px; }
-.dba-dimension-row { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)) auto; gap: 12px; padding-top: 16px; border-top: 1px solid var(--border, #e4e5ed); }
-.dba-filters label { display: flex; flex-direction: column; min-width: 0; gap: 7px; font-size: 12px; color: var(--text-secondary, #666); }
-.dba-filters input, .dba-filters select { box-sizing: border-box; min-width: 0; width: 100%; min-height: 36px; padding: 8px 10px; border: 1px solid var(--border, #ddd); border-radius: 8px; background: var(--card, #fff); color: inherit; font: inherit; }
-.dba-filters input:focus-visible, .dba-filters select:focus-visible { outline: 2px solid #8270dd; outline-offset: 2px; }
-.dba-filter-actions, .dba-presets, .dba-toolbar, .dba-toolbar > div { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.dba-filter-actions { align-self: end; }
-.dba-presets { min-height: 36px; }
-.dba-filter-help { font-size: 11px; color: var(--text-secondary, #666); align-self: center; }
-.dba-toolbar { justify-content: flex-end; padding: 12px 0 0; }
+.dba-filters { display: grid; gap: 10px; margin: 12px 0 0; padding: 12px; border: 1px solid var(--border, #e4e5ed); border-radius: 10px; background: var(--card, #fff); }
+.dba-fields-row { display: grid; grid-template-columns: minmax(110px, .9fr) repeat(2, minmax(132px, 1fr)) minmax(110px, 1fr) minmax(120px, 1fr) minmax(108px, .8fr); gap: 10px; align-items: end; }
+.dba-filters label, .dba-filter-label { display: flex; flex-direction: column; min-width: 0; gap: 5px; font-size: 11px; color: var(--text-secondary, #666); }
+.dba-filters input, .dba-multi-trigger { box-sizing: border-box; min-width: 0; width: 100%; min-height: 32px; padding: 6px 8px; border: 1px solid var(--border, #ddd); border-radius: 6px; background: var(--card, #fff); color: var(--text-primary, inherit); font: inherit; font-size: 12px; }
+.dba-filters input:focus-visible, .dba-multi-trigger:focus-visible, .dba-multi-all:focus-visible { outline: 2px solid #8270dd; outline-offset: 2px; }
+.dba-filter-actions, .dba-presets, .dba-date-scroll, .dba-apply-actions { display: flex; align-items: center; gap: 6px; }
+.dba-filter-actions { flex-wrap: wrap; column-gap: 12px; }
+.dba-filter-actions .iw-button { min-height: 30px; padding: 5px 9px; white-space: nowrap; }
+.dba-date-scroll { padding-right: 12px; border-right: 1px solid var(--border, #e4e5ed); }
+.dba-apply-actions { margin-left: auto; }
+.dba-multi { position: relative; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.dba-multi-trigger { display: flex; align-items: center; justify-content: space-between; gap: 6px; text-align: left; cursor: pointer; }
+.dba-multi-trigger > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dba-multi-trigger > svg { flex: none; }
+.dba-multi-menu { position: absolute; top: calc(100% + 5px); right: 0; width: max(100%, 190px); max-width: calc(100vw - 48px); z-index: 20; background: var(--card, #fff); border: 1px solid var(--border, #ddd); border-radius: 8px; box-shadow: 0 8px 24px rgb(36 34 65 / 12%); padding: 5px; }
+.dba-multi-all { display: flex; align-items: center; gap: 6px; padding: 7px 8px; width: 100%; border: 0; border-radius: 5px; background: transparent; font: inherit; font-size: 12px; color: inherit; cursor: pointer; text-align: left; }
+.dba-multi-all > svg:last-child { margin-left: auto; }
+.dba-multi-all:hover, .dba-multi-options label:hover { background: rgb(128 106 224 / 8%); }
+.dba-multi-options { max-height: 220px; overflow: auto; }
+.dba-multi-options label { flex-direction: row; align-items: center; padding: 7px 8px; gap: 8px; cursor: pointer; font-size: 12px; color: inherit; }
+.dba-multi-options label > span { overflow-wrap: anywhere; }
+.dba-multi-options input { width: 14px; height: 14px; min-height: 0; flex: none; accent-color: #7661cd; }
+.dba-multi-empty { display: block; padding: 8px; font-size: 12px; color: var(--text-secondary, #666); }
+.dba .iw-card-head { align-items: center; gap: 10px; }
+.dba .dr-list-actions, .dba-analysis-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.dba-list .dba-summary .dba-kpi { gap: 6px; padding: 12px; }
+.dba-list .dba-summary { margin: 10px 0 12px; gap: 10px; }
+.dba .dba-basis.dba-applied { margin: 8px 0; padding: 0; border: 0; background: none; font-size: 11px; }
 .dba-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
 .dba-summary .dba-kpi { display: flex; flex-direction: column; gap: 12px; min-width: 0; border: 1px solid var(--border, #e4e5ed); border-radius: 14px; padding: 18px 16px; background: var(--card, #fff); box-shadow: 0 4px 14px rgb(36 34 65 / 3%); }
 .dba-kpi-label { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -21,9 +37,10 @@
 .dba-kpi-key strong { color: #7661cd; }
 .dba-basis[data-testid] { padding: 10px 14px; border-radius: 9px; border: 1px solid var(--border, #e4e5ed); background: var(--card, #fff); }
 .dba th, .dba td { white-space: nowrap; }
-@media (max-width: 1200px) { .dba-dimension-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } .dba-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1200px) { .dba-fields-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } .dba-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .dba-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dba-summary .dba-kpi-key { grid-column: 1 / -1; } }
-@media (max-width: 640px) { .dba-filters { padding: 12px; } .dba-date-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .dba-presets, .dba-filter-help { grid-column: 1 / -1; } .dba-dimension-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dba-filter-actions { grid-column: 1 / -1; } .dba-toolbar { align-items: flex-start; flex-direction: column; } .dba .iw-card-head { flex-wrap: wrap; gap: 12px; } .dba-summary .dba-kpi { padding: 14px 12px; } }
+@media (max-width: 640px) { .dba-filters { padding: 10px; } .dba-fields-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } .dba-filter-actions { gap: 8px; } .dba-apply-actions { margin-left: 0; } .dba-date-scroll { padding-right: 8px; } .dba .iw-card-head { flex-wrap: wrap; } .dba .dr-list-actions { gap: 6px; } .dba-summary .dba-kpi { padding: 12px; } }
+
 .dba-records { min-width: 0; border: 1px solid var(--border, #e4e5ed); border-radius: 12px; overflow: hidden; }
 .dba .dba-number { text-align: right; font-variant-numeric: tabular-nums; }
 .dba .dba-amount { font-weight: 600; }
