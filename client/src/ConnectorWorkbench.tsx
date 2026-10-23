@@ -35,6 +35,7 @@ export default function ConnectorWorkbench() {
   const [masterSourcesText, setMasterSourcesText] = useState('{}')
   const [k3SyncEnabled, setK3SyncEnabled] = useState(false)
   const [k3SyncIntervalHours, setK3SyncIntervalHours] = useState('1')
+  const [k3SyncMode, setK3SyncMode] = useState<'full' | 'customer-only'>('full')
   const [k3SyncStatus, setK3SyncStatus] = useState<K3SyncStatus | null>(null)
   const [syncingK3, setSyncingK3] = useState(false)
   const [masterDataKind, setMasterDataKind] = useState<K3MasterDataKind>('customer')
@@ -120,9 +121,10 @@ export default function ConnectorWorkbench() {
     setAllowlistText(JSON.stringify(config.formAllowlist ?? {}, null, 2))
     setDailySourcesText(JSON.stringify(config.dailyReportSources ?? {}, null, 2))
     setMasterSourcesText(JSON.stringify(config.masterDataSources ?? {}, null, 2))
-    const syncSchedule = config.k3DataSyncSchedule && typeof config.k3DataSyncSchedule === 'object' ? config.k3DataSyncSchedule as { enabled?: unknown; intervalHours?: unknown } : {}
+    const syncSchedule = config.k3DataSyncSchedule && typeof config.k3DataSyncSchedule === 'object' ? config.k3DataSyncSchedule as { enabled?: unknown; intervalHours?: unknown; mode?: unknown } : {}
     setK3SyncEnabled(syncSchedule.enabled === true)
     setK3SyncIntervalHours(String(syncSchedule.intervalHours ?? 1))
+    setK3SyncMode(syncSchedule.mode === 'customer-only' ? 'customer-only' : 'full')
     setUserMapText(JSON.stringify(config.userMap ?? {}, null, 2))
     setGroupMapText(JSON.stringify(config.groupMap ?? {}, null, 2))
     setDingtalkMapText(JSON.stringify(config.userMapping ?? {}, null, 2))
@@ -156,7 +158,7 @@ export default function ConnectorWorkbench() {
         try { masterSources = JSON.parse(masterSourcesText) } catch { throw new Error('K3Cloud 主数据映射必须是有效 JSON 对象。') }
         if (!masterSources || typeof masterSources !== 'object' || Array.isArray(masterSources)) throw new Error('K3Cloud 主数据映射必须是类型到 FormId/字段映射的 JSON 对象。')
         config.masterDataSources = masterSources
-        config.k3DataSyncSchedule = { enabled: k3SyncEnabled, intervalHours: Number(k3SyncIntervalHours) }
+        config.k3DataSyncSchedule = { enabled: k3SyncEnabled, intervalHours: Number(k3SyncIntervalHours), mode: k3SyncMode }
         if (draft.lcid) config.lcid = draft.lcid
         if (draft.timeoutMs) config.timeoutMs = Number(draft.timeoutMs)
       }
@@ -205,11 +207,11 @@ export default function ConnectorWorkbench() {
     finally { setQueryLoading(false) }
   }
 
-  const runK3DataSync = async () => {
+  const runK3DataSync = async (kind: 'full' | 'customer') => {
     setSyncingK3(true); setError(''); setNotice(''); setRefreshNotice('')
     try {
-      const result = await apiJson<{ business: { totalRows: number }; masterData: { totalRows: number } }>('/api/k3cloud/sync', jsonRequest('POST', {}))
-      setNotice(`K3Cloud 同步完成：业务单据 ${result.business.totalRows} 行，基础资料 ${result.masterData.totalRows} 行。`)
+      const result = await apiJson<{ business?: { totalRows: number }; masterData: { totalRows: number } }>('/api/k3cloud/sync', jsonRequest('POST', kind === 'customer' ? { kind: 'customer' } : {}))
+      setNotice(kind === 'customer' ? `K3Cloud 客户同步完成：客户 ${result.masterData.totalRows} 行。` : `K3Cloud 同步完成：业务单据 ${result.business?.totalRows ?? 0} 行，基础资料 ${result.masterData.totalRows} 行。`)
       const [status, snapshot] = await Promise.all([apiJson<K3SyncStatus>('/api/k3cloud/sync-status'), apiJson<K3MasterDataPayload>(`/api/k3cloud/master-data?kind=${masterDataKind}`)])
       setK3SyncStatus(status); setMasterData(snapshot)
     } catch (value) { setError(value instanceof Error ? value.message : 'K3Cloud 同步失败。') }
@@ -256,7 +258,7 @@ export default function ConnectorWorkbench() {
         const previousFields = previous.formId === input.formId && previous.fields && typeof previous.fields === 'object' && !Array.isArray(previous.fields) ? previous.fields as Record<string, unknown> : {}
         const validPreviousFields = Object.fromEntries(Object.entries(previousFields).filter(([, field]) => typeof field === 'string' && queryable.has(field)))
         const mappingFields = Object.fromEntries(Object.entries(input.mappingFields ?? {}).filter(([key, field]) => Boolean(key) && queryable.has(field)))
-        sourceValue[input.target] = { formId: input.formId, fields: { ...validPreviousFields, ...mappingFields } }
+        sourceValue[input.target] = { ...previous, formId: input.formId, fields: { ...validPreviousFields, ...mappingFields } }
         if (['customer', 'supplier', 'salesperson', 'user'].includes(input.target)) setMasterSourcesText(JSON.stringify(sourceValue, null, 2))
         else setDailySourcesText(JSON.stringify(sourceValue, null, 2))
       }
@@ -396,10 +398,13 @@ export default function ConnectorWorkbench() {
                   onSyncEnabledChange={setK3SyncEnabled}
                   syncIntervalHours={k3SyncIntervalHours}
                   onSyncIntervalChange={setK3SyncIntervalHours}
+                  syncMode={k3SyncMode}
+                  onSyncModeChange={setK3SyncMode}
                   syncStatus={k3SyncStatus}
                   configured={Boolean(current?.configured)}
                   syncing={syncingK3}
-                  onSync={() => void runK3DataSync()}
+                  onSync={() => void runK3DataSync('full')}
+                  onCustomerSync={() => void runK3DataSync('customer')}
                 />
               )}
               {active === 'k3cloud' && k3Section === 'directory' && (

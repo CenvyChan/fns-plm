@@ -88,7 +88,9 @@ test('production private HTTP login and queries work; scope-specific sessions/ca
     assert.equal(calls.filter(call => call.url.includes('LoginByAppSecret')).length, 4)
     assert.deepEqual(JSON.parse(calls[0].init.body), { acctID: config.accountId, username: config.username, appid: config.appId, appsecret: config.appSecret, lcid: config.lcid })
     for (const call of calls.filter(call => call.url.includes('ExecuteBillQuery'))) {
-      assert.equal(JSON.parse(JSON.parse(call.init.body)[0]).FilterString, '')
+      const payload = JSON.parse(call.init.body)
+      assert.deepEqual(Object.keys(payload), ['data'])
+      assert.equal(payload.data.FilterString, '')
     }
   } finally { globalThis.fetch = originalFetch }
 })
@@ -110,5 +112,32 @@ test('login, query and metadata fail closed when a redirect is blocked', async (
     assert.ok(paths[0].includes('LoginByAppSecret'))
     assert.ok(paths[1].includes('ExecuteBillQuery'))
     assert.ok(paths[2].includes('QueryBusinessInfo'))
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('metadata uses data wrapper, parses nested JSON and hides business error details', async () => {
+  const originalFetch = globalThis.fetch
+  const calls = []
+  let failure = false
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init })
+    if (url.includes('LoginByAppSecret')) return new Response('{}', { headers: { 'set-cookie': 'session=metadata-regression; Path=/' } })
+    if (failure) return Response.json({ actionname: 'ShowErrMsg', params: [{ errorTitle: 'SECRET TITLE', errorInfo: 'Additional text found in JSON string after finishing deserializing object' }] })
+    return Response.json({ Result: { ResponseStatus: { IsSuccess: true, Errors: [] }, NeedReturnData: { Id: 'BD_Customer', Entrys: [{ Key: 'FBillHead', EntryPkFieldName: 'FCUSTID', Fields: [{ Key: 'FName', Name: [{ Key: 2052, Value: '客户名称' }], FieldName: 'FNAME', PropertyName: 'Name', FieldType: 231, ElementType: 36 }] }] } } })
+  }
+  try {
+    const scope = 'metadata-wrapper-regression'
+    const data = await discoverK3CloudFormMetadata('BD_Customer', config, scope)
+    const request = calls.find(call => call.url.includes('QueryBusinessInfo'))
+    assert.deepEqual(JSON.parse(request.init.body), { data: { FormId: 'BD_Customer' } })
+    assert.equal(data.fields[0].caption, '客户名称')
+    assert.equal(data.fields[0].entity, 'FBillHead')
+    assert.deepEqual(data.primaryKeys, [{ entity: 'FBillHead', key: 'FCUSTID', source: 'EntryPkFieldName' }])
+    failure = true
+    await assert.rejects(discoverK3CloudFormMetadata('BD_Customer', config, `${scope}-error`), error => {
+      assert.equal(error.message, 'K3Cloud metadata query failed')
+      assert.equal(error.message.includes('SECRET TITLE'), false)
+      return true
+    })
   } finally { globalThis.fetch = originalFetch }
 })

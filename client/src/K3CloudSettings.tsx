@@ -8,6 +8,7 @@ type K3CloudSyncStatus = {
     ready: boolean
     readinessMessage: string
     schedulerState: string
+    nextRunAt?: string | null
   }
   lastRun?: {
     finishedAt?: string
@@ -42,7 +43,7 @@ const dailySourcesExample = `{
 }`
 
 const masterSourcesExample = `{
-  "customer": { "formId": "<客户 FormId>", "fields": { "id": "<稳定唯一键>", "number": "<客户编码>", "name": "<客户名称>", "status": "<状态>" } },
+  "customer": { "formId": "<客户 FormId>", "organizationField": "<经核验的组织编码字段，例如 FUseOrgId.FNumber>", "fields": { "id": "<元数据声明的稳定主键>", "number": "<客户编码>", "name": "<客户名称>", "status": "<状态>" } },
   "supplier": { "formId": "<供应商 FormId>", "fields": { "id": "<稳定唯一键>", "number": "<供应商编码>", "name": "<供应商名称>", "status": "<状态>" } },
   "salesperson": { "formId": "<业务员 FormId>", "fields": { "id": "<稳定唯一键>", "number": "<业务员编码>", "name": "<业务员名称>", "department": "<部门>" } },
   "user": { "formId": "<ERP 用户 FormId>", "fields": { "id": "<稳定唯一键>", "number": "<用户编码>", "name": "<用户名称>", "status": "<状态>" } }
@@ -68,7 +69,7 @@ export function K3CloudConnectionPanel({
       <TextField label="WebAPI Base URL" value={draft.baseUrl ?? ''} onChange={value => onValueChange('baseUrl', value)} placeholder="http://192.168.1.10/k3cloud" description="支持 HTTPS；内网 HTTP 请使用私有 IP（10.x、172.16–31.x、192.168.x 或 IPv6 ULA）。HTTP 不加密，仅用于可信内网。" />
       <TextField label="账套 ID" value={draft.accountId ?? ''} onChange={value => onValueChange('accountId', value)} />
       <TextField label="接口用户名" value={draft.username ?? ''} onChange={value => onValueChange('username', value)} />
-      <TextField label="组织标识" value={draft.organization ?? ''} onChange={value => onValueChange('organization', value)} description="填写与物料映射组织字段的值完全一致的金蝶组织编码或内部 ID，不是 PLM 组织 ID。用于连接/来源识别及物料刷新组织过滤；不传入登录接口，普通单据/主数据查询不会自动按此值过滤。" />
+      <TextField label="组织标识" value={draft.organization ?? ''} onChange={value => onValueChange('organization', value)} description="填写金蝶组织编码，不是 PLM 组织 ID。客户专用同步通过经核验并加入白名单的 organizationField 强制按此编码过滤；物料映射须与对应组织字段一致。不传入登录接口，其他普通查询不会自动按此值过滤。" />
       <SecretField
         label="第三方应用 AppId"
         value={draft.appId ?? ''}
@@ -113,10 +114,13 @@ type K3CloudMappingPanelProps = {
   onSyncEnabledChange: (value: boolean) => void
   syncIntervalHours: string
   onSyncIntervalChange: (value: string) => void
+  syncMode: 'full' | 'customer-only'
+  onSyncModeChange: (value: 'full' | 'customer-only') => void
   syncStatus: K3CloudSyncStatus | null
   configured: boolean
   syncing: boolean
   onSync: () => void
+  onCustomerSync: () => void
 }
 
 function getScheduleLabel(state?: string) {
@@ -132,10 +136,13 @@ export function K3CloudMappingPanel({
   onSyncEnabledChange,
   syncIntervalHours,
   onSyncIntervalChange,
+  syncMode,
+  onSyncModeChange,
   syncStatus,
   configured,
   syncing,
   onSync,
+  onCustomerSync,
 }: K3CloudMappingPanelProps) {
   const schedule = syncStatus?.schedule
   const lastRun = syncStatus?.lastRun
@@ -148,7 +155,7 @@ export function K3CloudMappingPanel({
       </div>
       <JsonField
         label="K3Cloud 主数据映射（JSON）"
-        description="每类单独配置企业核实的 FormId；仅映射编号、名称、状态、类别、部门、负责人和修改时间，且字段必须加入上方 allowlist。"
+        description="每类单独配置经核实的 FormId 和字段。客户专用同步还需配置组织编码字段 organizationField，并将其加入 allowlist；主键以元数据声明为准，不猜字段。仅采集编号、名称、状态等规范字段。"
         value={masterSourcesText}
         onChange={onMasterSourcesChange}
         rows={9}
@@ -157,7 +164,7 @@ export function K3CloudMappingPanel({
       <div className="k3-sync-settings">
         <label className="connector-field k3-sync-toggle">
           <span><input type="checkbox" checked={syncEnabled} onChange={event => onSyncEnabledChange(event.target.checked)} /> 启用 K3Cloud 周期同步</span>
-          <small>同步八类业务单据（含销项发票与采购收票）及四类基础资料；默认关闭，使用 Asia/Shanghai 时区。</small>
+          <small>启用周期任务后按下方模式运行；使用 Asia/Shanghai 时区。</small>
         </label>
         <label className="connector-field">
           <span>同步频率</span>
@@ -168,11 +175,19 @@ export function K3CloudMappingPanel({
             <option value="24">每天 02:05</option>
           </select>
         </label>
+        <label className="connector-field">
+          <span>周期同步范围</span>
+          <select aria-label="周期同步范围" value={syncMode} onChange={event => onSyncModeChange(event.target.value as 'full' | 'customer-only')}>
+            <option value="full">完整同步（业务单据及全部基础资料）</option>
+            <option value="customer-only">仅客户同步</option>
+          </select>
+        </label>
       </div>
       <div className="connector-help k3-schedule-status" role="status">
         <b>计划状态：{getScheduleLabel(schedule?.schedulerState)}</b>
         <span>
           {schedule?.ready ? '映射及连接就绪。' : schedule?.readinessMessage || '保存完整映射和连接配置后，可启用周期任务。'}{' '}
+          {schedule?.nextRunAt ? `下次执行：${new Date(schedule.nextRunAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（上海时间）。` : ''}{' '}
           {lastRun?.finishedAt
             ? `最近运行：${new Date(lastRun.finishedAt).toLocaleString()}（${lastRun.status === 'success' ? '成功' : '失败'}${lastRun.businessSyncMode ? ` · ${lastRun.businessSyncMode === 'incremental' ? '增量' : lastRun.businessSyncMode === 'mixed' ? '混合' : '全量'}` : ''}${lastRun.businessChangedRowCounts ? ` · 本次 ${Object.values(lastRun.businessChangedRowCounts).reduce((sum, count) => sum + count, 0)} 行` : ''}）`
             : '尚无同步记录。'}
@@ -180,9 +195,12 @@ export function K3CloudMappingPanel({
         </span>
       </div>
       <div className="k3-sync-action-row">
-        <span>手动同步会更新当前账套的业务单据与基础资料快照。</span>
+        <span>手动操作：完整同步更新业务单据与全部基础资料；客户同步仅更新当前账套的客户快照。</span>
         <button type="button" className="secondary-button" onClick={onSync} disabled={syncing || !configured}>
-          {syncing ? '同步中…' : '立即同步'}
+          {syncing ? '同步中…' : '立即完整同步'}
+        </button>
+        <button type="button" className="secondary-button" onClick={onCustomerSync} disabled={syncing || !configured}>
+          {syncing ? '同步中…' : '仅同步客户'}
         </button>
       </div>
     </section>

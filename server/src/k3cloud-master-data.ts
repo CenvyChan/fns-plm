@@ -18,7 +18,7 @@ export type K3MasterDataState = {
   rowCounts: Partial<Record<K3MasterDataKind, number>>
   records: Partial<Record<K3MasterDataKind, K3MasterDataRecord[]>>
 }
-export type K3MasterDataQueryPage = (formId: string, fieldKeys: string, startRow: number) => Promise<Array<Record<string, string | null>>>
+export type K3MasterDataQueryPage = (formId: string, fieldKeys: string, startRow: number, filterString?: string) => Promise<Array<Record<string, string | null>>>
 const PAGE_SIZE = 200
 const MAX_ROWS_PER_KIND = 5_000
 const emptyState = (): K3MasterDataState => ({ lastSyncedAt: null, configuredKinds: [], rowCounts: {}, records: {} })
@@ -50,8 +50,11 @@ export async function syncK3CloudMasterData(
   scope: WorkspaceScope,
   mappings: Partial<Record<K3MasterDataKind, K3MasterDataMapping>>,
   queryPage: K3MasterDataQueryPage,
+  requestedKinds?: readonly K3MasterDataKind[],
+  customerOrganizationFilter?: string,
 ): Promise<{ source: 'k3cloud'; refreshedAt: string; configuredKinds: K3MasterDataKind[]; rowCounts: Partial<Record<K3MasterDataKind, number>>; totalRows: number }> {
-  const configuredKinds = K3_MASTER_DATA_KINDS.filter(kind => Boolean(mappings[kind]))
+  const configuredKinds = K3_MASTER_DATA_KINDS.filter(kind => (!requestedKinds || requestedKinds.includes(kind)) && Boolean(mappings[kind]))
+  if (requestedKinds?.some(kind => !K3_MASTER_DATA_KINDS.includes(kind))) throw new TypeError('K3Cloud 主数据同步 kind 无效。')
   if (!configuredKinds.length) throw new TypeError('K3Cloud 尚未配置客户、供应商、业务员或 ERP 用户主数据映射。')
   const refreshedAt = new Date().toISOString()
   const nextRecords: Partial<Record<K3MasterDataKind, K3MasterDataRecord[]>> = {}
@@ -71,11 +74,11 @@ export async function syncK3CloudMasterData(
     const records: K3MasterDataRecord[] = []
     for (let startRow = 0; ; startRow += PAGE_SIZE) {
       if (startRow >= MAX_ROWS_PER_KIND) {
-        const overflow = await queryPage(mapping.formId, selectedFields.join(','), startRow)
+        const overflow = await queryPage(mapping.formId, selectedFields.join(','), startRow, kind === 'customer' ? customerOrganizationFilter : undefined)
         if (overflow.length) throw new RangeError(`K3Cloud ${kind} 主数据超过每类 ${MAX_ROWS_PER_KIND} 行的安全上限；未替换现有快照。`)
         break
       }
-      const page = await queryPage(mapping.formId, selectedFields.join(','), startRow)
+      const page = await queryPage(mapping.formId, selectedFields.join(','), startRow, kind === 'customer' ? customerOrganizationFilter : undefined)
       if (!Array.isArray(page)) throw new Error(`K3Cloud ${kind} 主数据查询响应格式无效。`)
       for (const row of page) {
         const erpId = mappedText(row, mapping, 'id')

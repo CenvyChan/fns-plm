@@ -161,22 +161,22 @@ before(async () => {
       if (req.method === 'POST' && path.endsWith('/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.QueryBusinessInfo.common.kdsvc')) {
         const cookie = req.headers.cookie ?? ''
         const body = await requestBody(req)
-        const payload = JSON.parse(JSON.parse(body)[0])
+        const payload = JSON.parse(body).data
         if (!cookie.includes('sid=scope-mock')) return json(res, 403, { error: 'mock session required' })
         queryCounts.metadata += 1
         if (payload.FormId !== 'PUR_PurchaseOrder') return json(res, 200, { Message: '业务对象不存在' })
-        return json(res, 200, { Id: payload.FormId, Key: 'FBillHead', Items: [
-          { Key: 'FBillNo', Name: '单据编号', MustInput: 1 },
-          { Key: 'F_PAEZ_Text', Name: '企业自定义文本', IsViewVisible: true },
-          { Key: 'F_Hidden_Example', Name: '隐藏字段', IsViewVisible: false },
-          { Key: 'F_Flex_Example', Name: '弹性域父字段', ElementType: 60523 },
-          { Key: 'FAUXPROPID__FF100001', Name: 'metadata 标识' },
-        ] })
+        return json(res, 200, { Result: { ResponseStatus: { IsSuccess: true, Errors: [] }, NeedReturnData: { Id: payload.FormId, Entrys: [{ Key: 'FBillHead', Fields: [
+          { Key: 'FBillNo', Name: [{ Key: 2052, Value: '单据编号' }], FieldName: 'FBILLNO', MustInput: 1 },
+          { Key: 'F_PAEZ_Text', Name: [{ Key: 2052, Value: '企业自定义文本' }], FieldName: 'F_PAEZ_TEXT', IsViewVisible: true },
+          { Key: 'F_Hidden_Example', Name: [{ Key: 2052, Value: '隐藏字段' }], FieldName: 'FHIDDEN', IsViewVisible: false },
+          { Key: 'F_Flex_Example', Name: [{ Key: 2052, Value: '弹性域父字段' }], FieldName: 'FFLEX', ElementType: 60523 },
+          { Key: 'FAUXPROPID__FF100001', Name: [{ Key: 2052, Value: 'metadata 标识' }], FieldName: 'FAUX' },
+        ] }] } } })
       }
       if (req.method === 'POST' && path.endsWith('/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.ExecuteBillQuery.common.kdsvc')) {
         const cookie = req.headers.cookie ?? ''
         const body = await requestBody(req)
-        const payload = JSON.parse(JSON.parse(body)[0])
+        const payload = JSON.parse(body).data
         if (!cookie.includes('sid=scope-mock')) return json(res, 403, { error: 'mock session required' })
         queryCounts.query += 1
         if (payload.FormId !== 'BD_MATERIAL') return json(res, 200, { Result: { Rows: [] } })

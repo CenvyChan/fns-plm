@@ -45,3 +45,16 @@ test('metadata summary identifies usable custom keys without inferring any names
 test('metadata without query-shaped fields fails closed', () => {
   assert.throws(() => summarizeK3Metadata('NOT_A_FORM', { Message: '业务对象不存在' }), /元数据响应中没有可用字段/)
 })
+
+test('real QueryBusinessInfo result extracts localized fields and excludes entity containers', () => {
+  const real = { Result: { ResponseStatus: { IsSuccess: true, Errors: [] }, NeedReturnData: {
+    Id: 'BD_Customer', Name: [{ Key: 2052, Value: '客户' }], Entrys: [{ Key: 'FBillHead', EntryPkFieldName: 'FCUSTID', Name: [{ Key: 2052, Value: '基本信息' }], Fields: [
+      { Key: 'FName', Name: [{ Key: 2052, Value: '客户名称' }, { Key: 1033, Value: 'Customer Name' }], EntityKey: 'FBillHead', FieldName: 'FNAME', PropertyName: 'Name', FieldType: 231, ElementType: 36, MustInput: 1 },
+      { Key: 'FEnumContainer', Name: [{ Key: 2052, Value: '枚举' }], Items: [{ Key: 'FEnumValue', Name: '伪字段' }] },
+    ] }],
+  } } }
+  const fields = extractK3MetadataFields(JSON.stringify(JSON.stringify(real)))
+  assert.equal(fields.length, 1)
+  assert.deepEqual({ key: fields[0].key, caption: fields[0].caption, entity: fields[0].entity, mustInput: fields[0].mustInput }, { key: 'FName', caption: '客户名称', entity: 'FBillHead', mustInput: true })
+  assert.deepEqual(summarizeK3Metadata('BD_Customer', real).primaryKeys, [{ entity: 'FBillHead', key: 'FCUSTID', source: 'EntryPkFieldName' }])
+})

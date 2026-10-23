@@ -85,9 +85,9 @@ async function syncDailyK3(scope: WorkspaceScope) {
     return result.rows
   })
 }
-function k3MasterDataMappings(config: Record<string, unknown>): Partial<Record<typeof K3_MASTER_DATA_KINDS[number], K3MasterDataMapping>> {
+function k3MasterDataMappings(config: Record<string, unknown>, selectedKinds: readonly (typeof K3_MASTER_DATA_KINDS[number])[] = K3_MASTER_DATA_KINDS): Partial<Record<typeof K3_MASTER_DATA_KINDS[number], K3MasterDataMapping>> {
   const configured = record(config.masterDataSources), allowlist = record(config.formAllowlist), mappings: Partial<Record<typeof K3_MASTER_DATA_KINDS[number], K3MasterDataMapping>> = {}
-  for (const kind of K3_MASTER_DATA_KINDS) {
+  for (const kind of selectedKinds) {
     const source = configured[kind]
     if (source === undefined) continue
     const raw = record(source), fields = record(raw.fields), formId = String(raw.formId ?? '')
@@ -96,36 +96,51 @@ function k3MasterDataMappings(config: Record<string, unknown>): Partial<Record<t
     if (K3_MASTER_DATA_REQUIRED_FIELDS.some(key => typeof fields[key] !== 'string' || !/^[A-Za-z0-9_.]{1,128}$/.test(String(fields[key])))) throw new TypeError(`K3Cloud ${kind} 主数据映射不完整：必须映射 ${K3_MASTER_DATA_REQUIRED_FIELDS.join(', ')}。`)
     const allowedFields = allowlist[formId]
     if (!Array.isArray(allowedFields) || Object.values(fields).some(field => typeof field !== 'string' || !allowedFields.includes(field))) throw new TypeError(`K3Cloud ${kind} 主数据字段未全部加入对应 FormId 的服务端只读 allowlist。`)
+    if (kind === 'customer' && raw.organizationField !== undefined && (typeof raw.organizationField !== 'string' || !/^[A-Za-z0-9_.]{1,128}(\.[A-Za-z0-9_.]{1,128})?$/.test(raw.organizationField) || !allowedFields.includes(raw.organizationField))) throw new TypeError('K3Cloud 客户 organizationField 无效或未加入该 FormId 的只读 allowlist。')
     mappings[kind] = { formId, fields: fields as Partial<Record<K3MasterDataField, string>> }
   }
   return mappings
 }
-async function syncK3Masters(scope: WorkspaceScope) {
-  const config = connectorCredentialConfig(scope, 'k3cloud'), mappings = k3MasterDataMappings(config)
-  return syncK3CloudMasterData(scope, mappings, async (formId, fieldKeys, startRow) => {
-    const result = await queryK3Cloud({ formId, fieldKeys, limit: 200, startRow }, config as Partial<K3CloudConfig>, internalScopeKey(scope))
+async function syncK3Masters(scope: WorkspaceScope, kinds?: readonly (typeof K3_MASTER_DATA_KINDS[number])[]) {
+  const config = connectorCredentialConfig(scope, 'k3cloud'), mappings = k3MasterDataMappings(config, kinds)
+  let customerFilter: string | undefined
+  if (kinds?.includes('customer')) {
+    const customer = record(record(config.masterDataSources).customer), field = String(customer.organizationField ?? ''), organization = String(config.organization ?? '').trim()
+    if (!organization || !/^[A-Za-z0-9_.]{1,128}(\.[A-Za-z0-9_.]{1,128})?$/.test(field) || !Array.isArray(record(config.formAllowlist)[String(record(customer).formId)]) || !(record(config.formAllowlist)[String(record(customer).formId)] as unknown[]).includes(field)) throw new TypeError('客户同步必须配置当前账套 organization、客户 organizationField 并将其加入该 FormId 的 formAllowlist。')
+    customerFilter = `${field} = '${organization.replace(/'/g, "''")}'`
+  }
+  return syncK3CloudMasterData(scope, mappings, async (formId, fieldKeys, startRow, filterString) => {
+    const mapping = Object.values(mappings).find(value => value?.formId === formId)
+    const orderString = mapping?.fields.id ? `${mapping.fields.id} ASC` : undefined
+    const result = await queryK3Cloud({ formId, fieldKeys, limit: 200, startRow, ...(filterString ? { filterString } : {}), ...(orderString ? { orderString } : {}) }, config as Partial<K3CloudConfig>, internalScopeKey(scope), { fresh: true })
     return result.rows
-  })
+  }, kinds, customerFilter)
 }
-type K3SyncRun = { startedAt?: string; finishedAt?: string; status?: 'running' | 'success' | 'failed'; source?: 'manual' | 'scheduled'; error?: string; businessRowCounts?: Record<string, number>; businessChangedRowCounts?: Record<string, number>; businessSyncMode?: 'full' | 'incremental' | 'mixed'; masterDataRowCounts?: Record<string, number> }
+type K3SyncRun = { startedAt?: string; finishedAt?: string; status?: 'running' | 'success' | 'failed'; source?: 'manual' | 'scheduled'; mode?: 'full' | 'customer-only'; error?: string; businessRowCounts?: Record<string, number>; businessChangedRowCounts?: Record<string, number>; businessSyncMode?: 'full' | 'incremental' | 'mixed'; masterDataRowCounts?: Record<string, number> }
 function k3SyncStateKey(scope: WorkspaceScope): string { return scopeKey(scope, 'k3-data-sync-status') }
 function k3SyncRun(scope: WorkspaceScope): K3SyncRun { return getAppState<K3SyncRun>(k3SyncStateKey(scope), {}) }
 function saveK3SyncRun(scope: WorkspaceScope, state: K3SyncRun): void { setAppState(k3SyncStateKey(scope), state) }
 function k3DataSyncSchedule(scope: WorkspaceScope) {
-  const config = k3Config(scope), value = record((config as Record<string, unknown>).k3DataSyncSchedule), enabled = value.enabled === true
+  const config = connectorCredentialConfig(scope, 'k3cloud'), value = record(config.k3DataSyncSchedule), enabled = value.enabled === true, mode = value.mode === 'customer-only' ? 'customer-only' : 'full'
   const intervalHours = [1, 6, 12, 24].includes(Number(value.intervalHours)) ? Number(value.intervalHours) : 1
-  let ready = false, readinessMessage = 'K3Cloud 八类业务单据与四类主数据映射尚未完整配置。'
+  let ready = false, readinessMessage = mode === 'customer-only' ? 'K3Cloud 客户主数据映射尚未完整配置。' : 'K3Cloud 八类业务单据与四类主数据映射尚未完整配置。'
   try {
-    dailyK3Mappings(config as Record<string, unknown>)
-    const masters = k3MasterDataMappings(config as Record<string, unknown>)
-    ready = K3_MASTER_DATA_KINDS.every(kind => Boolean(masters[kind]))
+    const masters = k3MasterDataMappings(config, mode === 'customer-only' ? ['customer'] : undefined)
+    if (mode === 'customer-only') {
+      const customer = record(record(config.masterDataSources).customer), fields = record(config.formAllowlist)[String(customer.formId)]
+      ready = Boolean(masters.customer && String(config.organization ?? '').trim() && typeof customer.organizationField === 'string' && Array.isArray(fields) && fields.includes(customer.organizationField))
+      if (!ready) readinessMessage = '客户-only 同步需要客户映射、allowlist 中的 organizationField 与当前账套 organization。'
+    }
+    else { dailyK3Mappings(config as Record<string, unknown>); ready = K3_MASTER_DATA_KINDS.every(kind => Boolean(masters[kind])) }
     if (ready && k3cloudStatus(config, internalScopeKey(scope)).configured) readinessMessage = 'ready'
   } catch (error) { readinessMessage = error instanceof Error ? error.message : readinessMessage }
   if (!k3cloudStatus(config, internalScopeKey(scope)).configured) { ready = false; readinessMessage = 'K3Cloud 连接凭据尚未配置完整。' }
-  return { enabled, intervalHours, timezone: 'Asia/Shanghai', ready, readinessMessage, schedulerState: !enabled ? 'disabled' : !ready ? 'blocked-incomplete-config' : activeK3DataCron.has(internalScopeKey(scope)) ? 'scheduled' : 'inactive' }
+  const nextRunAt = enabled && ready ? activeK3DataCron.get(internalScopeKey(scope))?.getNextRun()?.toISOString() ?? null : null
+  return { enabled, intervalHours, mode, timezone: 'Asia/Shanghai', ready, readinessMessage, nextRunAt, schedulerState: !enabled ? 'disabled' : !ready ? 'blocked-incomplete-config' : activeK3DataCron.has(internalScopeKey(scope)) ? 'scheduled' : 'inactive' }
 }
-async function performK3DataSync(scope: WorkspaceScope, source: 'manual' | 'scheduled') {
+async function performK3DataSync(scope: WorkspaceScope, source: 'manual' | 'scheduled', requestedMode?: 'full' | 'customer-only') {
   const schedule = k3DataSyncSchedule(scope)
+  const mode: 'full' | 'customer-only' = requestedMode ?? (source === 'scheduled' && schedule.mode === 'customer-only' ? 'customer-only' : 'full')
   if (!k3cloudStatus(k3Config(scope), internalScopeKey(scope)).configured) throw new Error('当前账套尚未配置完整的 K3Cloud 只读连接。')
   if (source === 'scheduled' && (!schedule.enabled || !schedule.ready)) throw new Error('K3Cloud 定时同步已停用或映射尚未就绪。')
   const bucket = source === 'scheduled' ? reportScheduleBucket('Asia/Shanghai') : undefined
@@ -135,16 +150,16 @@ async function performK3DataSync(scope: WorkspaceScope, source: 'manual' | 'sche
     lockStore: { setIfAbsent: cacheSetIfAbsent, deleteIfValue: cacheDeleteIfValue }, isSuccessful: result => result.ok,
     run: async () => {
       const startedAt = new Date().toISOString()
-      saveK3SyncRun(scope, { startedAt, status: 'running', source })
+      saveK3SyncRun(scope, { startedAt, status: 'running', source, mode })
       try {
-        const business = await syncDailyK3(scope)
-        const masterData = await syncK3Masters(scope)
+        const business = mode === 'customer-only' ? undefined : await syncDailyK3(scope)
+        const masterData = await syncK3Masters(scope, mode === 'customer-only' ? ['customer'] : undefined)
         const finishedAt = new Date().toISOString()
-        saveK3SyncRun(scope, { startedAt, finishedAt, status: 'success', source, businessRowCounts: business.rowCounts as Record<string, number>, businessChangedRowCounts: business.changedRowCounts as Record<string, number>, businessSyncMode: business.mode, masterDataRowCounts: masterData.rowCounts as Record<string, number> })
-        return { ok: true, status: 'success' as const, startedAt, finishedAt, business, masterData }
+        saveK3SyncRun(scope, { startedAt, finishedAt, status: 'success', source, mode, ...(business ? { businessRowCounts: business.rowCounts as Record<string, number>, businessChangedRowCounts: business.changedRowCounts as Record<string, number>, businessSyncMode: business.mode } : {}), masterDataRowCounts: masterData.rowCounts as Record<string, number> })
+        return { ok: true, status: 'success' as const, mode, startedAt, finishedAt, ...(business ? { business } : {}), masterData }
       } catch (error) {
         const finishedAt = new Date().toISOString(), message = error instanceof Error ? error.message : 'K3Cloud 数据同步失败。'
-        saveK3SyncRun(scope, { startedAt, finishedAt, status: 'failed', source, error: message.slice(0, 500) })
+        saveK3SyncRun(scope, { startedAt, finishedAt, status: 'failed', source, mode, error: message.slice(0, 500) })
         return { ok: false, status: 'failed' as const, startedAt, finishedAt, message }
       }
     },
@@ -360,15 +375,19 @@ export function createIntegrationRouter(): Router {
     return res.json({ schedule: k3DataSyncSchedule(scope), lastRun: k3SyncRun(scope), masterDataLastSyncedAt: state.lastSyncedAt, masterDataRowCounts: state.rowCounts })
   })
   router.post('/k3cloud/sync', requireRole('admin', 'plm_manager'), async (req, res) => {
-    const scope = scopeForRequest(req), config = connectorCredentialConfig(scope, 'k3cloud')
+    const scope = scopeForRequest(req), config = connectorCredentialConfig(scope, 'k3cloud'), body = record(req.body), customerOnly = body.kind === 'customer'
+    if (Object.keys(body).some(key => key !== 'kind') || (body.kind !== undefined && !customerOnly)) return res.status(400).json({ error: 'invalid_sync_kind', message: '仅支持不带参数的 full 同步或 kind=customer 客户-only 同步。' })
     if (!k3cloudStatus(config as Partial<K3CloudConfig>, internalScopeKey(scope)).configured) return res.status(503).json({ error: 'k3cloud_not_configured', message: '当前账套尚未配置完整的 K3Cloud 只读连接。' })
     try {
-      dailyK3Mappings(config as Record<string, unknown>)
-      const masters = k3MasterDataMappings(config as Record<string, unknown>)
-      if (!K3_MASTER_DATA_KINDS.every(kind => Boolean(masters[kind]))) throw new TypeError('同步全部 K3Cloud 数据前，必须配置客户、供应商、业务员、ERP 用户四类主数据映射。')
+      const masters = k3MasterDataMappings(config, customerOnly ? ['customer'] : undefined)
+      if (customerOnly) {
+        const customer = record(record(config.masterDataSources).customer), allowlist = record(config.formAllowlist), fields = allowlist[String(customer.formId)]
+        if (!masters.customer || typeof customer.organizationField !== 'string' || !Array.isArray(fields) || !fields.includes(customer.organizationField) || !String(config.organization ?? '').trim()) throw new TypeError('客户同步必须配置客户映射、organizationField allowlist 与当前账套 organization。')
+      }
+      else { dailyK3Mappings(config as Record<string, unknown>); if (!K3_MASTER_DATA_KINDS.every(kind => Boolean(masters[kind]))) throw new TypeError('同步全部 K3Cloud 数据前，必须配置客户、供应商、业务员、ERP 用户四类主数据映射。') }
     } catch (error) { return res.status(409).json({ error: 'k3cloud_source_mapping_incomplete', message: error instanceof Error ? error.message : 'K3Cloud 数据源映射不完整。' }) }
-    recordSecurityEvent({ userId: req.authUser!.id, tenantId: scope.tenantId, organizationId: scope.organizationId, accountId: scope.accountId, event: 'k3cloud_full_sync_requested', ip: req.ip, userAgent: req.get('user-agent') })
-    const result = await performK3DataSync(scope, 'manual')
+    recordSecurityEvent({ userId: req.authUser!.id, tenantId: scope.tenantId, organizationId: scope.organizationId, accountId: scope.accountId, event: customerOnly ? 'k3cloud_customer_sync_requested' : 'k3cloud_full_sync_requested', ip: req.ip, userAgent: req.get('user-agent') })
+    const result = await performK3DataSync(scope, 'manual', customerOnly ? 'customer-only' : 'full')
     if (result.status === 'busy' || result.status === 'duplicate') return res.status(409).json(result)
     if (!result.ok) return res.status(502).json({ error: 'k3cloud_sync_failed', message: result.message })
     return res.json(result)

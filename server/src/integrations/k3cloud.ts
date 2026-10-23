@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { cacheGet, cacheSet } from './cache.js'
-import { summarizeK3Metadata } from '../k3cloud-metadata.js'
+import { parseK3MetadataPayload, summarizeK3Metadata } from '../k3cloud-metadata.js'
 import { isK3CloudUrlAllowed } from './k3cloud-url-policy.js'
 
 const LOGIN_PATH = '/Kingdee.BOS.WebApi.ServicesStub.AuthService.LoginByAppSecret.common.kdsvc'
@@ -110,14 +110,23 @@ export async function discoverK3CloudFormMetadata(formId: string, connection?: P
       method: 'POST',
       redirect: 'error',
       headers: { 'content-type': 'application/json', cookie },
-      body: JSON.stringify([JSON.stringify({ FormId: formId })]),
+      body: JSON.stringify({ data: { FormId: formId } }),
       signal: AbortSignal.timeout(config.timeoutMs),
     })
     if (!response.ok) throw new Error('metadata request failed')
     const text = await response.text()
-    let payload: unknown = text
-    try { payload = JSON.parse(text) as unknown } catch { /* metadata may itself be returned as JSON text */ }
-    const result = summarizeK3Metadata(formId, payload)
+    let payload: unknown
+    try { payload = parseK3MetadataPayload(JSON.parse(text) as unknown) } catch { throw new Error('invalid metadata response') }
+    if (payload && typeof payload === 'object') {
+      const object = payload as Record<string, unknown>
+      if (object.actionname || object.ResponseStatus && (object.ResponseStatus as Record<string, unknown>).IsSuccess === false) throw new Error('metadata business error')
+      const result = object.Result
+      if (result && typeof result === 'object' && (result as Record<string, unknown>).ResponseStatus) {
+        const status = (result as Record<string, unknown>).ResponseStatus as Record<string, unknown>
+        if (status.IsSuccess !== true || Array.isArray(status.Errors) && status.Errors.length) throw new Error('metadata business error')
+      }
+    }
+    const result = summarizeK3Metadata(formId, payload, new Date().toISOString(), config.lcid)
     lastErrors.delete(key)
     return result
   } catch (error) {
@@ -156,7 +165,7 @@ export async function queryK3Cloud(input: K3CloudQueryInput, connection?: Partia
   try {
     const cookie = await login(config, scopeKey)
     const payload = { FormId: input.formId, FieldKeys: input.fieldKeys, FilterString: filter, TopRowCount: 0, Limit: input.limit, StartRow: startRow, OrderString: input.orderString ?? '' }
-    const response = await fetch(endpoint(config.baseUrl, QUERY_PATH), { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify([JSON.stringify(payload)]), signal: AbortSignal.timeout(config.timeoutMs) })
+    const response = await fetch(endpoint(config.baseUrl, QUERY_PATH), { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ data: payload }), signal: AbortSignal.timeout(config.timeoutMs) })
     if (response.status === 401 || response.status === 403) { sessions.delete(key); throw new Error('query failed') }
     if (!response.ok) throw new Error('query failed')
     const rawRows = extractRows(await response.json())

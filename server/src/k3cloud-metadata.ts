@@ -17,9 +17,20 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
+function localizedCaption(value: unknown, lcid = '2052'): string {
+  if (typeof value === 'string') return value
+  if (!Array.isArray(value)) return ''
+  const records = value.map(asRecord)
+  const match = records.find(item => String(item.Key ?? '') === lcid) ?? records[0]
+  return typeof match?.Value === 'string' ? match.Value : ''
+}
+
 export function parseK3MetadataPayload(value: unknown): unknown {
-  if (typeof value !== 'string') return value
-  try { return JSON.parse(value) as unknown } catch { return { raw: value } }
+  let parsed = value
+  for (let depth = 0; depth < 3 && typeof parsed === 'string'; depth++) {
+    try { parsed = JSON.parse(parsed) as unknown } catch { return parsed }
+  }
+  return parsed
 }
 
 function booleanValue(value: unknown): boolean | undefined {
@@ -37,21 +48,21 @@ function booleanValue(value: unknown): boolean | undefined {
  * In particular, metadata-only Keys containing `__`, hidden fields and flex
  * parents remain identifiable but cannot be treated as queryable mapping keys.
  */
-export function extractK3MetadataFields(raw: unknown): K3MetadataField[] {
+export function extractK3MetadataFields(raw: unknown, lcid = '2052'): K3MetadataField[] {
   const parsed = parseK3MetadataPayload(raw)
   const fields: K3MetadataField[] = []
   const seen = new Set<string>()
 
-  const walk = (node: unknown, entity: string): void => {
+  const walk = (node: unknown, entity: string, legacyItems = false): void => {
     if (Array.isArray(node)) {
-      for (const child of node) walk(child, entity)
+      for (const child of node) walk(child, entity, legacyItems)
       return
     }
     if (!node || typeof node !== 'object') return
     const object = asRecord(node)
-    const label = object.Key ?? object.Id ?? object.TableName ?? object.Name
     const rawKey = object.Key ?? object.key ?? object.Id
-    const isField = typeof rawKey === 'string' && rawKey.startsWith('F') && !rawKey.includes('__') && rawKey.length <= 256
+    const isField = typeof rawKey === 'string' && rawKey.startsWith('F') && !rawKey.includes('__') && rawKey.length <= 256 && (legacyItems || 'FieldName' in object || 'PropertyName' in object || 'FieldType' in object || 'ElementType' in object)
+    const label = object.Key ?? object.Id ?? object.TableName
     const currentEntity = isField ? entity : typeof label === 'string' && label ? label : entity
     if (isField) {
       const signature = `${currentEntity}\0${rawKey}`
@@ -59,7 +70,7 @@ export function extractK3MetadataFields(raw: unknown): K3MetadataField[] {
         seen.add(signature)
         const visibility = booleanValue(object.IsViewVisible ?? object.Visible)
         const elementType = object.ElementType ?? object.FieldType ?? null
-        const name = object.Name ?? object.Caption ?? object.PropertyName ?? object.FieldName ?? ''
+        const name = localizedCaption(object.Name ?? object.Caption, lcid) || String(object.PropertyName ?? object.FieldName ?? '')
         const mustInput = object.MustInput ?? object.Mustinput
         fields.push({
           key: rawKey,
@@ -75,7 +86,21 @@ export function extractK3MetadataFields(raw: unknown): K3MetadataField[] {
       }
     }
     for (const [childKey, child] of Object.entries(object)) {
-      walk(child, ENTRY_CONTAINERS.has(childKey) ? childKey : currentEntity)
+      if (ENTRY_CONTAINERS.has(childKey)) {
+        const entries = Array.isArray(child) ? child : [child]
+        for (const entry of entries) {
+          const entryRecord = asRecord(entry)
+          const entryKey = typeof entryRecord.Key === 'string' ? entryRecord.Key : currentEntity
+          if (!('Fields' in entryRecord)) walk(entry, childKey, true)
+          else for (const [nestedKey, nestedValue] of Object.entries(entryRecord)) {
+            if (nestedKey === 'Fields') walk(nestedValue, entryKey)
+            else if (nestedKey !== 'Key') walk(nestedValue, entryKey)
+          }
+        }
+      } else {
+        const isLegacyItems = childKey === 'Items' && node === parsed && !('Result' in object) && !('ResponseStatus' in object)
+        walk(child, currentEntity, isLegacyItems)
+      }
     }
   }
 
@@ -83,9 +108,23 @@ export function extractK3MetadataFields(raw: unknown): K3MetadataField[] {
   return fields
 }
 
-export function summarizeK3Metadata(formId: string, raw: unknown, discoveredAt = new Date().toISOString()) {
-  const fields = extractK3MetadataFields(raw)
+export function summarizeK3Metadata(formId: string, raw: unknown, discoveredAt = new Date().toISOString(), lcid = '2052') {
+  const fields = extractK3MetadataFields(raw, lcid)
   if (!fields.length) throw new Error('K3Cloud 元数据响应中没有可用字段；请确认当前账套 FormId、组织权限及 WebAPI 授权。')
+  const parsed = asRecord(parseK3MetadataPayload(raw))
+  const result = asRecord(parsed.Result)
+  const data = asRecord(result.NeedReturnData ?? parsed.NeedReturnData ?? parsed)
+  const primaryKeys: Array<{ entity: string; key: string; source: 'EntryPkFieldName' }> = []
+  const collectPrimaryKeys = (value: unknown): void => {
+    if (Array.isArray(value)) { for (const child of value) collectPrimaryKeys(child); return }
+    if (!value || typeof value !== 'object') return
+    const object = asRecord(value)
+    if (typeof object.EntryPkFieldName === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,127}$/.test(object.EntryPkFieldName)) {
+      primaryKeys.push({ entity: typeof object.Key === 'string' ? object.Key : 'head', key: object.EntryPkFieldName, source: 'EntryPkFieldName' })
+    }
+    for (const child of Object.values(object)) collectPrimaryKeys(child)
+  }
+  collectPrimaryKeys(data)
   const custom = fields.filter(field => field.isCustom)
   return {
     formId,
@@ -94,6 +133,7 @@ export function summarizeK3Metadata(formId: string, raw: unknown, discoveredAt =
     fieldCount: fields.length,
     customFieldCount: custom.length,
     fields,
+    primaryKeys,
     requiredKeys: fields.filter(field => field.mustInput && field.visible).map(field => field.key),
     usableCustomKeys: custom.filter(field => field.visible && !field.isFlexParent).map(field => field.key),
     hiddenCustomKeys: custom.filter(field => !field.visible).map(field => field.key),

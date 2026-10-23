@@ -262,7 +262,7 @@ test('daily reports stay scoped and complete the mock reconciliation, immutable 
     if (!request.url?.includes('ExecuteBillQuery')) { response.writeHead(404); response.end(); return }
     let body = ''
     for await (const chunk of request) body += chunk.toString()
-    const payload = JSON.parse(JSON.parse(body)[0])
+    const payload = JSON.parse(body).data
     const kind = sourceKinds.find(sourceKind => dailyReportSources[sourceKind].formId === payload.FormId)
     const masterKind = masterKinds.find(sourceKind => masterDataSources[sourceKind].formId === payload.FormId)
     queryRequests.push({ kind, filterString: payload.FilterString, orderString: payload.OrderString })

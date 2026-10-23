@@ -36,7 +36,8 @@ async function startMock() {
     if (req.url?.includes('ExecuteBillQuery')) {
       mockRequests++
       let payload = {}; try { payload = JSON.parse(raw) } catch {}
-      const query = JSON.parse(Array.isArray(payload) ? payload[0] : payload.data ?? payload)
+      assert.equal(Array.isArray(payload), false, 'K3Cloud requires a data object envelope')
+      const query = payload.data
       const start = Number(query.StartRow ?? query.startRow ?? 0), limit = Number(query.Limit ?? query.limit ?? 200)
       const rows = mockRows.slice(start, start + limit).map(row => (query.FieldKeys ?? query.fieldKeys ?? '').split(',').map(k => row[k]))
       res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(rows))

@@ -97,17 +97,25 @@ function validateConfig(provider: ConnectorProvider, config: ConnectorConfig): v
       const mapping = raw as Record<string, unknown>, fields = mapping.fields
       if (typeof mapping.formId !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(mapping.formId) || !fields || typeof fields !== 'object' || Array.isArray(fields)) throw new Error(`K3Cloud ${kind} master-data mapping must include a valid formId and fields object.`)
       for (const [canonical, field] of Object.entries(fields as Record<string, unknown>)) if (!canonicalFields.has(canonical) || typeof field !== 'string' || !/^[A-Za-z0-9_.]{1,128}$/.test(field)) throw new Error(`K3Cloud ${kind} mapping contains an invalid or unsupported master-data field.`)
+      if (kind === 'customer' && mapping.organizationField !== undefined && (typeof mapping.organizationField !== 'string' || !/^[A-Za-z0-9_.]{1,128}(\.[A-Za-z0-9_.]{1,128})?$/.test(mapping.organizationField))) throw new Error('K3Cloud customer organizationField must be a valid field key.')
     }
   }
   if (provider === 'k3cloud' && config.k3DataSyncSchedule !== undefined) {
     const schedule = config.k3DataSyncSchedule
     if (!schedule || typeof schedule !== 'object' || Array.isArray(schedule)) throw new Error('K3Cloud k3DataSyncSchedule must be an object.')
     const value = schedule as Record<string, unknown>
-    if (typeof value.enabled !== 'boolean' || ![1, 6, 12, 24].includes(Number(value.intervalHours))) throw new Error('K3Cloud sync schedule must use enabled=true/false and an interval of 1, 6, 12 or 24 hours.')
+    if (typeof value.enabled !== 'boolean' || ![1, 6, 12, 24].includes(Number(value.intervalHours)) || (value.mode !== undefined && !['full', 'customer-only'].includes(String(value.mode)))) throw new Error('K3Cloud sync schedule must use enabled=true/false, mode full/customer-only and an interval of 1, 6, 12 or 24 hours.')
     if (value.enabled) {
-      const docs = config.dailyReportSources && typeof config.dailyReportSources === 'object' ? config.dailyReportSources as Record<string, unknown> : {}
-      const masters = config.masterDataSources && typeof config.masterDataSources === 'object' ? config.masterDataSources as Record<string, unknown> : {}
-      if (['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable', 'sales-invoice', 'purchase-invoice'].some(kind => !docs[kind]) || ['customer', 'supplier', 'salesperson', 'user'].some(kind => !masters[kind])) throw new Error('启用 K3Cloud 定时同步前，必须配置八类销售/采购单据、销项发票/采购收票及客户、供应商、业务员、ERP 用户四类主数据映射。')
+      if (value.mode === 'customer-only') {
+        const customer = (config.masterDataSources as Record<string, unknown> | undefined)?.customer as Record<string, unknown> | undefined
+        const fields = customer?.fields as Record<string, unknown> | undefined
+        const allowed = (config.formAllowlist as Record<string, unknown> | undefined)?.[String(customer?.formId)]
+        if (!customer || !fields || !fields.id || !fields.name || typeof config.organization !== 'string' || !config.organization.trim() || typeof customer.organizationField !== 'string' || !Array.isArray(allowed) || !allowed.includes(customer.organizationField) || Object.values(fields).some(field => !allowed.includes(field))) throw new Error('启用客户-only定时同步前，必须配置完整客户映射、organizationField 白名单与 organization。')
+      } else {
+        const docs = config.dailyReportSources && typeof config.dailyReportSources === 'object' ? config.dailyReportSources as Record<string, unknown> : {}
+        const masters = config.masterDataSources && typeof config.masterDataSources === 'object' ? config.masterDataSources as Record<string, unknown> : {}
+        if (['shipment', 'purchase-receipt', 'sales-order', 'purchase-order', 'receivable', 'payable', 'sales-invoice', 'purchase-invoice'].some(kind => !docs[kind]) || ['customer', 'supplier', 'salesperson', 'user'].some(kind => !masters[kind])) throw new Error('启用 K3Cloud 定时同步前，必须配置八类销售/采购单据、销项发票/采购收票及客户、供应商、业务员、ERP 用户四类主数据映射。')
+      }
     }
   }
   if (provider === 'flowable' && config.userMap !== undefined && (!config.userMap || typeof config.userMap !== 'object' || Array.isArray(config.userMap))) throw new Error('Flowable userMap must be an email-to-engine-user JSON object.')
