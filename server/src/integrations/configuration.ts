@@ -3,6 +3,7 @@ import { db, decryptConfig, encryptConfig, getConnectorRow } from '../database.j
 import { K3_MASTER_DATA_FIELDS } from '../k3cloud-master-data.js'
 import type { WorkspaceScope } from '../scope.js'
 import { materialSourceFingerprint } from '../material-source-identity.js'
+import { isK3CloudUrlAllowed } from './k3cloud-url-policy.js'
 
 export type ConnectorProvider = 'k3cloud' | 'flowable' | 'dingtalk'
 export type ConnectorConfig = Record<string, unknown>
@@ -47,8 +48,9 @@ function validateBaseUrl(value: unknown, provider: ConnectorProvider): void {
   try { url = new URL(value) } catch { throw new Error(`${provider} baseUrl must be a valid URL.`) }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error(`${provider} baseUrl must use HTTP(S) without embedded credentials, query or fragment.`)
   if (url.protocol === 'http:' && process.env.NODE_ENV === 'production') {
-    const approvedFlowable = provider === 'flowable' && url.hostname === '100.83.138.26' && ['18080', '18081'].includes(url.port) && (url.pathname === '/flowable-rest/service' || url.pathname === '/flowable-rest/service/')
-    if (!approvedFlowable) throw new Error('Connector URLs must use HTTPS in production; only the approved Flowable endpoint may use HTTP.')
+    const approvedFlowable = provider === 'flowable' && (value === 'http://172.16.77.80:18081/flowable-rest/service' || (url.hostname === '100.83.138.26' && ['18080', '18081'].includes(url.port) && (url.pathname === '/flowable-rest/service' || url.pathname === '/flowable-rest/service/')))
+    const privateK3Cloud = provider === 'k3cloud' && isK3CloudUrlAllowed(url)
+    if (!approvedFlowable && !privateK3Cloud) throw new Error('Connector URLs must use HTTPS in production; only private-IP K3Cloud URLs and the approved Flowable endpoint may use HTTP.')
   }
 }
 function validateConfig(provider: ConnectorProvider, config: ConnectorConfig): void {

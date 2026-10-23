@@ -65,10 +65,10 @@ export function K3CloudConnectionPanel({
         <b>金蝶云星空 WebAPI（只读）</b>
         <span>查询接口受 FormId / FieldKeys 服务端 allowlist 控制；此配置不会提供写单据能力。</span>
       </div>
-      <TextField label="WebAPI Base URL" value={draft.baseUrl ?? ''} onChange={value => onValueChange('baseUrl', value)} placeholder="https://erp.example.com/k3cloud" />
+      <TextField label="WebAPI Base URL" value={draft.baseUrl ?? ''} onChange={value => onValueChange('baseUrl', value)} placeholder="http://192.168.1.10/k3cloud" description="支持 HTTPS；内网 HTTP 请使用私有 IP（10.x、172.16–31.x、192.168.x 或 IPv6 ULA）。HTTP 不加密，仅用于可信内网。" />
       <TextField label="账套 ID" value={draft.accountId ?? ''} onChange={value => onValueChange('accountId', value)} />
       <TextField label="接口用户名" value={draft.username ?? ''} onChange={value => onValueChange('username', value)} />
-      <TextField label="组织标识" value={draft.organization ?? ''} onChange={value => onValueChange('organization', value)} />
+      <TextField label="组织标识" value={draft.organization ?? ''} onChange={value => onValueChange('organization', value)} description="填写与物料映射组织字段的值完全一致的金蝶组织编码或内部 ID，不是 PLM 组织 ID。用于连接/来源识别及物料刷新组织过滤；不传入登录接口，普通单据/主数据查询不会自动按此值过滤。" />
       <SecretField
         label="第三方应用 AppId"
         value={draft.appId ?? ''}

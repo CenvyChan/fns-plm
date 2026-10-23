@@ -25,6 +25,16 @@ db.prepare('INSERT INTO accounts(id,tenant_id,organization_id,name,code,created_
 const credentials = { username: 'tester', password: 'not-a-real-secret' }
 const statusFor = baseUrl => getFlowableStatus({ ...credentials, baseUrl })
 
+test('preserves the existing exact production Flowable LAN endpoint without broadening it', () => {
+  const exact = 'http://172.16.77.80:18081/flowable-rest/service'
+  assert.equal(statusFor(exact).configured, true)
+  assert.doesNotThrow(() => saveConnectorConfig(scope, 'flowable', { baseUrl: exact, ...credentials }, 'policy-user'))
+  for (const baseUrl of [exact+'/', exact+'?', exact+'#', exact+'/extra', exact.replace('18081','18080'), exact.replace('77.80','77.81'), exact.replace('http://','HTTP://')]) {
+    assert.equal(statusFor(baseUrl).configured, false, baseUrl)
+    assert.throws(() => saveConnectorConfig(scope, 'flowable', { baseUrl, ...credentials }, 'policy-user'), /HTTPS/, baseUrl)
+  }
+})
+
 test('production accepts only exact approved Flowable HTTP endpoints on rollback port 18080 and staging port 18081', () => {
   for (const baseUrl of ['http://100.83.138.26:18080/flowable-rest/service', 'http://100.83.138.26:18080/flowable-rest/service/', 'http://100.83.138.26:18081/flowable-rest/service', 'http://100.83.138.26:18081/flowable-rest/service/']) {
     assert.equal(statusFor(baseUrl).configured, true, baseUrl)

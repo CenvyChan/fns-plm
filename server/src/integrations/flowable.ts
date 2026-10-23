@@ -21,7 +21,7 @@ function normalizeConfig(input?: FlowableConfig): FlowableConfig | null {
   try { parsed = new URL(baseUrl) } catch { throw new Error('Flowable baseUrl is invalid.') }
   if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error('Flowable baseUrl must be a clean HTTP(S) URL without embedded credentials, query or fragment.')
   if (parsed.protocol === 'http:' && process.env.NODE_ENV === 'production') {
-    const approved = parsed.hostname === '100.83.138.26' && ['18080', '18081'].includes(parsed.port) && (parsed.pathname === '/flowable-rest/service' || parsed.pathname === '/flowable-rest/service/')
+    const approved = baseUrl === 'http://172.16.77.80:18081/flowable-rest/service' || (parsed.hostname === '100.83.138.26' && ['18080', '18081'].includes(parsed.port) && (parsed.pathname === '/flowable-rest/service' || parsed.pathname === '/flowable-rest/service/'))
     if (!approved) throw new Error('Flowable HTTP is allowed in production only for the approved endpoint.')
   }
   const username = input?.username

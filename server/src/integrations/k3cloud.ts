@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { cacheGet, cacheSet } from './cache.js'
 import { summarizeK3Metadata } from '../k3cloud-metadata.js'
+import { isK3CloudUrlAllowed } from './k3cloud-url-policy.js'
 
 const LOGIN_PATH = '/Kingdee.BOS.WebApi.ServicesStub.AuthService.LoginByAppSecret.common.kdsvc'
 const QUERY_PATH = '/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.ExecuteBillQuery.common.kdsvc'
@@ -35,10 +36,9 @@ function getConfig(input?: Partial<K3CloudConfig>): NormalizedConfig | undefined
   if (Object.values({ baseUrl: values.baseUrl, accountId: values.accountId, username: values.username, appId: values.appId, appSecret: values.appSecret, lcid: values.lcid, organization: values.organization }).some(value => !value)) return undefined
   try {
     const parsed = new URL(values.baseUrl)
-    if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) return undefined
+    if (!isK3CloudUrlAllowed(parsed)) return undefined
     values.baseUrl = parsed.origin + parsed.pathname.replace(/\/$/, '')
   } catch { return undefined }
-  if (process.env.NODE_ENV === 'production' && new URL(values.baseUrl).protocol !== 'https:' && !['localhost', '127.0.0.1', '::1'].includes(new URL(values.baseUrl).hostname) && process.env.ALLOW_INSECURE_CONNECTOR_HTTP !== 'true') return undefined
   if (!Number.isFinite(values.timeoutMs) || values.timeoutMs < 1000) values.timeoutMs = 20000
   values.timeoutMs = Math.min(values.timeoutMs, 120000)
   return values
@@ -65,7 +65,7 @@ async function login(config: NormalizedConfig, scopeKey = ''): Promise<string> {
     pending = (async () => {
       try {
         const response = await fetch(endpoint(config.baseUrl, LOGIN_PATH), {
-          method: 'POST', headers: { 'content-type': 'application/json' },
+          method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ acctID: config.accountId, username: config.username, appid: config.appId, appsecret: config.appSecret, lcid: config.lcid } satisfies LoginPayload),
           signal: AbortSignal.timeout(config.timeoutMs),
         })
@@ -108,6 +108,7 @@ export async function discoverK3CloudFormMetadata(formId: string, connection?: P
     const cookie = await login(config, scopeKey)
     const response = await fetch(endpoint(config.baseUrl, METADATA_PATH), {
       method: 'POST',
+      redirect: 'error',
       headers: { 'content-type': 'application/json', cookie },
       body: JSON.stringify([JSON.stringify({ FormId: formId })]),
       signal: AbortSignal.timeout(config.timeoutMs),
@@ -155,7 +156,7 @@ export async function queryK3Cloud(input: K3CloudQueryInput, connection?: Partia
   try {
     const cookie = await login(config, scopeKey)
     const payload = { FormId: input.formId, FieldKeys: input.fieldKeys, FilterString: filter, TopRowCount: 0, Limit: input.limit, StartRow: startRow, OrderString: input.orderString ?? '' }
-    const response = await fetch(endpoint(config.baseUrl, QUERY_PATH), { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify([JSON.stringify(payload)]), signal: AbortSignal.timeout(config.timeoutMs) })
+    const response = await fetch(endpoint(config.baseUrl, QUERY_PATH), { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify([JSON.stringify(payload)]), signal: AbortSignal.timeout(config.timeoutMs) })
     if (response.status === 401 || response.status === 403) { sessions.delete(key); throw new Error('query failed') }
     if (!response.ok) throw new Error('query failed')
     const rawRows = extractRows(await response.json())

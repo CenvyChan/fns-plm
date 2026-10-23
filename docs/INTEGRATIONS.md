@@ -47,7 +47,13 @@ FLOWABLE_DATA_DIR=/var/lib/momentum-flowable
 
 ## 2. 金蝶云星空 K3Cloud
 
-在 **系统集成与连接器 → K3Cloud → 连接设置** 按内部三元组配置企业批准的 HTTPS WebAPI Base URL、外部 ERP 账套 ID、服务用户名、外部组织标识、第三方应用 AppId/AppSecret、LCID。AppId 与 AppSecret 输入后只在 PLM 服务端内存中用于加密入库；查询设置不读回。不要把它们放入 Docker 的 K3Cloud 环境变量，Docker 只负责提供 AES 解密主密钥。外部 K3Cloud 的组织/账套参数不会取代内部范围校验；登录会话与查询缓存同样按内部三元组隔离。后端通过官方 LoginByAppSecret 获取短期 cookie，然后调用 ExecuteBillQuery；查询结果最多缓存 60 秒。生产地址应为 HTTPS；默认拒绝远端明文 HTTP。
+在 **系统集成与连接器 → K3Cloud → 连接设置** 按内部三元组配置企业批准的 WebAPI Base URL、外部 ERP 账套 ID、服务用户名、外部组织标识、第三方应用 AppId/AppSecret、LCID。AppId 与 AppSecret 输入后只在 PLM 服务端内存中用于加密入库；查询设置不读回。不要把它们放入 Docker 的 K3Cloud 环境变量，Docker 只负责提供 AES 解密主密钥。外部 K3Cloud 的组织/账套参数不会取代内部范围校验；登录会话与查询缓存同样按内部三元组隔离。后端通过官方 LoginByAppSecret 获取短期 cookie，然后调用 ExecuteBillQuery；查询结果最多缓存 60 秒。
+
+生产推荐 HTTPS，也允许可信内网私有 IP 的 HTTP：`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16` 及 IPv6 ULA `fc00::/7`，例如 `http://172.16.77.90/k3cloud`（仅示例，请填写实际地址）。保存设置和运行时使用同一策略，无需全局 HTTP 开关。公网 HTTP、回环、链路本地/云元数据地址和 HTTP 域名均不放行；内网域名请改填实际私有 IP 或使用 HTTPS。URL 不能携带用户名密码、查询参数或片段，登录、查询和元数据请求均不跟随重定向。HTTP 会明文传输凭据及数据，只适用于已批准的可信网络；这不改变 PLM 自身的 HTTPS，也不改变 Flowable 或钉钉的地址策略。
+
+**组织标识如何填写：**填写对应金蝶组织的稳定标识，不是 PLM 内部组织 ID、账套 ID 或组织名称。当前该字段必填，用于连接会话/缓存和物料数据来源身份识别，不传给 `LoginByAppSecret`。物料来源刷新会以 `materialSource.fields.organization` 映射的组织字段执行 `字段 = '组织标识'` 查询，并严格校验返回值，所以必须与该字段的真实值完全一致：映射组织编码字段时填编码，映射组织内部 ID 字段时填内部 ID。没有配置物料来源时，建议统一采用金蝶组织编码。物料过滤值支持 1–100 个英文字母、数字、下划线、点或连字符。更改该值会改变连接/物料来源身份，应保持稳定。
+
+普通单据、主数据及元数据查询不会自动按此值过滤；ERP 可查询范围仍须通过接口用户的金蝶权限和经核实的查询条件控制。此字段不是普通查询的组织权限边界；PLM 内部的租户/组织/账套隔离仍独立生效。
 
 **查询 allowlist 必须从企业已确认的 FormId 与字段中显式填写**，例如：
 
