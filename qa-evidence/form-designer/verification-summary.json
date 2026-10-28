@@ -1,0 +1,25 @@
+{
+  "branch": "feat/flowable-form-designer",
+  "baseline": "0a2a63cd7c2a444c07309f255b5b47dd6fe1e741",
+  "main": "644c4a295db06c271bd5502e335f803e9e5da800",
+  "serverTests": {
+    "passed": 115,
+    "failed": 0
+  },
+  "clientTests": {
+    "passed": 19,
+    "failed": 0
+  },
+  "builds": {
+    "server": "passed",
+    "client": "passed; existing chunk-size warning"
+  },
+  "browserDatabase": "/tmp/plm-forms-mvp-ui/forms.sqlite",
+  "sharedTrackedStatus": "",
+  "sharedHead": "68bd0cf22b674d2b7d344b4c2bde9d0253c2d24f",
+  "isolationException": "Initial shared node_modules symlinks allowed Vite .vite/.vite-temp ignored-cache writes; preview stopped, dependencies copied privately before final tests. No shared tracked sources or branches changed.",
+  "remoteFlowableAccess": false,
+  "productionDatabaseAccess": false,
+  "pushed": false,
+  "deployed": false
+}

@@ -1,0 +1,53 @@
+.dba { min-width: 0; }
+.dba-filters { display: grid; gap: 10px; margin: 12px 0 0; padding: 12px; border: 1px solid var(--border, #e4e5ed); border-radius: 10px; background: var(--card, #fff); }
+.dba-fields-row { display: grid; grid-template-columns: minmax(110px, .9fr) repeat(2, minmax(132px, 1fr)) minmax(110px, 1fr) minmax(120px, 1fr) minmax(108px, .8fr); gap: 10px; align-items: end; }
+.dba-filters label, .dba-filter-label { display: flex; flex-direction: column; min-width: 0; gap: 5px; font-size: 11px; color: var(--text-secondary, #666); }
+.dba-filters input, .dba-multi-trigger { box-sizing: border-box; min-width: 0; width: 100%; min-height: 32px; padding: 6px 8px; border: 1px solid var(--border, #ddd); border-radius: 6px; background: var(--card, #fff); color: var(--text-primary, inherit); font: inherit; font-size: 12px; }
+.dba-filters input:focus-visible, .dba-multi-trigger:focus-visible, .dba-multi-all:focus-visible { outline: 2px solid #8270dd; outline-offset: 2px; }
+.dba-filter-actions, .dba-presets, .dba-date-scroll, .dba-apply-actions { display: flex; align-items: center; gap: 6px; }
+.dba-filter-actions { flex-wrap: wrap; column-gap: 12px; }
+.dba-filter-actions .iw-button { min-height: 30px; padding: 5px 9px; white-space: nowrap; }
+.dba-date-scroll { padding-right: 12px; border-right: 1px solid var(--border, #e4e5ed); }
+.dba-apply-actions { margin-left: auto; }
+.dba-multi { position: relative; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.dba-multi-trigger { display: flex; align-items: center; justify-content: space-between; gap: 6px; text-align: left; cursor: pointer; }
+.dba-multi-trigger > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dba-multi-trigger > svg { flex: none; }
+.dba-multi-menu { position: absolute; top: calc(100% + 5px); right: 0; width: max(100%, 190px); max-width: calc(100vw - 48px); z-index: 20; background: var(--card, #fff); border: 1px solid var(--border, #ddd); border-radius: 8px; box-shadow: 0 8px 24px rgb(36 34 65 / 12%); padding: 5px; }
+.dba-multi-all { display: flex; align-items: center; gap: 6px; padding: 7px 8px; width: 100%; border: 0; border-radius: 5px; background: transparent; font: inherit; font-size: 12px; color: inherit; cursor: pointer; text-align: left; }
+.dba-multi-all > svg:last-child { margin-left: auto; }
+.dba-multi-all:hover, .dba-multi-options label:hover { background: rgb(128 106 224 / 8%); }
+.dba-multi-options { max-height: 220px; overflow: auto; }
+.dba-multi-options label { flex-direction: row; align-items: center; padding: 7px 8px; gap: 8px; cursor: pointer; font-size: 12px; color: inherit; }
+.dba-multi-options label > span { overflow-wrap: anywhere; }
+.dba-multi-options input { width: 14px; height: 14px; min-height: 0; flex: none; accent-color: #7661cd; }
+.dba-multi-empty { display: block; padding: 8px; font-size: 12px; color: var(--text-secondary, #666); }
+.dba .iw-card-head { align-items: center; gap: 10px; }
+.dba .dr-list-actions, .dba-analysis-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.dba-list .dba-summary .dba-kpi { gap: 6px; padding: 12px; }
+.dba-list .dba-summary { margin: 10px 0 12px; gap: 10px; }
+.dba .dba-basis.dba-applied { margin: 8px 0; padding: 0; border: 0; background: none; font-size: 11px; }
+.dba-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.dba-summary .dba-kpi { display: flex; flex-direction: column; gap: 12px; min-width: 0; border: 1px solid var(--border, #e4e5ed); border-radius: 14px; padding: 18px 16px; background: var(--card, #fff); box-shadow: 0 4px 14px rgb(36 34 65 / 3%); }
+.dba-kpi-label { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.dba-summary span, .dba-basis { font-size: 12px; color: var(--text-secondary, #666); line-height: 1.7; }
+.dba-summary strong { font-size: clamp(18px, 1.55vw, 24px); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; line-height: 1.35; }
+.dba-summary small { font-size: 11px; line-height: 1.6; color: var(--text-secondary, #666); }
+.dba-summary .dba-kpi-key { border-color: #c6bbef; background: linear-gradient(125deg, rgb(128 106 224 / 10%), transparent 85%), var(--card, #fff); }
+.dba-kpi-key strong { color: #7661cd; }
+.dba-basis[data-testid] { padding: 10px 14px; border-radius: 9px; border: 1px solid var(--border, #e4e5ed); background: var(--card, #fff); }
+.dba th, .dba td { white-space: nowrap; }
+@media (max-width: 1200px) { .dba-fields-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } .dba-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .dba-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dba-summary .dba-kpi-key { grid-column: 1 / -1; } }
+@media (max-width: 640px) { .dba-filters { padding: 10px; } .dba-fields-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } .dba-filter-actions { gap: 8px; } .dba-apply-actions { margin-left: 0; } .dba-date-scroll { padding-right: 8px; } .dba .iw-card-head { flex-wrap: wrap; } .dba .dr-list-actions { gap: 6px; } .dba-summary .dba-kpi { padding: 12px; } }
+
+.dba-records { min-width: 0; border: 1px solid var(--border, #e4e5ed); border-radius: 12px; overflow: hidden; }
+.dba .dba-number { text-align: right; font-variant-numeric: tabular-nums; }
+.dba .dba-amount { font-weight: 600; }
+.dba-records tbody tr:hover { background: rgb(127 106 222 / 4%); }
+.dba-currency { display: inline-block; padding: 3px 7px; border-radius: 5px; background: #f4f5fa; border: 1px solid #e3e5ed; color: #596579; font-size: 10px; }
+.dba-currency-usd { background: #e9f9fc; border-color: #bae8ee; color: #167e91; }
+.dba-pagination { padding: 12px; margin: 0; justify-content: flex-start; border-bottom: 1px solid var(--border, #e4e5ed); flex-wrap: wrap; }
+.dba-pagination:last-child { border-top: 1px solid var(--border, #e4e5ed); border-bottom: 0; }
+.dba-pagination label { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; }
+.dba-pagination input, .dba-pagination select { box-sizing: border-box; width: 62px; min-height: 30px; border: 1px solid var(--border, #ddd); background: var(--card, #fff); color: inherit; border-radius: 6px; padding: 4px; }

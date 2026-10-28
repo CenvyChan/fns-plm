@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "pages/home/index",
+    "pages/login/index",
+    "pages/approvals/index",
+    "pages/approval-detail/index",
+    "pages/report-preview/index"
+  ],
+  "window": {
+    "defaultTitle": "工作流助手",
+    "titleBarColor": "#ffffff",
+    "pullRefresh": true
+  }
+}

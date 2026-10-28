@@ -1,0 +1,204 @@
+/* Shared operational UI layer. Import after feature styles; intentionally scoped to report/PLM surfaces. */
+:root {
+  --ui-font: 'DM Sans', 'Noto Sans SC', system-ui, sans-serif;
+  --ui-ink: #34334a;
+  --ui-text: #57566b;
+  --ui-muted: #9292a1;
+  --ui-line: #eeeeef;
+  --ui-surface: #fff;
+  --ui-surface-soft: #faf9fc;
+  --ui-accent: #8271ed;
+  --ui-accent-hover: #7160df;
+  --ui-success: #4c9b77;
+  --ui-warning: #b78143;
+  --ui-danger: #bf626e;
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-6: 24px;
+  --ui-radius: 8px;
+  --ui-focus: 0 0 0 3px rgba(130, 113, 237, .24);
+}
+.dr-section, .plm-page {
+  font-family: var(--ui-font);
+  color: var(--ui-ink);
+}
+.dr-header h2, .plm-panel-head h3 { line-height: 1.35; }
+.dr-section :is(button, input, select, textarea, a, [tabindex]):focus-visible,
+.plm-page :is(button, input, select, textarea, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+.dr-section :is(input, select, textarea), .plm-page .form-label :is(input, select, textarea) {
+  accent-color: var(--ui-accent);
+}
+.dr-section :is(.iw-table-wrap, .dr-k3-table),
+.plm-page :is(.plm-table-wrap, .bom-line-wrap) {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.dr-section :is(.iw-table-wrap, .dr-k3-table) table,
+.plm-page :is(.plm-table, .materials-table, .bom-lines-table) {
+  max-width: none;
+}
+.dr-section .dr-loading, .dr-section .iw-empty, .plm-page .plm-empty,
+.dr-section [role='status'], .plm-page [role='status'] { color: var(--ui-muted); }
+.dr-section [aria-busy='true'], .plm-page [aria-busy='true'] { cursor: progress; }
+.dr-section [aria-invalid='true'], .plm-page [aria-invalid='true'] {
+  border-color: var(--ui-danger) !important;
+}
+.dr-section :is(.dr-source-banner, .dr-warning-list), .plm-page :is(.material-blockers) {
+  line-height: 1.5;
+}
+/* Existing modal / preview primitives only; do not target chart or designer canvases. */
+.plm-page :is(.material-modal, .bom-modal, .plm-modal),
+.document-preview-modal {
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  overscroll-behavior: contain;
+}
+.document-preview-backdrop { overscroll-behavior: contain; }
+@media (max-width: 650px) {
+  .dr-section :is(.iw-table-wrap, .dr-k3-table),
+  .plm-page :is(.plm-table-wrap, .bom-line-wrap) { width: 100%; }
+  .plm-page :is(.material-modal, .bom-modal, .plm-modal), .document-preview-modal {
+    width: calc(100vw - 20px);
+    max-width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dr-section *, .plm-page * { scroll-behavior: auto; }
+}
+
+/* Shared primitives mapped to existing live workbenches, without replacing their behaviour. */
+:root { --ui-text-sm: 12px; --ui-text-base: 13px; --ui-text-title: 20px; --ui-row-space: 12px; }
+:is(.dr-section, .plm-page) { font-size: var(--ui-text-base); line-height: 1.5; }
+:is(.dr-section, .plm-page) :is(.iw-card, .plm-panel) { border-color: var(--ui-line); background: var(--ui-surface); border-radius: var(--ui-radius); }
+:is(.dr-section, .plm-page) :is(.dr-header h2, .module-banner h2) { font-size: var(--ui-text-title); }
+:is(.dr-section, .plm-page) :is(.iw-table-wrap, .plm-table-wrap) { overflow-x: auto; max-width: 100%; }
+:is(.dr-section, .plm-page) table { border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: var(--ui-text-sm); }
+:is(.dr-section, .plm-page) :is(th, td) { padding: var(--ui-row-space); border-bottom: 1px solid var(--ui-line); vertical-align: middle; }
+:is(.dr-section, .plm-page) th { color: var(--ui-text); background: var(--ui-surface-soft); font-weight: 650; text-align: left; }
+:is(.dr-section, .plm-page) tbody tr:hover { background: #f8f7fe; }
+:is(.dr-section, .plm-page) :is(.iw-button, .plm-button) { border-radius: var(--ui-radius); min-height: 34px; font-size: var(--ui-text-base); }
+:is(.dr-section, .plm-page) :is(input:not([type='checkbox']):not([type='radio']), select, textarea),
+.workspace-portal-host :is(.material-modal, .bom-modal) :is(input:not([type='checkbox']):not([type='radio']), select, textarea) { border-radius: var(--ui-radius); font-size: var(--ui-text-base); min-height: 34px; }
+:is(.dr-section, .plm-page) :is(.iw-empty, .plm-empty) { padding: var(--ui-space-6); color: var(--ui-text); text-align: center; }
+:is(.dr-section, .plm-page) :is(.iw-alert, [role='alert']) { border-left: 3px solid var(--ui-danger); border-radius: var(--ui-radius); padding: var(--ui-space-3); }
+:is(.dr-section, .plm-page) :is(.iw-notice, .dr-notice) { border-left: 3px solid var(--ui-success); padding: var(--ui-space-3); }
+.workspace-portal-host[hidden] { display: none !important; }
+.workspace-portal-host :is(.material-modal, .bom-modal, .detail-drawer) { max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); }
+.workspace-portal-host :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+@media(max-width:680px) {
+  :is(.dr-section, .plm-page) :is(th, td) { padding: 10px 12px; }
+  .workspace-portal-host :is(.material-modal, .bom-modal) { width: calc(100vw - 20px); max-width: calc(100vw - 20px); }
+}
+@media(max-width:680px) {
+  .dr-section .iw-card-head { flex-wrap: wrap; gap: var(--ui-space-3); }
+  .dr-section .iw-card-head > div { min-width: 0; max-width: 100%; }
+  .dr-section .dr-list-actions { width: auto; max-width: 100%; }
+  .dr-section .dr-list-actions .iw-button { white-space: normal; }
+  .plm-page :is(.plm-toolbar, .toolbar-actions) { flex-wrap: wrap; min-width: 0; }
+}
+
+/* Compact hierarchy overrides for existing operational surfaces. */
+.plm-page { gap: 12px; }
+.plm-page .module-banner {
+  min-height: 0;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius);
+  background: var(--ui-surface);
+  box-shadow: none;
+}
+.plm-page .module-banner::after { display: none; }
+.plm-page .module-banner-icon {
+  width: 34px; height: 34px; border-color: var(--ui-line);
+  border-radius: var(--ui-radius); background: var(--ui-surface-soft);
+  color: var(--ui-accent); box-shadow: none;
+}
+.plm-page .module-banner .plm-overline { display: none; }
+.plm-page .module-banner h2 { margin: 0 0 2px; font-size: 18px; letter-spacing: -.25px; }
+.plm-page .module-banner p { color: var(--ui-text); font-size: 12px; line-height: 1.45; }
+.plm-page .banner-number { padding: 0; }
+.plm-page .banner-number b { font-size: 21px; color: var(--ui-ink); }
+.plm-page .banner-number small { margin-top: 2px; font-size: 10px; }
+:is(.dr-section, .plm-page) :is(.iw-card, .plm-panel) { box-shadow: none; }
+.dr-section { gap: 11px; margin-bottom: 16px; }
+.dr-header { align-items: center; gap: 12px; }
+.dr-header h2 { margin: 0; font-size: 18px; }
+.dr-header p { margin-top: 3px; }
+.dr-header :is(.dr-overline, .plm-overline, .iw-eyebrow) { font-size: 8px; letter-spacing: .7px; }
+.dr-source-banner { gap: 8px; padding: 8px 11px; border-radius: 7px; }
+.dr-source-banner b, .dr-source-banner span { font-size: 10px; }
+@media (max-width: 680px) {
+  .plm-page { gap: 10px; }
+  .plm-page .module-banner { align-items: flex-start; gap: 9px; padding: 11px 12px; }
+  .plm-page .module-banner-icon { width: 30px; height: 30px; }
+  .plm-page .module-banner h2 { font-size: 16px; }
+  .plm-page .module-banner p { font-size: 11px; }
+  .plm-page .banner-number { margin-left: auto; white-space: nowrap; }
+  .plm-page .banner-number b { font-size: 18px; }
+  .dr-header { align-items: flex-start; flex-wrap: wrap; }
+  .dr-header-actions { width: 100%; }
+  .dr-source-banner { align-items: flex-start; }
+  .dr-source-banner > div { min-width: 0; }
+}
+
+/* Titles belong to the work surface, not another nested hero card. */
+.workspace-tab-panel .plm-page .module-banner { padding: 0 0 12px; border: 0; border-bottom: 1px solid var(--ui-line); border-radius: 0; }
+.dr-header .iw-eyebrow { display: none; } /* redundant bilingual section ornament */
+.dr-section .dr-source-banner { padding: 8px 10px; box-shadow: none; border-color: #eee4c4; background: #fffcf2; }
+.dr-section .dr-source-banner > div { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 2px; }
+.dr-section .dr-source-banner b { font-size: 12px; font-weight: 600; }
+.dr-section .dr-source-banner span { font-size: 12px; line-height: 1.5; }
+
+/* Administrative/report surfaces use the same calm hierarchy, without hiding security copy. */
+.workspace-tab-panel :is(.users-heading, .tenant-admin-heading, .connector-heading, .iw-heading) { margin-bottom: 16px; gap: 12px; }
+.workspace-tab-panel :is(.users-heading, .tenant-admin-heading, .connector-heading, .iw-heading) :is(h1, h2) { margin: 0 0 5px; font-size: 20px; line-height: 1.4; letter-spacing: -.3px; }
+.workspace-tab-panel :is(.users-heading, .tenant-admin-heading, .connector-heading, .iw-heading) p { margin: 0; font-size: 12px; line-height: 1.6; }
+.workspace-tab-panel :is(.users-overline, .tenant-admin-overline, .connector-overline, .iw-heading > div > .iw-eyebrow) { display: none; }
+.workspace-tab-panel .tenant-scope-banner { padding: 10px 12px; border-radius: 8px; background: #f7fafc; box-shadow: none; }
+.workspace-tab-panel .tenant-scope-banner b { font-size: 12px; }
+.workspace-tab-panel .tenant-scope-banner span { line-height: 1.5; }
+.workspace-tab-panel .plm-hero.kpi-hero { padding: 18px; min-height: 0; border-radius: 8px; box-shadow: none; }
+.workspace-tab-panel .plm-hero.kpi-hero h2 { font-size: 20px; }
+.dr-section .dr-source-banner:not(.dr-mock) { background: #f6faf8; border-color: #deebe4; }
+@media (max-width: 680px) {
+  .workspace-tab-panel :is(.users-heading, .tenant-admin-heading, .connector-heading, .iw-heading) { flex-wrap: wrap; }
+  .workspace-tab-panel :is(.users-heading, .tenant-admin-heading, .connector-heading, .iw-heading) :is(h1, h2) { font-size: 18px; }
+}
+
+/* Nested history grids must shrink around their independently scrollable table. */
+.dr-section :is(.dr-admin-import-history, .dr-admin-import-history > [role='tabpanel'], .dr-admin-batches) { min-width: 0; max-width: 100%; }
+.workspace-tab-panel .plm-hero.kpi-hero { background: #fff; border: 0; border-bottom: 1px solid var(--ui-line); border-radius: 0; padding: 0 0 12px; gap: 12px; }
+.workspace-tab-panel .kpi-hero .plm-overline { display: none; }
+.workspace-tab-panel .kpi-hero h2 { margin: 0 0 5px; }
+.workspace-tab-panel .kpi-hero .hero-stat { padding: 0; }
+.workspace-tab-panel .kpi-hero .hero-stat > b { font-size: 22px; }
+
+.workspace-tab-panel .dr-admin { min-width: 0; padding: 0; border: 0; box-shadow: none; }
+.workspace-tab-panel .dr-admin > .iw-card-head { padding: 0 0 12px; }
+.workspace-tab-panel .dr-admin > .iw-card-head h1 { margin: 0; font-size: 20px; line-height: 1.4; }
+.workspace-tab-panel .dr-admin > .iw-card-head .iw-eyebrow { display: none; }
+.dr-admin :is(.dr-admin-import-history, .dr-admin-import-history > [role='tabpanel'], .dr-admin-batches) { min-width: 0; max-width: 100%; }
+.dr-admin .iw-table-wrap { max-width: 100%; overflow-x: auto; }
+
+/* Only designer chrome: canvas, inspector controls and modelling rules stay untouched. */
+.workspace-tab-panel .workflow-entry-tabs { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 16px; padding: 0; border-bottom: 1px solid var(--ui-line); }
+.workspace-tab-panel .workflow-entry-tabs > button { border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 8px 2px 10px; background: none; font: inherit; font-size: 13px; color: var(--ui-text); cursor: pointer; }
+.workspace-tab-panel .workflow-entry-tabs > button.active { border-bottom-color: var(--ui-accent); color: #5f4eaa; font-weight: 600; }
+.workspace-tab-panel .workflow-entry-tabs > button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.workspace-tab-panel .fd-workspace-switch { padding: 0 0 10px; }
+.workspace-tab-panel :is(.fd-page, .bpmn-page) { padding: 0; }
+.workspace-tab-panel :is(.fd-head, .bpmn-head) { margin: 0 0 14px; padding: 0 0 12px; }
+.workspace-tab-panel :is(.fd-head, .bpmn-head) h1 { font-size: 20px; margin: 0 0 4px; }
+.workspace-tab-panel :is(.fd-eyebrow, .bpmn-brand small) { display: none; }
+@media (max-width: 680px) { .workspace-tab-panel .workflow-entry-tabs > button { min-height: 44px; } }

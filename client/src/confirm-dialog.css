@@ -1,0 +1,82 @@
+.app-confirm-dialog {
+  box-sizing: border-box;
+  width: min(440px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid #dfe6f0;
+  border-radius: 16px;
+  background: #fff;
+  color: #26364d;
+  box-shadow: 0 24px 90px #14243b38;
+}
+.app-confirm-dialog[open] {
+  animation: confirm-enter 0.16s ease-out;
+}
+.app-confirm-dialog::backdrop {
+  background: #182b4e66;
+  backdrop-filter: blur(2px);
+}
+.app-confirm-content {
+  padding: 26px;
+}
+.app-confirm-content h2 {
+  margin: 0 0 12px;
+  font-size: 19px;
+}
+.app-confirm-content p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.8;
+  color: #68778d;
+  overflow-wrap: anywhere;
+}
+.app-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 25px;
+}
+.app-confirm-actions button {
+  padding: 9px 16px;
+  min-height: 38px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #fff;
+  color: #52647d;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.app-confirm-actions button.danger {
+  border-color: #bd3a46;
+  background: #bd3a46;
+  color: white;
+}
+.app-confirm-actions button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.app-confirm-actions button:focus-visible {
+  outline: 3px solid #8ba8dc;
+  outline-offset: 2px;
+}
+@keyframes confirm-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-confirm-dialog[open] {
+    animation: none;
+  }
+}
+
+.app-confirm-actions button.primary {
+  border-color: #4168a4;
+  background: #4168a4;
+  color: #fff;
+}

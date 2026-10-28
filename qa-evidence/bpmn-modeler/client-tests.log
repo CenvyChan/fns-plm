@@ -1,0 +1,29 @@
+
+> momentum-client@1.0.0 test
+> node --test tests/*.test.mjs
+
+✔ Android API origin is runtime-configurable and native mode rejects non-HTTPS or credential-bearing URLs (2.277947ms)
+✔ native API requests use the configured origin with Bearer token and verified scope headers (27.775865ms)
+✔ 自有最小 Flowable moddle 描述符对三个扩展属性 roundtrip (17.897898ms)
+✔ workflow 页面提供 BPMN 入口及结构化安全生命周期 API (19.935278ms)
+✔ BPMN 键盘、编辑规则与 bpmnRules 服务显式受约束 (6.231917ms)
+✔ 组件可由 React SSR 加载并渲染（仅 smoke，不验证浏览器运行时） (340.829939ms)
+✔ daily import audit renders as a separate tab from migration batches (518.01289ms)
+✔ assignment selection preloads existing users and clearly warns replacement semantics (4.675029ms)
+✔ migration batch list is paged without a fixed first-20 truncation (0.593966ms)
+✔ K3 verification boundary and operational next steps are explicit (0.343197ms)
+✔ all original workbenches remain in grouped navigation and every child has a valid parent (1.584381ms)
+✔ daily list and form permissions fail closed and follow assigned business lines (0.360152ms)
+✔ daily managers can maintain masters but report definition and delivery writes remain admin-only (0.739707ms)
+✔ display, forms, analysis and master routes resolve to exactly their workbench (0.715963ms)
+✔ report definitions use the real API and preserve safety wiring (3.37413ms)
+✔ schedule editor supports pinned definitions while preserving legacy behavior (1.290765ms)
+✔ every split reporting route renders without initialization errors (591.720104ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 897.021698

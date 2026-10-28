@@ -1,0 +1,13 @@
+<view class="page">
+  <view class="heading"><text class="title">报表预览</text><text class="subtitle">数据来自当前登录账套的实时工作区快照</text></view>
+  <view a:if="{{loading}}" class="state">正在生成预览…</view>
+  <view a:if="{{error}}" class="error">{{error}}</view>
+  <view a:if="{{report}}" class="card">
+    <text class="report-title">{{report.title}}</text>
+    <text a:if="{{report.period}}" class="period">生成时间：{{report.period}}</text>
+    <view a:for="{{report.metrics}}" a:key="name" class="metric"><text>{{item.label}}</text><text class="value">{{item.value}}</text></view>
+    <text a:if="{{report.summary}}" class="summary">{{report.summary}}</text>
+    <view a:if="{{report.markdown}}" class="markdown"><text>{{report.markdown}}</text></view>
+  </view>
+  <view a:if="{{!loading && !error && !report}}" class="state">暂无报表数据</view>
+</view>

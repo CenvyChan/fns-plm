@@ -1,0 +1,48 @@
+/* One continuous metrics surface; existing colors and accents are unchanged. */
+.stats-grid.overview-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  padding: 22px 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.overview-metrics .stat-card {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-content: start;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.overview-metrics .stat-card + .stat-card { border-left: 1px solid var(--line); }
+.overview-metrics .stat-card:hover { box-shadow: none; }
+.overview-metrics .stat-icon { width: 28px; height: 28px; margin: 0; }
+.overview-metrics .stat-label { font-size: 12px; line-height: 1.5; }
+.overview-metrics .stat-value-row { grid-column: 1 / -1; margin: 0; min-width: 0; }
+.overview-metrics .stat-value-row strong {
+  font-size: clamp(24px, 2.1vw, 30px);
+  font-weight: 650;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .stats-grid.overview-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0; }
+  .overview-metrics .stat-card { padding: 18px 20px; row-gap: 10px; }
+  .overview-metrics .stat-card:nth-child(odd) { border-left: 0; }
+  .overview-metrics .stat-card:nth-child(n + 3) { border-top: 1px solid var(--line); }
+  .overview-metrics .stat-value-row strong { font-size: 24px; }
+}
+@media (max-width: 420px) {
+  .overview-metrics .stat-card { padding: 16px 14px; column-gap: 8px; }
+  .overview-metrics .stat-label { font-size: 11px; }
+}

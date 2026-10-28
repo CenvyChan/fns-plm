@@ -1,0 +1,105 @@
+.rw-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -7px 0 16px;
+  color: #7b8798;
+  font-size: 12px;
+}
+.rw-breadcrumb button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #536783;
+  font: inherit;
+  cursor: pointer;
+}
+.rw-breadcrumb button:hover {
+  text-decoration: underline;
+}
+.rw-form-card {
+  max-width: 820px;
+}
+.rw-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.rw-form > label {
+  display: grid;
+  gap: 7px;
+  color: #46546a;
+  font-size: 12px;
+  font-weight: 600;
+}
+.rw-form input,
+.rw-form select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #dfe5ed;
+  border-radius: 7px;
+  background: #fff;
+  padding: 8px 10px;
+  color: #29384e;
+  font: inherit;
+  font-weight: 400;
+}
+.rw-form-note,
+.rw-permission {
+  grid-column: 1/-1;
+  margin: 0;
+  color: #7b8798;
+  font-size: 12px;
+}
+.rw-form-actions {
+  grid-column: 1/-1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  padding-top: 4px;
+}
+.rw-schedule-link h2 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.rw-schedule-link > p {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #748196;
+}
+@media (max-width: 640px) {
+  .rw-form {
+    grid-template-columns: 1fr;
+  }
+  .rw-form-note,
+  .rw-permission,
+  .rw-form-actions {
+    grid-column: 1;
+  }
+  .rw-form-actions {
+    justify-content: stretch;
+  }
+  .rw-form-actions button {
+    flex: 1;
+  }
+}
+
+.rw-definition-list { display: grid; gap: 12px; margin: 16px 0; }
+.rw-definition-list article { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px; border:1px solid #e5eaf0; border-radius:9px; }
+.rw-definition-list article > div { display:flex; align-items:flex-start; gap:12px; }
+.rw-definition-list h3, .rw-boundary-card h3 { margin:0 0 6px; color:#29384e; }
+.rw-definition-list p, .rw-definition-detail p { margin:5px 0; color:#68768a; line-height:1.65; }
+.rw-definition-list small { color:#7b8798; }
+.rw-definition-detail { color:#46546a; line-height:1.7; }
+.rw-definition-detail h3 { margin:18px 0 4px; }
+.rw-boundary-card { max-width:820px; }
+.rw-boundary-card ul { line-height:1.8; color:#46546a; }
+.rw-report-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:5px; }
+
+.rw-schedule-detail pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}

@@ -1,0 +1,34 @@
+{
+  "baseCommit": "aed56d014b25ca4afe35fc4cc2ee63730011b958",
+  "suites": {
+    "client-unit": {
+      "tests": 77,
+      "pass": 77,
+      "fail": 0
+    },
+    "server-unit-integration": {
+      "tests": 195,
+      "pass": 195,
+      "fail": 0
+    },
+    "browser-all": {
+      "tests": 16,
+      "pass": 16,
+      "fail": 0
+    }
+  },
+  "clientAndServerBuild": "passed",
+  "browserViewports": [
+    1920,
+    1440,
+    900,
+    390,
+    360
+  ],
+  "dailyDataValidation": "Real loopback API and disposable SQLite; artificial fixtures only",
+  "flowableValidation": "Local mocked API states only; real engine connectivity, process deployment and task writes not run",
+  "productionChanged": false,
+  "pushed": false,
+  "deployed": false,
+  "knownWarning": "Existing frontend bundle chunk-size warning"
+}

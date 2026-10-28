@@ -1,0 +1,41 @@
+.dac-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  min-width: 0;
+}
+.dac-card:last-child { grid-column: 1 / -1; }
+.dac-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border, #e1e5e9);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  padding: 14px 14px 10px;
+}
+.dac-card h3 { margin: 0 0 6px; font-size: 14px; color: var(--text-primary, #252a31); }
+.dac-note { margin: 0 0 8px; color: var(--text-secondary, #68717c); font-size: 12px; line-height: 1.55; }
+.dac-svg-scroll { width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+.dac-svg { display: block; width: 100%; min-width: 440px; height: auto; overflow: visible; }
+.dac-rank-svg { min-width: 520px; }
+.dac-svg .dac-gridline { stroke: #e9edf1; stroke-width: 1; }
+.dac-svg .dac-zero { stroke: #75808b; stroke-width: 1.25; stroke-dasharray: 4 3; }
+.dac-axis-label, .dac-value-label { fill: #606a75; font: 11px system-ui, sans-serif; }
+.dac-rank-label { fill: #36404a; font: 12px system-ui, sans-serif; }
+.dac-bar { fill: #10a6b8; }
+.dac-empty { color: var(--text-secondary, #68717c); font-size: 12px; margin: 8px 0; }
+.dac-details { margin-top: 8px; border-top: 1px solid var(--border, #e1e5e9); padding-top: 8px; }
+.dac-details summary { width: fit-content; cursor: pointer; color: var(--text-secondary, #535e69); font-size: 12px; }
+.dac-table-wrap { max-width: 100%; overflow-x: auto; margin-top: 8px; }
+.dac-table-wrap table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.dac-table-wrap caption { text-align: left; padding: 6px 0; color: var(--text-secondary, #68717c); }
+.dac-table-wrap th, .dac-table-wrap td { padding: 7px 9px; border-bottom: 1px solid var(--border, #e8ebef); text-align: right; white-space: nowrap; }
+.dac-table-wrap th:first-child, .dac-table-wrap td:first-child { text-align: left; }
+.dac-table-wrap tbody th { max-width: 260px; overflow-wrap: anywhere; white-space: normal; }
+.dac-table-wrap td { font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .dac-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .dac-card { padding: 11px 10px 8px; }
+  .dac-svg { min-width: 420px; }
+  .dac-rank-svg { min-width: 500px; }
+}

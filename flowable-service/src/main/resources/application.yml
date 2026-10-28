@@ -1,0 +1,39 @@
+server:
+  address: ${FLOWABLE_HOST:127.0.0.1}
+  port: ${FLOWABLE_PORT:8090}
+  servlet:
+    context-path: /flowable-rest
+  shutdown: graceful
+
+spring:
+  application:
+    name: momentum-flowable-service
+  datasource:
+    url: ${FLOWABLE_DB_URL:jdbc:h2:file:${FLOWABLE_DATA_DIR:./data}/flowable;DB_CLOSE_ON_EXIT=FALSE}
+    driver-class-name: ${FLOWABLE_DB_DRIVER:org.h2.Driver}
+    username: ${FLOWABLE_DB_USERNAME:sa}
+    password: ${FLOWABLE_DB_PASSWORD:}
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  main:
+    banner-mode: off
+
+flowable:
+  rest-api-enabled: true
+  database-schema-update: true
+  check-process-definitions: true
+  process-definition-location-prefix: classpath*:/processes/
+
+momentum:
+  flowable:
+    username: ${FLOWABLE_REST_USERNAME:momentum-api}
+    password: ${FLOWABLE_REST_PASSWORD:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

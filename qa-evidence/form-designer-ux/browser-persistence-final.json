@@ -1,0 +1,222 @@
+{
+  "form": {
+    "form_key": "ux_material_change",
+    "name": "物料变更申请",
+    "revision": 4,
+    "latest_version": 2,
+    "active_version": 1,
+    "definition": {
+      "dslVersion": 1,
+      "fields": [
+        {
+          "id": "mode",
+          "label": "变更类型",
+          "type": "select",
+          "options": [
+            {
+              "value": "normal",
+              "label": "常规"
+            },
+            {
+              "value": "special",
+              "label": "特殊"
+            }
+          ],
+          "section": "section_1792461808571",
+          "required": true
+        },
+        {
+          "id": "reason",
+          "label": "变更说明",
+          "type": "textarea",
+          "section": "section_1792461808571",
+          "visibleWhen": {
+            "field": "mode",
+            "op": "eq",
+            "value": "special"
+          },
+          "requiredWhen": {
+            "field": "mode",
+            "op": "eq",
+            "value": "special"
+          }
+        },
+        {
+          "id": "qty",
+          "label": "变更数量（修订）",
+          "type": "number",
+          "min": 1,
+          "max": 5,
+          "enabledWhen": {
+            "field": "mode",
+            "op": "eq",
+            "value": "special"
+          }
+        }
+      ],
+      "sections": [
+        {
+          "id": "section_1792461808571",
+          "title": "变更基本信息"
+        }
+      ],
+      "events": [
+        {
+          "on": "change",
+          "field": "mode",
+          "actions": [
+            {
+              "type": "set",
+              "target": "qty",
+              "value": 3
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "versions": [
+    {
+      "version": 1,
+      "definition": {
+        "dslVersion": 1,
+        "fields": [
+          {
+            "id": "mode",
+            "label": "变更类型",
+            "type": "select",
+            "options": [
+              {
+                "value": "normal",
+                "label": "常规"
+              },
+              {
+                "value": "special",
+                "label": "特殊"
+              }
+            ],
+            "section": "section_1792461808571",
+            "required": true
+          },
+          {
+            "id": "reason",
+            "label": "变更说明",
+            "type": "textarea",
+            "section": "section_1792461808571",
+            "visibleWhen": {
+              "field": "mode",
+              "op": "eq",
+              "value": "special"
+            },
+            "requiredWhen": {
+              "field": "mode",
+              "op": "eq",
+              "value": "special"
+            }
+          },
+          {
+            "id": "qty",
+            "label": "变更数量",
+            "type": "number",
+            "min": 1,
+            "max": 10
+          }
+        ],
+        "sections": [
+          {
+            "id": "section_1792461808571",
+            "title": "变更基本信息"
+          }
+        ]
+      }
+    },
+    {
+      "version": 2,
+      "definition": {
+        "dslVersion": 1,
+        "fields": [
+          {
+            "id": "mode",
+            "label": "变更类型",
+            "type": "select",
+            "options": [
+              {
+                "value": "normal",
+                "label": "常规"
+              },
+              {
+                "value": "special",
+                "label": "特殊"
+              }
+            ],
+            "section": "section_1792461808571",
+            "required": true
+          },
+          {
+            "id": "reason",
+            "label": "变更说明",
+            "type": "textarea",
+            "section": "section_1792461808571",
+            "visibleWhen": {
+              "field": "mode",
+              "op": "eq",
+              "value": "special"
+            },
+            "requiredWhen": {
+              "field": "mode",
+              "op": "eq",
+              "value": "special"
+            }
+          },
+          {
+            "id": "qty",
+            "label": "变更数量（修订）",
+            "type": "number",
+            "min": 1,
+            "max": 5,
+            "enabledWhen": {
+              "field": "mode",
+              "op": "eq",
+              "value": "special"
+            }
+          }
+        ],
+        "sections": [
+          {
+            "id": "section_1792461808571",
+            "title": "变更基本信息"
+          }
+        ],
+        "events": [
+          {
+            "on": "change",
+            "field": "mode",
+            "actions": [
+              {
+                "type": "set",
+                "target": "qty",
+                "value": 3
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "process_key": "materialApproval",
+      "node_key": "managerReview",
+      "version": 2
+    }
+  ],
+  "submissions": {
+    "count": 0
+  },
+  "checks": {
+    "oldVersionMax": 10,
+    "newVersionMax": 5,
+    "activeVersion": 1,
+    "bindingPinnedVersion": 2
+  }
+}

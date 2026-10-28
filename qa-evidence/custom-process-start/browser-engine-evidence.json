@@ -1,0 +1,107 @@
+{
+  "work": "/tmp/custom-start-ui-Sf6ONx",
+  "modelId": "suxyJiWtT5xjsmEyT2LI2",
+  "starts": [
+    {
+      "id": "isolated-custom-instance-1",
+      "processDefinitionId": "uatCustomApproval:1:isolated-1",
+      "tenantId": "tenant:xToqjA1anBZZIb2xjxKmX:organization:Sv_ECDxX605jhPNQGXZCo:account:bqp4TbaA9jPtRiYNeqTpi",
+      "input": {
+        "processDefinitionId": "uatCustomApproval:1:isolated-1",
+        "variables": [
+          {
+            "name": "title",
+            "value": "UAT browser custom start"
+          },
+          {
+            "name": "businessId",
+            "value": "UAT-BROWSER-001"
+          },
+          {
+            "name": "requester",
+            "value": "自定义流程验收管理员"
+          },
+          {
+            "name": "initiator",
+            "value": "plm_3a46a2bd4b66dd63f3cf4fb5c0099a12_u_21edd950ea7988fe96cdb54db8b9fb57"
+          }
+        ],
+        "businessKey": "custom:suxyJiWtT5xjsmEyT2LI2:a94f35a9-bd97-408f-a4db-77a973731701"
+      }
+    },
+    {
+      "id": "isolated-custom-instance-2",
+      "processDefinitionId": "uatCustomApproval:1:isolated-1",
+      "tenantId": "tenant:xToqjA1anBZZIb2xjxKmX:organization:Sv_ECDxX605jhPNQGXZCo:account:bqp4TbaA9jPtRiYNeqTpi",
+      "input": {
+        "processDefinitionId": "uatCustomApproval:1:isolated-1",
+        "variables": [
+          {
+            "name": "title",
+            "value": "UAT uncertain outcome"
+          },
+          {
+            "name": "requester",
+            "value": "自定义流程验收管理员"
+          },
+          {
+            "name": "initiator",
+            "value": "plm_3a46a2bd4b66dd63f3cf4fb5c0099a12_u_21edd950ea7988fe96cdb54db8b9fb57"
+          }
+        ],
+        "businessKey": "custom:suxyJiWtT5xjsmEyT2LI2:15f99b01-59cf-4fbd-a962-33ad69b84e46"
+      }
+    },
+    {
+      "id": "isolated-custom-instance-3",
+      "processDefinitionId": "uatCustomApproval:1:isolated-1",
+      "tenantId": "tenant:xToqjA1anBZZIb2xjxKmX:organization:Sv_ECDxX605jhPNQGXZCo:account:bqp4TbaA9jPtRiYNeqTpi",
+      "input": {
+        "processDefinitionId": "uatCustomApproval:1:isolated-1",
+        "variables": [
+          {
+            "name": "title",
+            "value": "UAT PLM manager custom start"
+          },
+          {
+            "name": "requester",
+            "value": "UAT plm_manager"
+          },
+          {
+            "name": "initiator",
+            "value": "plm_3a46a2bd4b66dd63f3cf4fb5c0099a12_u_116a55f5ccee967dd290f9b1d68b7c37"
+          }
+        ],
+        "businessKey": "custom:suxyJiWtT5xjsmEyT2LI2:69d760dc-af01-4834-b44b-beae54da674e"
+      }
+    }
+  ],
+  "calls": [
+    "POST /repository/deployments",
+    "GET /repository/process-definitions?key=uatCustomApproval&tenantId=tenant%3AxToqjA1anBZZIb2xjxKmX%3Aorganization%3ASv_ECDxX605jhPNQGXZCo%3Aaccount%3Abqp4TbaA9jPtRiYNeqTpi&size=100",
+    "GET /runtime/tasks?size=1",
+    "GET /runtime/tasks?assignee=plm_3a46a2bd4b66dd63f3cf4fb5c0099a12_u_21edd950ea7988fe96cdb54db8b9fb57&tenantId=tenant%3AxToqjA1anBZZIb2xjxKmX%3Aorganization%3ASv_ECDxX605jhPNQGXZCo%3Aaccount%3Abqp4TbaA9jPtRiYNeqTpi&active=true&size=100",
+    "GET /runtime/tasks?candidateUser=plm_3a46a2bd4b66dd63f3cf4fb5c0099a12_u_21edd950ea7988fe96cdb54db8b9fb57&tenantId=tenant%3AxToqjA1anBZZIb2xjxKmX%3Aorganization%3ASv_ECDxX605jhPNQGXZCo%3Aaccount%3Abqp4TbaA9jPtRiYNeqTpi&active=true&size=100",
+    "GET /runtime/tasks?candidateGroup=plm_3a46a2bd4b66dd63f3cf4fb5c0099a12_r_admin&tenantId=tenant%3AxToqjA1anBZZIb2xjxKmX%3Aorganization%3ASv_ECDxX605jhPNQGXZCo%3Aaccount%3Abqp4TbaA9jPtRiYNeqTpi&active=true&size=100",
+    "GET /runtime/tasks?size=1",
+    "GET /runtime/tasks?size=1",
+    "GET /repository/process-definitions/uatCustomApproval%3A1%3Aisolated-1",
+    "POST /runtime/process-instances",
+    "GET /runtime/tasks?size=1",
+    "GET /repository/process-definitions/uatCustomApproval%3A1%3Aisolated-1",
+    "POST /runtime/process-instances",
+    "GET /runtime/tasks?size=1",
+    "GET /runtime/tasks?assignee=plm_3a46a2bd4b66dd63f3cf4fb5c0099a12_u_c2640bc5f5239faabffe65ad66008f83&tenantId=tenant%3AxToqjA1anBZZIb2xjxKmX%3Aorganization%3ASv_ECDxX605jhPNQGXZCo%3Aaccount%3Abqp4TbaA9jPtRiYNeqTpi&active=true&size=100",
+    "GET /runtime/tasks?candidateUser=plm_3a46a2bd4b66dd63f3cf4fb5c0099a12_u_c2640bc5f5239faabffe65ad66008f83&tenantId=tenant%3AxToqjA1anBZZIb2xjxKmX%3Aorganization%3ASv_ECDxX605jhPNQGXZCo%3Aaccount%3Abqp4TbaA9jPtRiYNeqTpi&active=true&size=100",
+    "GET /runtime/tasks?candidateGroup=plm_3a46a2bd4b66dd63f3cf4fb5c0099a12_r_member&tenantId=tenant%3AxToqjA1anBZZIb2xjxKmX%3Aorganization%3ASv_ECDxX605jhPNQGXZCo%3Aaccount%3Abqp4TbaA9jPtRiYNeqTpi&active=true&size=100",
+    "GET /runtime/tasks?size=1",
+    "GET /runtime/tasks?size=1",
+    "GET /runtime/tasks?assignee=plm_3a46a2bd4b66dd63f3cf4fb5c0099a12_u_116a55f5ccee967dd290f9b1d68b7c37&tenantId=tenant%3AxToqjA1anBZZIb2xjxKmX%3Aorganization%3ASv_ECDxX605jhPNQGXZCo%3Aaccount%3Abqp4TbaA9jPtRiYNeqTpi&active=true&size=100",
+    "GET /runtime/tasks?candidateUser=plm_3a46a2bd4b66dd63f3cf4fb5c0099a12_u_116a55f5ccee967dd290f9b1d68b7c37&tenantId=tenant%3AxToqjA1anBZZIb2xjxKmX%3Aorganization%3ASv_ECDxX605jhPNQGXZCo%3Aaccount%3Abqp4TbaA9jPtRiYNeqTpi&active=true&size=100",
+    "GET /runtime/tasks?candidateGroup=plm_3a46a2bd4b66dd63f3cf4fb5c0099a12_r_plm_manager&tenantId=tenant%3AxToqjA1anBZZIb2xjxKmX%3Aorganization%3ASv_ECDxX605jhPNQGXZCo%3Aaccount%3Abqp4TbaA9jPtRiYNeqTpi&active=true&size=100",
+    "GET /runtime/tasks?size=1",
+    "GET /runtime/tasks?size=1",
+    "GET /repository/process-definitions/uatCustomApproval%3A1%3Aisolated-1",
+    "POST /runtime/process-instances"
+  ]
+}

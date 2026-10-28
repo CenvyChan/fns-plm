@@ -1,0 +1,30 @@
+{
+  "name": "momentum-client",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "preview": "vite preview --host 0.0.0.0",
+    "test:browser": "node --experimental-strip-types --test tests/*.browser.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.4.1",
+    "bpmn-js": "18.31.0",
+    "bpmn-moddle": "10.3.1",
+    "fflate": "^0.8.3",
+    "framer-motion": "^12.6.2",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "playwright": "1.56.1",
+    "typescript": "~5.7.2",
+    "vite": "^6.2.0"
+  }
+}

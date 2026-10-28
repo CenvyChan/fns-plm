@@ -1,0 +1,75 @@
+.sidebar {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.navigation-groups {
+  flex: 0 0 auto;
+  padding-bottom: 8px;
+}
+.navigation-group + .navigation-group {
+  margin-top: 15px;
+}
+.navigation-group .nav-caption {
+  margin: 0 0 7px;
+  padding-top: 0;
+}
+.navigation-group .side-nav {
+  gap: 3px;
+}
+.navigation-group .nav-item {
+  min-height: 35px;
+  height: auto;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.navigation-group .nav-item span {
+  white-space: normal;
+  text-align: left;
+}
+.navigation-group .nav-item svg {
+  flex-shrink: 0;
+}
+.navigation-group .nav-item[aria-current="page"] {
+  font-weight: 650;
+}
+.sidebar .sidebar-bottom {
+  margin-top: 18px;
+}
+.sidebar .focus-card {
+  display: none;
+}
+.sidebar .sidebar-project-label {
+  margin-top: 14px;
+}
+.content-area > .dr-section {
+  max-width: 100%;
+}
+.content-area > .dr-admin {
+  max-width: 100%;
+}
+.breadcrumbs b {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 900px) {
+  .sidebar {
+    height: 100dvh;
+  }
+  .navigation-group + .navigation-group {
+    margin-top: 11px;
+  }
+}
+@media (max-width: 680px) {
+  .topbar .breadcrumbs {
+    flex: 1;
+    min-width: 0;
+  }
+  .topbar .breadcrumbs > span {
+    display: none;
+  }
+  .topbar .breadcrumbs > svg {
+    display: none;
+  }
+  .topbar-actions {
+    flex-shrink: 0;
+  }
+}

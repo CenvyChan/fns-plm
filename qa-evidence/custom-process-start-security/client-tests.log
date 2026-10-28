@@ -1,0 +1,50 @@
+
+> momentum-client@1.0.0 test
+> node --experimental-strip-types --test tests/*.test.mjs
+
+✔ Android API origin is runtime-configurable and native mode rejects non-HTTPS or credential-bearing URLs (3.36456ms)
+✔ native API requests use the configured origin with Bearer token and verified scope headers (43.922354ms)
+▶ 功能设计器：模板、固定表单与权限空态契约
+  ✔ 三种模板是连通且有界的真实图，不是菜单占位 (3.137087ms)
+  ✔ 图形 XML 保留并行和固定表单版本并转义文本 (16.104122ms)
+  ✔ 空态不显示可编辑的示例节点或伪同步改动 (30.394577ms)
+  ✔ 只读成员写入控件禁用且未冒充会签或运行时支持 (16.677205ms)
+✔ 功能设计器：模板、固定表单与权限空态契约 (866.727958ms)
+✔ 自有最小 Flowable moddle 描述符对分配属性和固定表单版本 roundtrip (17.40563ms)
+✔ workflow 页面提供 BPMN 入口及结构化安全生命周期 API (31.596116ms)
+✔ BPMN 键盘、编辑规则与 bpmnRules 服务显式受约束 (17.344966ms)
+WebSocket server error: Port 24678 is already in use
+✔ 组件可由 React SSR 加载并渲染（仅 smoke，不验证浏览器运行时） (785.807418ms)
+WebSocket server error: Port 24678 is already in use
+✔ 自定义流程启动与内置入口分离，权限和模式不冒充运行状态 (371.952318ms)
+✔ 启动请求只允许业务上下文和服务端固定版本，无内置流程跳转或客户端引擎身份 (1.162375ms)
+✔ 发布与表单文案不再断言仅模拟或全局适配器缺失 (0.964815ms)
+✔ 明确 unavailable 前置拒绝可在恢复后经重新确认再试；模糊结果保持锁定 (1.409966ms)
+✔ daily import audit renders as a separate tab from migration batches (595.206476ms)
+✔ renderer SSR marks only explicitly/conditionally required fields and disables gated fields (502.497032ms)
+✔ HTTP adapter uses revision to select POST create and checks all GET responses (1.919359ms)
+✔ partition renderer SSR groups visible fields, escapes hostile content, and accepts legacy DSL v1 (460.069073ms)
+✔ rule inspector and fixed-version manager SSR expose ordered-rule and governance affordances (231.794936ms)
+✔ event normalization preserves declaration order and old DSL without optional rules remains valid (66.371531ms)
+✔ DSL conditions evaluate eq, neq and in without executing expressions (2.449428ms)
+✔ change actions only set/clear the named target (1.277344ms)
+✔ event normalization is ordered and single pass, and skips empty sources (0.311831ms)
+✔ empty-value logic treats zero as a value and empty arrays as missing (0.190226ms)
+✔ assignment selection preloads existing users and clearly warns replacement semantics (6.090418ms)
+✔ migration batch list is paged without a fixed first-20 truncation (0.504487ms)
+✔ K3 verification boundary and operational next steps are explicit (0.271292ms)
+✔ all original workbenches remain in grouped navigation and every child has a valid parent (1.584481ms)
+✔ daily list and form permissions fail closed and follow assigned business lines (0.430795ms)
+✔ daily managers can maintain masters but report definition and delivery writes remain admin-only (0.354381ms)
+✔ display, forms, analysis and master routes resolve to exactly their workbench (0.518585ms)
+✔ report definitions use the real API and preserve safety wiring (6.86217ms)
+✔ schedule editor supports pinned definitions while preserving legacy behavior (1.414439ms)
+✔ every split reporting route renders without initialization errors (861.268718ms)
+ℹ tests 35
+ℹ suites 0
+ℹ pass 35
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1856.440104

@@ -1,0 +1,1 @@
+Historical command and network-isolation logs were removed with the unreviewed screenshots and account-specific evidence. This file intentionally does not reconstruct internal endpoints, source fingerprints, or prior execution details. Current verification must be performed from the synthetic source tests; no retained browser screenshot result is claimed.

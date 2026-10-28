@@ -1,0 +1,53 @@
+.mdr { max-width: 1480px; min-width: 0; margin: 0 auto; padding: 22px 26px 36px; color: #273247; font-size: 12px; }
+.mdr * { box-sizing: border-box; }
+.mdr-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 19px; }
+.mdr-eyebrow { font-size: 10px; color: #81879c; letter-spacing: .08em; margin-bottom: 6px; }
+.mdr h1 { margin: 0; font-size: 22px; line-height: 1.4; font-weight: 700; }
+.mdr-header p { margin: 7px 0 0; color: #778193; font-size: 12px; }
+.mdr button, .mdr input, .mdr select { font: inherit; border: 1px solid #dce0e9; border-radius: 7px; background: #fff; min-height: 35px; padding: 7px 12px; color: #3e4759; }
+.mdr button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; white-space: nowrap; }
+.mdr button:hover:not(:disabled) { background: #f3f1ff; border-color: #aaa0e9; }
+.mdr button:disabled { opacity: .55; cursor: not-allowed; }
+.mdr :is(button,input,select):focus-visible { outline: 2px solid #7a69dd; outline-offset: 2px; }
+.mdr-filters { display: flex; align-items: flex-end; gap: 18px; padding: 14px 16px; background: #fff; border: 1px solid #e4e6ef; border-radius: 11px; box-shadow: 0 3px 10px #26315104; }
+.mdr-filters label { display: flex; align-items: center; gap: 9px; color: #838a99; white-space: nowrap; }
+.mdr-filters select { min-width: 164px; background: #f8f9fc; }
+.mdr-filters input { background: #f8f9fc; }
+.mdr button.mdr-primary { background: #5140c9; color: #fff; border-color: #5140c9; }
+.mdr button.mdr-primary:hover:not(:disabled) { background: #4432b9; }
+.mdr-filters > span { margin: auto 0 auto auto; color: #969bab; font-size: 11px; }
+.mdr-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 16px 0 12px; }
+.mdr-card { padding: 17px 18px 15px; min-width: 0; border: 1px solid #e6e7ef; border-radius: 11px; background: #fff; box-shadow: 0 4px 14px #26315104; }
+.mdr-card > div { color: #8a91a1; display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
+.mdr-card strong { display: block; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 23px; font-weight: 650; line-height: 1.3; margin: 14px 0 9px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.mdr-card small { color: #8a91a1; font-size: 10px; line-height: 1.5; }
+.mdr-accent { background: linear-gradient(125deg,#efedff,#fafaff); border-color: #dbd4fa; }
+.mdr-accent strong { color: #5545af; }
+.mdr-notice { border-left: 3px solid #c1b7e6; background: #ffffffa6; padding: 10px 13px; color: #7e8492; font-size: 11px; line-height: 1.8; margin-bottom: 18px; }
+.mdr-notice b { font-weight: 500; color: #646d7e; }
+.mdr-mock { border-left-color: #d4ac5c; background: #fffbf1; }
+.mdr-table-scroll { overflow: auto; width: 100%; border: 1px solid #dfe2ea; border-radius: 8px; background: #fff; box-shadow: 0 7px 20px #26315107; }
+.mdr-table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 780px; table-layout: fixed; font-size: 11px; }
+.mdr-table caption { text-align: left; padding: 10px 13px; font-size: 11px; color: #8990a1; background: #fafbfe; }
+.mdr-table th, .mdr-table td { border-right: 1px solid #e8eaf0; border-bottom: 1px solid #e8eaf0; height: 34px; padding: 7px 12px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mdr-table tr > :last-child { border-right: 0; }
+.mdr-table th:first-child { text-align: left; width: 145px; }
+.mdr-table thead th { color: #798292; background: #fcfcff; font-weight: 500; text-align: center; height: 32px; }
+.mdr-table tbody th { font-weight: 400; color: #5f6878; background: #fff; }
+.mdr-table tbody tr:hover > * { box-shadow: inset 0 0 0 100px #7665dc08; }
+.mdr-table tbody tr:last-child > * { border-bottom: 0; }
+.mdr-table td { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: #394254; }
+.mdr-table .mdr-system, .mdr-table .mdr-sales-amount { background: #f0fbf9; }
+.mdr-table .mdr-quantity { background: #fdfaf1; }
+.mdr-table .mdr-purchase-amount { background: #f3f2ff; }
+.mdr-table .mdr-purchase-heading { background: #f4f2ff; color: #6554ab; }
+.mdr-table .mdr-sales-heading { background: #effaf7; color: #408676; }
+.mdr-table .mdr-difference { color: #cf535f; font-weight: 600; }
+.mdr-table .mdr-empty-day > * { color: #b4bac4; }
+.mdr-table tfoot > tr > * { font-weight: 700; background: #f7f8fc; border-top: 2px solid #dfe2ed; border-bottom: 0; height: 38px; }
+.mdr-footnote { color: #9299a8; font-size: 11px; line-height: 1.7; }
+.mdr-state { padding: 24px; margin-top: 16px; background: #fff; border: 1px solid #e4e6ef; border-radius: 9px; color: #7a8394; }
+.mdr-error { color: #bd4550; }
+.mdr-state button { margin-left: 14px; }
+@media (max-width: 768px) { .mdr { padding: 16px 12px 26px; } .mdr h1 { font-size: 19px; } .mdr-header { align-items: flex-start; flex-wrap: wrap; } .mdr-filters { gap: 12px; flex-wrap: wrap; } .mdr-filters > span { width: 100%; margin: 0; } .mdr-cards { gap: 9px; } .mdr-card { padding: 12px; } .mdr-card strong { font-size: 19px; } }
+@media (max-width: 480px) { .mdr-cards { grid-template-columns: 1fr; } .mdr-card { display: grid; grid-template-columns: 1fr auto; gap: 5px 10px; } .mdr-card > div { align-items: center; } .mdr-card strong { margin: 0; font-size: 21px; } .mdr-card small { grid-column: 1 / -1; } .mdr-filters label { width: 100%; justify-content: space-between; } .mdr-filters select, .mdr-filters input { width: 68%; min-width: 0; } .mdr-filters .mdr-primary { width: 100%; } }

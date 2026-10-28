@@ -1,0 +1,96 @@
+  protected org.w3c.dom.Document parseXml(java.io.InputStream);
+    Code:
+       0: invokestatic  #67                 // Method javax/xml/parsers/DocumentBuilderFactory.newInstance:()Ljavax/xml/parsers/DocumentBuilderFactory;
+       3: astore_2
+       4: aload_2
+       5: iconst_1
+       6: invokevirtual #73                 // Method javax/xml/parsers/DocumentBuilderFactory.setNamespaceAware:(Z)V
+       9: aload_2
+      10: ldc           #79                 // String http://javax.xml.XMLConstants/feature/secure-processing
+      12: iconst_1
+      13: invokevirtual #81                 // Method javax/xml/parsers/DocumentBuilderFactory.setFeature:(Ljava/lang/String;Z)V
+      16: aload_2
+      17: ldc           #85                 // String http://apache.org/xml/features/disallow-doctype-decl
+      19: iconst_1
+      20: invokevirtual #81                 // Method javax/xml/parsers/DocumentBuilderFactory.setFeature:(Ljava/lang/String;Z)V
+      23: aload_2
+      24: ldc           #87                 // String http://xml.org/sax/features/external-general-entities
+      26: iconst_0
+      27: invokevirtual #81                 // Method javax/xml/parsers/DocumentBuilderFactory.setFeature:(Ljava/lang/String;Z)V
+      30: aload_2
+      31: ldc           #89                 // String http://xml.org/sax/features/external-parameter-entities
+      33: iconst_0
+      34: invokevirtual #81                 // Method javax/xml/parsers/DocumentBuilderFactory.setFeature:(Ljava/lang/String;Z)V
+      37: aload_2
+      38: ldc           #91                 // String http://apache.org/xml/features/nonvalidating/load-external-dtd
+      40: iconst_0
+      41: invokevirtual #81                 // Method javax/xml/parsers/DocumentBuilderFactory.setFeature:(Ljava/lang/String;Z)V
+      44: aload_2
+      45: iconst_0
+      46: invokevirtual #93                 // Method javax/xml/parsers/DocumentBuilderFactory.setXIncludeAware:(Z)V
+      49: aload_2
+      50: iconst_0
+      51: invokevirtual #96                 // Method javax/xml/parsers/DocumentBuilderFactory.setExpandEntityReferences:(Z)V
+      54: aload_2
+      55: ldc           #99                 // String http://javax.xml.XMLConstants/property/accessExternalDTD
+      57: ldc           #101                // String
+      59: invokevirtual #103                // Method javax/xml/parsers/DocumentBuilderFactory.setAttribute:(Ljava/lang/String;Ljava/lang/Object;)V
+      62: aload_2
+      63: ldc           #107                // String http://javax.xml.XMLConstants/property/accessExternalSchema
+      65: ldc           #101                // String
+      67: invokevirtual #103                // Method javax/xml/parsers/DocumentBuilderFactory.setAttribute:(Ljava/lang/String;Ljava/lang/Object;)V
+      70: goto          85
+      73: astore_3
+      74: new           #111                // class org/flowable/common/engine/api/FlowableException
+      77: dup
+      78: ldc           #113                // String Error configuring XML parser for safe BPMN parsing
+      80: aload_3
+      81: invokespecial #115                // Method org/flowable/common/engine/api/FlowableException."<init>":(Ljava/lang/String;Ljava/lang/Throwable;)V
+      84: athrow
+      85: aload_2
+      86: invokevirtual #118                // Method javax/xml/parsers/DocumentBuilderFactory.newDocumentBuilder:()Ljavax/xml/parsers/DocumentBuilder;
+      89: astore_3
+      90: aload_3
+      91: aload_1
+      92: invokevirtual #122                // Method javax/xml/parsers/DocumentBuilder.parse:(Ljava/io/InputStream;)Lorg/w3c/dom/Document;
+      95: astore        4
+      97: goto          114
+     100: astore        5
+     102: new           #111                // class org/flowable/common/engine/api/FlowableException
+     105: dup
+     106: ldc           #129                // String Error while parsing BPMN model.
+     108: aload         5
+     110: invokespecial #115                // Method org/flowable/common/engine/api/FlowableException."<init>":(Ljava/lang/String;Ljava/lang/Throwable;)V
+     113: athrow
+     114: aload         4
+     116: areturn
+    Exception table:
+       from    to  target type
+           9    70    73   Class javax/xml/parsers/ParserConfigurationException
+          85    97   100   Class java/lang/Exception
+
+  protected org.flowable.engine.repository.DiagramNode getDiagramBoundsFromBpmnDi(org.w3c.dom.Document);
+    Code:
+       0: aconst_null
+       1: astore_2
+       2: aconst_null
+       3: astore_3
+       4: aconst_null
+       5: astore        4
+       7: aconst_null
+       8: astore        5
+      10: aload_1
+      11: ldc           #133                // String http://www.omg.org/spec/DD/20100524/DC
+      13: ldc           #135                // String Bounds
+      15: invokeinterface #137,  3          // InterfaceMethod org/w3c/dom/Document.getElementsByTagNameNS:(Ljava/lang/String;Ljava/lang/String;)Lorg/w3c/dom/NodeList;
+      20: astore        6
+      22: iconst_0
+      23: istore        7
+      25: iload         7
+      27: aload         6
+      29: invokeinterface #143,  1          // InterfaceMethod org/w3c/dom/NodeList.getLength:()I
+      34: if_icmpge     278
+      37: aload         6
+      39: iload         7
+      41: invokeinterface #149,  2          // InterfaceMethod org/w3c/dom/NodeList.item:(I)Lorg/w3c/dom/Node;
+      46: checkcast     #153                // class org/w3c/dom/Element

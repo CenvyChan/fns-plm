@@ -1,0 +1,15 @@
+{
+  "source": "真实完整应用浏览器操作；状态码由当前浏览器会话请求真实隔离 API 返回，未记录凭据",
+  "formKey": "ux_material_change",
+  "versionsPublishedThroughUI": [1, 2],
+  "refreshThenPinnedVersion": 1,
+  "pinnedV1Number": {"label": "变更数量", "max": 10, "enteredValue": 11, "valid": false},
+  "v2Conditions": {"specialShowsReason": true, "reasonRequired": true, "emptySourceDisablesQty": true, "specialEnablesQty": true, "setEventQtyValue": 3},
+  "scopeRejections": {"missing": 400, "forgedTenant": 403, "forgedOrganization": 403, "forgedAccount": 403},
+  "memberRoleRejections": {"activate": 403, "registerBinding": 403, "publish": 403, "uiError": "权限不足（HTTP 403）：当前账套角色没有执行此操作的权限。"},
+  "fixtureMembershipRestoredToAdmin": true,
+  "binding": {"processKey": "materialApproval", "nodeKey": "managerReview", "version": 2},
+  "activeVersionAfterRollback": 1,
+  "mobile": {"context": "真实同源 iframe viewport，截图裁出 iframe 区域，非硬件手机仿真", "innerWidth": 390, "documentScrollWidth": 375, "panelSwitching": true, "fixedVersion": 1},
+  "taskAdapterBlocked": {"status": 501, "message": "verified task adapter unavailable", "submissions": 0}
+}

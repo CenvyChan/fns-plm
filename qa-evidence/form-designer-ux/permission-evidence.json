@@ -1,0 +1,19 @@
+{
+  "kind": "automated_real_http_sqlite_fixture_evidence",
+  "run": "node --test tests/forms-http.test.mjs tests/forms-dsl.test.mjs tests/forms-binding.test.mjs tests/forms-renderer-contract.test.mjs tests/multitenant.test.mjs tests/integrations-scope.test.mjs",
+  "result": { "tests": 23, "passed": 23, "failed": 0 },
+  "httpEvidence": {
+    "unauthenticatedDesignerList": 401,
+    "invalidScopeHeader": 400,
+    "forgedTenantOrganizationOrAccountHeader": 403,
+    "memberAndReviewerCreateForm": 403,
+    "crossOriginWrite": 403,
+    "memberSubmissionWithoutAssignment": 403,
+    "untrustedTaskSubmission": 403,
+    "crossScopeFormRead": 404,
+    "managerCanEdit": 200,
+    "sameFormKeyInOtherScopeCanBeCreatedIndependently": 201
+  },
+  "fixtureBoundary": "Actual Express HTTP router + SQLite database + actual auth sessions/memberships; setup and role fixtures are test-only. No production DB or credential used. Test-generated sessions are not recorded.",
+  "serviceBoundary": "Running app on its own empty SQLite database; first admin setup only. No cross-tenant/role fixture users provisioned in this live database yet."
+}

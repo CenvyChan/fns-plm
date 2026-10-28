@@ -1,0 +1,2727 @@
+[
+  {
+    "id": "raw.01",
+    "family": "原材料",
+    "path": [
+      "塑料"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.01.01",
+    "family": "原材料",
+    "path": [
+      "塑料",
+      "塑料粒子"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.01.02",
+    "family": "原材料",
+    "path": [
+      "塑料",
+      "色粉"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.01.03",
+    "family": "原材料",
+    "path": [
+      "塑料",
+      "色母"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.01.04",
+    "family": "原材料",
+    "path": [
+      "塑料",
+      "骨架"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.01.05",
+    "family": "原材料",
+    "path": [
+      "塑料",
+      "胶带"
+    ],
+    "code": "05",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.01.99",
+    "family": "原材料",
+    "path": [
+      "塑料",
+      "其他"
+    ],
+    "code": "99",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02",
+    "family": "原材料",
+    "path": [
+      "五金材料"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.01",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "板材"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.02",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "卷材"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.03",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "铝型材"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.04",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "CP线"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.04.01",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "CP线",
+      "圆状"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.04.02",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "CP线",
+      "扁状"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.04.03",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "CP线",
+      "方状"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.05",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "漆包线"
+    ],
+    "code": "05",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.05.01",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "漆包线",
+      "镀锡铜包线"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.05.02",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "漆包线",
+      "镀锡磷青铜线"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.06",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "磁芯"
+    ],
+    "code": "06",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.06.01",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "磁芯",
+      "ET"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.06.02",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "磁芯",
+      "ER"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.06.03",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "磁芯",
+      "UT"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.06.04",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "磁芯",
+      "EE"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.06.05",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "磁芯",
+      "EI"
+    ],
+    "code": "05",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.06.06",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "磁芯",
+      "I"
+    ],
+    "code": "06",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.06.07",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "磁芯",
+      "O"
+    ],
+    "code": "07",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.06.99",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "磁芯",
+      "其他"
+    ],
+    "code": "99",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.07",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "复合线"
+    ],
+    "code": "07",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.02.99",
+    "family": "原材料",
+    "path": [
+      "五金材料",
+      "其他"
+    ],
+    "code": "99",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.03",
+    "family": "原材料",
+    "path": [
+      "标准件"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.03.01",
+    "family": "原材料",
+    "path": [
+      "标准件",
+      "螺柱"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.03.02",
+    "family": "原材料",
+    "path": [
+      "标准件",
+      "螺母"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.03.03",
+    "family": "原材料",
+    "path": [
+      "标准件",
+      "铆钉"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.03.04",
+    "family": "原材料",
+    "path": [
+      "标准件",
+      "硅橡胶类"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.03.99",
+    "family": "原材料",
+    "path": [
+      "标准件",
+      "其他"
+    ],
+    "code": "99",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04",
+    "family": "原材料",
+    "path": [
+      "包装材料"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.01",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "纸箱"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.02",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "隔板"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.03",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "塑料袋"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.03.01",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "塑料袋",
+      "尼龙"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.03.02",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "塑料袋",
+      "PP"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.03.03",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "塑料袋",
+      "PE"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.03.04",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "塑料袋",
+      "自封"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.03.05",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "塑料袋",
+      "气泡"
+    ],
+    "code": "05",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.04",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "珍珠棉"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.05",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "托盘"
+    ],
+    "code": "05",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.06",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "吸塑盘"
+    ],
+    "code": "06",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.07",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "卡刀"
+    ],
+    "code": "07",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.08",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "标签"
+    ],
+    "code": "08",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.09",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "护角"
+    ],
+    "code": "09",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.04.99",
+    "family": "原材料",
+    "path": [
+      "包装材料",
+      "其他"
+    ],
+    "code": "99",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.05",
+    "family": "原材料",
+    "path": [
+      "模具材料"
+    ],
+    "code": "05",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.05.01",
+    "family": "原材料",
+    "path": [
+      "模具材料",
+      "模板"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.05.02",
+    "family": "原材料",
+    "path": [
+      "模具材料",
+      "配件"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.05.03",
+    "family": "原材料",
+    "path": [
+      "模具材料",
+      "模架"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "raw.05.04",
+    "family": "原材料",
+    "path": [
+      "模具材料",
+      "模仁"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "aux.01",
+    "family": "辅助材料",
+    "path": [
+      "化学用品"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "aux.02",
+    "family": "辅助材料",
+    "path": [
+      "办公用品"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "aux.03",
+    "family": "辅助材料",
+    "path": [
+      "劳保用品"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "aux.04",
+    "family": "辅助材料",
+    "path": [
+      "机修配件"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "aux.99",
+    "family": "辅助材料",
+    "path": [
+      "其他"
+    ],
+    "code": "99",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图1"
+  },
+  {
+    "id": "finished.01",
+    "family": "成品",
+    "path": [
+      "注塑件"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.01",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "冷插骨架"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.01.01",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "冷插骨架",
+      "单槽型"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.01.02",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "冷插骨架",
+      "双槽型"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.01.03",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "冷插骨架",
+      "多槽型"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.01.99",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "冷插骨架",
+      "其他"
+    ],
+    "code": "99",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.02",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "热插骨架"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.02.01",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "热插骨架",
+      "单槽型"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.02.02",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "热插骨架",
+      "双槽型"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.02.03",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "热插骨架",
+      "多槽型"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.02.99",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "热插骨架",
+      "其他"
+    ],
+    "code": "99",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.03",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "壳体"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.03.01",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "壳体",
+      "外壳类"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.03.02",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "壳体",
+      "灯类"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.03.03",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "壳体",
+      "线夹类"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.03.99",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "壳体",
+      "其他"
+    ],
+    "code": "99",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.01.04",
+    "family": "成品",
+    "path": [
+      "注塑件",
+      "内配五金件"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.02",
+    "family": "成品",
+    "path": [
+      "五金件"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.02.01",
+    "family": "成品",
+    "path": [
+      "五金件",
+      "驱动上下盖"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.02.02",
+    "family": "成品",
+    "path": [
+      "五金件",
+      "机壳"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.02.03",
+    "family": "成品",
+    "path": [
+      "五金件",
+      "散热器"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.02.04",
+    "family": "成品",
+    "path": [
+      "五金件",
+      "加强板"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.02.05",
+    "family": "成品",
+    "path": [
+      "五金件",
+      "反光罩"
+    ],
+    "code": "05",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.02.06",
+    "family": "成品",
+    "path": [
+      "五金件",
+      "灯壳"
+    ],
+    "code": "06",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.02.07",
+    "family": "成品",
+    "path": [
+      "五金件",
+      "端子PIN针"
+    ],
+    "code": "07",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "finished.02.08",
+    "family": "成品",
+    "path": [
+      "五金件",
+      "内配五金件"
+    ],
+    "code": "08",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "injection-material.01",
+    "family": "注塑材质",
+    "path": [
+      "PET"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.02",
+    "family": "注塑材质",
+    "path": [
+      "PBT"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.03",
+    "family": "注塑材质",
+    "path": [
+      "PA66"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.04",
+    "family": "注塑材质",
+    "path": [
+      "PC"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.05",
+    "family": "注塑材质",
+    "path": [
+      "PMMA"
+    ],
+    "code": "05",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.06",
+    "family": "注塑材质",
+    "path": [
+      "ABS"
+    ],
+    "code": "06",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.07",
+    "family": "注塑材质",
+    "path": [
+      "ASA"
+    ],
+    "code": "07",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.08",
+    "family": "注塑材质",
+    "path": [
+      "LCP"
+    ],
+    "code": "08",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.09",
+    "family": "注塑材质",
+    "path": [
+      "PA"
+    ],
+    "code": "09",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.10",
+    "family": "注塑材质",
+    "path": [
+      "PA6"
+    ],
+    "code": "10",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.11",
+    "family": "注塑材质",
+    "path": [
+      "PPS"
+    ],
+    "code": "11",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.12",
+    "family": "注塑材质",
+    "path": [
+      "PC+ABS"
+    ],
+    "code": "12",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.13",
+    "family": "注塑材质",
+    "path": [
+      "POM"
+    ],
+    "code": "13",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.14",
+    "family": "注塑材质",
+    "path": [
+      "PP"
+    ],
+    "code": "14",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.15",
+    "family": "注塑材质",
+    "path": [
+      "PPO"
+    ],
+    "code": "15",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.16",
+    "family": "注塑材质",
+    "path": [
+      "FR50"
+    ],
+    "code": "16",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.17",
+    "family": "注塑材质",
+    "path": [
+      "电木"
+    ],
+    "code": "17",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.18",
+    "family": "注塑材质",
+    "path": [
+      "原图文字疑似“纳诺”，需业务确认"
+    ],
+    "code": "18",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.19",
+    "family": "注塑材质",
+    "path": [
+      "原图文字疑似“PA-PS”，需业务确认"
+    ],
+    "code": "19",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.20",
+    "family": "注塑材质",
+    "path": [
+      "PVC"
+    ],
+    "code": "20",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.21",
+    "family": "注塑材质",
+    "path": [
+      "PPF"
+    ],
+    "code": "21",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.22",
+    "family": "注塑材质",
+    "path": [
+      "TPP"
+    ],
+    "code": "22",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.23",
+    "family": "注塑材质",
+    "path": [
+      "钛酸钙"
+    ],
+    "code": "23",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.24",
+    "family": "注塑材质",
+    "path": [
+      "TCP"
+    ],
+    "code": "24",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.25",
+    "family": "注塑材质",
+    "path": [
+      "HPPE"
+    ],
+    "code": "25",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "injection-material.26",
+    "family": "注塑材质",
+    "path": [
+      "原图未见可确认材质名称"
+    ],
+    "code": "26",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2、图3"
+  },
+  {
+    "id": "hardware-material.01",
+    "family": "五金材质",
+    "path": [
+      "SPCC"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "hardware-material.02",
+    "family": "五金材质",
+    "path": [
+      "AL"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "hardware-material.03",
+    "family": "五金材质",
+    "path": [
+      "SGCC"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "hardware-material.04",
+    "family": "五金材质",
+    "path": [
+      "SECC"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "hardware-material.05",
+    "family": "五金材质",
+    "path": [
+      "SUS"
+    ],
+    "code": "05",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "hardware-material.06",
+    "family": "五金材质",
+    "path": [
+      "铜线"
+    ],
+    "code": "06",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "hardware-material.07",
+    "family": "五金材质",
+    "path": [
+      "彩钢板"
+    ],
+    "code": "07",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "hardware-material.08",
+    "family": "五金材质",
+    "path": [
+      "铜材"
+    ],
+    "code": "08",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "hardware-material.09",
+    "family": "五金材质",
+    "path": [
+      "SPCE"
+    ],
+    "code": "09",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "hardware-material.10",
+    "family": "五金材质",
+    "path": [
+      "不锈铁"
+    ],
+    "code": "10",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.01",
+    "family": "表面处理",
+    "path": [
+      "电泳"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.02",
+    "family": "表面处理",
+    "path": [
+      "抛光"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.03",
+    "family": "表面处理",
+    "path": [
+      "氧化"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.04",
+    "family": "表面处理",
+    "path": [
+      "喷粉"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.05",
+    "family": "表面处理",
+    "path": [
+      "镀锡"
+    ],
+    "code": "05",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.06",
+    "family": "表面处理",
+    "path": [
+      "喷漆"
+    ],
+    "code": "06",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.07",
+    "family": "表面处理",
+    "path": [
+      "喷砂+氧化"
+    ],
+    "code": "07",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.08",
+    "family": "表面处理",
+    "path": [
+      "电泳+丝印"
+    ],
+    "code": "08",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.09",
+    "family": "表面处理",
+    "path": [
+      "电泳+喷粉"
+    ],
+    "code": "09",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.10",
+    "family": "表面处理",
+    "path": [
+      "热处理+镀锌"
+    ],
+    "code": "10",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.11",
+    "family": "表面处理",
+    "path": [
+      "热处理+镀镍"
+    ],
+    "code": "11",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.12",
+    "family": "表面处理",
+    "path": [
+      "抛光+喷漆"
+    ],
+    "code": "12",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.13",
+    "family": "表面处理",
+    "path": [
+      "丝印"
+    ],
+    "code": "13",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.14",
+    "family": "表面处理",
+    "path": [
+      "镀镍"
+    ],
+    "code": "14",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.15",
+    "family": "表面处理",
+    "path": [
+      "镀铬"
+    ],
+    "code": "15",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.16",
+    "family": "表面处理",
+    "path": [
+      "拉丝+氧化"
+    ],
+    "code": "16",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.17",
+    "family": "表面处理",
+    "path": [
+      "镀锡+氧化"
+    ],
+    "code": "17",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.18",
+    "family": "表面处理",
+    "path": [
+      "抛光+氧化"
+    ],
+    "code": "18",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.19",
+    "family": "表面处理",
+    "path": [
+      "电泳+喷砂"
+    ],
+    "code": "19",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.20",
+    "family": "表面处理",
+    "path": [
+      "镀锌"
+    ],
+    "code": "20",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.21",
+    "family": "表面处理",
+    "path": [
+      "喷粉+丝印"
+    ],
+    "code": "21",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.22",
+    "family": "表面处理",
+    "path": [
+      "喷漆+丝印"
+    ],
+    "code": "22",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.23",
+    "family": "表面处理",
+    "path": [
+      "抛光+镀铬"
+    ],
+    "code": "23",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.24",
+    "family": "表面处理",
+    "path": [
+      "真空镀膜"
+    ],
+    "code": "24",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.25",
+    "family": "表面处理",
+    "path": [
+      "镀铜"
+    ],
+    "code": "25",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.26",
+    "family": "表面处理",
+    "path": [
+      "拉丝+镀镍"
+    ],
+    "code": "26",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.27",
+    "family": "表面处理",
+    "path": [
+      "拉丝"
+    ],
+    "code": "27",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.28",
+    "family": "表面处理",
+    "path": [
+      "图2候选为抛光+喷砂+氧化"
+    ],
+    "code": "28",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.29",
+    "family": "表面处理",
+    "path": [
+      "图2候选为拉斯派特"
+    ],
+    "code": "29",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.30",
+    "family": "表面处理",
+    "path": [
+      "激光打标"
+    ],
+    "code": "30",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.31",
+    "family": "表面处理",
+    "path": [
+      "喷砂"
+    ],
+    "code": "31",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.32",
+    "family": "表面处理",
+    "path": [
+      "喷粉+抛光"
+    ],
+    "code": "32",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.33",
+    "family": "表面处理",
+    "path": [
+      "电泳+喷漆"
+    ],
+    "code": "33",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.34",
+    "family": "表面处理",
+    "path": [
+      "图2候选为抛光+喷漆+丝印"
+    ],
+    "code": "34",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.35",
+    "family": "表面处理",
+    "path": [
+      "镀锡+钝化"
+    ],
+    "code": "35",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.36",
+    "family": "表面处理",
+    "path": [
+      "抛光+钝化"
+    ],
+    "code": "36",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.37",
+    "family": "表面处理",
+    "path": [
+      "钝化"
+    ],
+    "code": "37",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.38",
+    "family": "表面处理",
+    "path": [
+      "图2候选为镀紫铜"
+    ],
+    "code": "38",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.39",
+    "family": "表面处理",
+    "path": [
+      "镀膜"
+    ],
+    "code": "39",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.40",
+    "family": "表面处理",
+    "path": [
+      "激光焊接"
+    ],
+    "code": "40",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.41",
+    "family": "表面处理",
+    "path": [
+      "切割"
+    ],
+    "code": "41",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.42",
+    "family": "表面处理",
+    "path": [
+      "磷化"
+    ],
+    "code": "42",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.43",
+    "family": "表面处理",
+    "path": [
+      "硅烷清洗"
+    ],
+    "code": "43",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.44",
+    "family": "表面处理",
+    "path": [
+      "空白或手写内容"
+    ],
+    "code": "44",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.45",
+    "family": "表面处理",
+    "path": [
+      "空白或手写内容"
+    ],
+    "code": "45",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.46",
+    "family": "表面处理",
+    "path": [
+      "空白或手写内容"
+    ],
+    "code": "46",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.47",
+    "family": "表面处理",
+    "path": [
+      "空白或手写内容"
+    ],
+    "code": "47",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2、图3"
+  },
+  {
+    "id": "surface.48",
+    "family": "表面处理",
+    "path": [
+      "空白或手写内容"
+    ],
+    "code": "48",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2、图3"
+  },
+  {
+    "id": "mold.03",
+    "family": "模具",
+    "path": [
+      "模具"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "mold.03.01",
+    "family": "模具",
+    "path": [
+      "模具",
+      "注塑模具"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "mold.03.01.01",
+    "family": "模具",
+    "path": [
+      "模具",
+      "注塑模具",
+      "塑料"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "mold.03.01.02",
+    "family": "模具",
+    "path": [
+      "模具",
+      "注塑模具",
+      "橡胶"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "mold.03.02",
+    "family": "模具",
+    "path": [
+      "模具",
+      "五金模具"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "mold.03.02.01",
+    "family": "模具",
+    "path": [
+      "模具",
+      "五金模具",
+      "级进模"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "mold.03.02.02",
+    "family": "模具",
+    "path": [
+      "模具",
+      "五金模具",
+      "单冲模"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "mold.03.02.03",
+    "family": "模具",
+    "path": [
+      "模具",
+      "五金模具",
+      "旋压模"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "mold.03.02.04",
+    "family": "模具",
+    "path": [
+      "模具",
+      "五金模具",
+      "工装夹具"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "transformer.04",
+    "family": "变压器",
+    "path": [
+      "变压器"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图2"
+  },
+  {
+    "id": "transformer.04.01",
+    "family": "变压器",
+    "path": [
+      "变压器",
+      "图2候选为滤波器"
+    ],
+    "code": "01",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2"
+  },
+  {
+    "id": "transformer.04.02",
+    "family": "变压器",
+    "path": [
+      "变压器",
+      "图2候选为变压器"
+    ],
+    "code": "02",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2"
+  },
+  {
+    "id": "transformer.04.03",
+    "family": "变压器",
+    "path": [
+      "变压器",
+      "图2候选为电感"
+    ],
+    "code": "03",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2"
+  },
+  {
+    "id": "transformer.04.04",
+    "family": "变压器",
+    "path": [
+      "变压器",
+      "图2候选为磁环"
+    ],
+    "code": "04",
+    "confirmed": false,
+    "status": "待确认／禁用",
+    "source": "图2"
+  },
+  {
+    "id": "semi.01",
+    "family": "半成品",
+    "path": [
+      "注塑半成品"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.01",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "冷插骨架（未插针）"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.01.01",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "冷插骨架（未插针）",
+      "单槽型"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.01.02",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "冷插骨架（未插针）",
+      "双槽型"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.01.03",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "冷插骨架（未插针）",
+      "多槽型"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.01.99",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "冷插骨架（未插针）",
+      "其他"
+    ],
+    "code": "99",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.02",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "热插骨架（未插针）"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.02.01",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "热插骨架（未插针）",
+      "单槽型"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.02.02",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "热插骨架（未插针）",
+      "双槽型"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.02.03",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "热插骨架（未插针）",
+      "多槽型"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.02.99",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "热插骨架（未插针）",
+      "其他"
+    ],
+    "code": "99",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.03",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "壳体半成品（外加工后）"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.03.01",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "壳体半成品（外加工后）",
+      "外壳类"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.03.02",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "壳体半成品（外加工后）",
+      "灯类"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.03.03",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "壳体半成品（外加工后）",
+      "线夹类"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.03.99",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "壳体半成品（外加工后）",
+      "其他"
+    ],
+    "code": "99",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.04",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "壳体毛坯"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.04.01",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "壳体毛坯",
+      "外壳类"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.04.02",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "壳体毛坯",
+      "灯类"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.04.03",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "壳体毛坯",
+      "线夹类"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.01.04.99",
+    "family": "半成品",
+    "path": [
+      "注塑半成品",
+      "壳体毛坯",
+      "其他"
+    ],
+    "code": "99",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.02",
+    "family": "半成品",
+    "path": [
+      "五金毛坯"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.02.01",
+    "family": "半成品",
+    "path": [
+      "五金毛坯",
+      "底壳"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.02.02",
+    "family": "半成品",
+    "path": [
+      "五金毛坯",
+      "横头"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.02.03",
+    "family": "半成品",
+    "path": [
+      "五金毛坯",
+      "驱动上下盖"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.02.04",
+    "family": "半成品",
+    "path": [
+      "五金毛坯",
+      "机壳"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.02.05",
+    "family": "半成品",
+    "path": [
+      "五金毛坯",
+      "散热器"
+    ],
+    "code": "05",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.02.06",
+    "family": "半成品",
+    "path": [
+      "五金毛坯",
+      "加强板"
+    ],
+    "code": "06",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.02.07",
+    "family": "半成品",
+    "path": [
+      "五金毛坯",
+      "反光罩"
+    ],
+    "code": "07",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.02.08",
+    "family": "半成品",
+    "path": [
+      "五金毛坯",
+      "灯壳"
+    ],
+    "code": "08",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.02.09",
+    "family": "半成品",
+    "path": [
+      "五金毛坯",
+      "端子PIN针"
+    ],
+    "code": "09",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.02.99",
+    "family": "半成品",
+    "path": [
+      "五金毛坯",
+      "其他"
+    ],
+    "code": "99",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.03",
+    "family": "半成品",
+    "path": [
+      "五金半成品"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.03.01",
+    "family": "半成品",
+    "path": [
+      "五金半成品",
+      "驱动上下盖"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.03.02",
+    "family": "半成品",
+    "path": [
+      "五金半成品",
+      "机壳"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.03.03",
+    "family": "半成品",
+    "path": [
+      "五金半成品",
+      "散热器"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.03.04",
+    "family": "半成品",
+    "path": [
+      "五金半成品",
+      "加强板"
+    ],
+    "code": "04",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.03.05",
+    "family": "半成品",
+    "path": [
+      "五金半成品",
+      "反光罩"
+    ],
+    "code": "05",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.03.06",
+    "family": "半成品",
+    "path": [
+      "五金半成品",
+      "灯壳"
+    ],
+    "code": "06",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.03.07",
+    "family": "半成品",
+    "path": [
+      "五金半成品",
+      "端子PIN针"
+    ],
+    "code": "07",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "semi.03.08",
+    "family": "半成品",
+    "path": [
+      "五金半成品",
+      "其他"
+    ],
+    "code": "08",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "accessory.01",
+    "family": "注塑产品配件",
+    "path": [
+      "打头料"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "accessory.01.padding",
+    "family": "注塑产品配件",
+    "path": [
+      "打头料",
+      "补位"
+    ],
+    "code": "00",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "accessory.01.shape.01",
+    "family": "注塑产品配件",
+    "path": [
+      "打头料",
+      "补位",
+      "圆状"
+    ],
+    "code": "01",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "accessory.01.shape.02",
+    "family": "注塑产品配件",
+    "path": [
+      "打头料",
+      "补位",
+      "扁状"
+    ],
+    "code": "02",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  },
+  {
+    "id": "accessory.01.shape.03",
+    "family": "注塑产品配件",
+    "path": [
+      "打头料",
+      "补位",
+      "方状"
+    ],
+    "code": "03",
+    "confirmed": true,
+    "status": "原图可读",
+    "source": "图3"
+  }
+]

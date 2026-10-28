@@ -1,0 +1,117 @@
+{
+  "mode": "final isolated browser clicks + temporary SQLite + loopback mock ONLY",
+  "buttons": [
+    "新建",
+    "角色分配下拉框→PLM管理员角色",
+    "保存草稿",
+    "校验",
+    "冻结版本",
+    "预览差异",
+    "勾选明确确认",
+    "明确确认发布"
+  ],
+  "nativeWatermark": {
+    "visible": true,
+    "href": "http://bpmn.io"
+  },
+  "model": [
+    {
+      "id": "XiDD4q7GKJ4eiq8e7kLZ1",
+      "key": "uiApproval",
+      "name": "隔离 BPMN 最终验收",
+      "revision": 2,
+      "tenant_id": "tkXLIGhIn5Ww9oiZZaeRf",
+      "organization_id": "RH7UMTcH-X4ywdoc-cjpM",
+      "account_id": "VoebWP8RmLLOCiS9rAbLT"
+    }
+  ],
+  "versions": [
+    {
+      "model_id": "XiDD4q7GKJ4eiq8e7kLZ1",
+      "version": 1,
+      "sha256": "c7e70ac30603dab398f2ba2cf00175f55383710e3c4e60e9db86596479b6f0f5",
+      "graph": {
+        "key": "uiApproval",
+        "name": "隔离 BPMN 最终验收",
+        "nodes": [
+          {
+            "id": "start",
+            "type": "startEvent",
+            "name": "开始",
+            "x": 120,
+            "y": 180
+          },
+          {
+            "id": "review",
+            "type": "userTask",
+            "name": "审批",
+            "assignment": {
+              "kind": "candidateRole",
+              "role": "admin"
+            },
+            "x": 340,
+            "y": 180
+          },
+          {
+            "id": "end",
+            "type": "endEvent",
+            "name": "结束",
+            "x": 600,
+            "y": 180
+          }
+        ],
+        "flows": [
+          {
+            "id": "flow1",
+            "source": "start",
+            "target": "review"
+          },
+          {
+            "id": "flow2",
+            "source": "review",
+            "target": "end"
+          }
+        ]
+      }
+    }
+  ],
+  "publications": [
+    {
+      "status": "published",
+      "deployment_id": "ui-mock-deployment",
+      "definition_id": "uiApproval:1:mock"
+    }
+  ],
+  "audit": [
+    {
+      "event": "create",
+      "actor_id": "JZw4Gdrv3gPrRSF1P8GAH",
+      "created_at": "2026-10-20T00:35:05.015Z"
+    },
+    {
+      "event": "update",
+      "actor_id": "JZw4Gdrv3gPrRSF1P8GAH",
+      "created_at": "2026-10-20T00:35:27.545Z"
+    },
+    {
+      "event": "version_created",
+      "actor_id": "JZw4Gdrv3gPrRSF1P8GAH",
+      "created_at": "2026-10-20T00:35:28.024Z"
+    },
+    {
+      "event": "preview",
+      "actor_id": "JZw4Gdrv3gPrRSF1P8GAH",
+      "created_at": "2026-10-20T00:35:28.267Z"
+    },
+    {
+      "event": "publish_started",
+      "actor_id": "JZw4Gdrv3gPrRSF1P8GAH",
+      "created_at": "2026-10-20T00:35:36.110Z"
+    },
+    {
+      "event": "published",
+      "actor_id": "JZw4Gdrv3gPrRSF1P8GAH",
+      "created_at": "2026-10-20T00:35:36.127Z"
+    }
+  ]
+}

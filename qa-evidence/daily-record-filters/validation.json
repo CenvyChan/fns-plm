@@ -1,0 +1,233 @@
+{
+  "mode": "Real loopback API and browser; isolated artificial data only",
+  "results": [
+    {
+      "kind": "sales",
+      "defaultRows": 6,
+      "multiSelectRows": 3,
+      "exportRows": 2,
+      "exportAmount": 110.4,
+      "presetButtonsApplyActualDateRanges": true,
+      "dateRollAcrossLeapMonth": true,
+      "dateRollAcrossYear": true,
+      "legacyRecorderSeparatedFromImporter": true,
+      "viewportWidths": [
+        1550,
+        768,
+        390,
+        360
+      ]
+    },
+    {
+      "kind": "purchase",
+      "defaultRows": 6,
+      "multiSelectRows": 3,
+      "exportRows": 2,
+      "exportAmount": 110.4,
+      "presetButtonsApplyActualDateRanges": true,
+      "dateRollAcrossLeapMonth": true,
+      "dateRollAcrossYear": true,
+      "legacyRecorderSeparatedFromImporter": true,
+      "viewportWidths": [
+        1550,
+        768,
+        390,
+        360
+      ]
+    }
+  ],
+  "pageErrors": [],
+  "writes": [],
+  "analysisRequests": [
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-03-01&to=2024-03-01",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-03-01&to=2024-03-01",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-02-23&to=2024-02-23",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-03-01&to=2024-03-01",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-03-01&to=2024-03-07",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-02-23&to=2024-02-29",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2023-12-31&to=2023-12-31",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-01-07&to=2024-01-07",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-03-01&to=2024-03-01",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2026-10-26&to=2026-10-28",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2026-10-01&to=2026-10-28",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2026-01-01&to=2026-10-28",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-03-01&to=2024-03-01",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-03-01&to=2024-03-01&createdBy=alice&createdBy=bob&currency=CNY&currency=USD",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-03-01&to=2024-03-01&createdBy=alice&createdBy=bob&currency=CNY",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-03-01&to=2024-03-01&createdBy=bob&currency=USD",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-03-01&to=2024-03-01&createdBy=legacy%3ALOCAL%3Ah1&createdBy=legacy%3ALOCAL%3Ah2&currency=CNY&currency=USD",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis/export.xlsx",
+      "query": "?type=sales&from=2024-03-01&to=2024-03-01&createdBy=legacy%3ALOCAL%3Ah1&createdBy=legacy%3ALOCAL%3Ah2&currency=CNY&currency=USD",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=sales&from=2024-03-01&to=2024-03-01",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-03-01&to=2024-03-01",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-03-01&to=2024-03-01",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-02-23&to=2024-02-23",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-03-01&to=2024-03-01",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-03-01&to=2024-03-07",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-02-23&to=2024-02-29",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2023-12-31&to=2023-12-31",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-01-07&to=2024-01-07",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-03-01&to=2024-03-01",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2026-10-26&to=2026-10-28",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2026-10-01&to=2026-10-28",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2026-01-01&to=2026-10-28",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-03-01&to=2024-03-01",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-03-01&to=2024-03-01&createdBy=alice&createdBy=bob&currency=CNY&currency=USD",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-03-01&to=2024-03-01&createdBy=alice&createdBy=bob&currency=CNY",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-03-01&to=2024-03-01&createdBy=bob&currency=USD",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-03-01&to=2024-03-01&createdBy=legacy%3ALOCAL%3Ah1&createdBy=legacy%3ALOCAL%3Ah2&currency=CNY&currency=USD",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis/export.xlsx",
+      "query": "?type=purchase&from=2024-03-01&to=2024-03-01&createdBy=legacy%3ALOCAL%3Ah1&createdBy=legacy%3ALOCAL%3Ah2&currency=CNY&currency=USD",
+      "method": "GET"
+    },
+    {
+      "path": "/api/daily-reports/analysis",
+      "query": "?type=purchase&from=2024-03-01&to=2024-03-01",
+      "method": "GET"
+    }
+  ]
+}

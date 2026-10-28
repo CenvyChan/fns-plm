@@ -1,0 +1,35 @@
+PLM Momentum API listening on http://127.0.0.1:45959
+POST /auth/mobile/setup -> 201
+PLM Momentum API received SIGTERM; draining requests.
+PLM Momentum API listening on http://127.0.0.1:45959
+POST /forms -> 201
+POST /forms/customForm8d53cb93b94a/publish -> 201
+POST /bpmn-models -> 201
+POST /bpmn-models/He1M3Ox32_-sKm-VANekq/versions -> 201
+POST /bpmn-models/He1M3Ox32_-sKm-VANekq/preview -> 200
+POST /bpmn-models/He1M3Ox32_-sKm-VANekq/publish -> 200
+GET /bpmn-models/He1M3Ox32_-sKm-VANekq/start-context -> 200
+PUT /forms/customForm8d53cb93b94a -> 200
+POST /forms/customForm8d53cb93b94a/publish -> 201
+GET /bpmn-models/He1M3Ox32_-sKm-VANekq/start-context -> 200
+POST /bpmn-models/He1M3Ox32_-sKm-VANekq/start -> 409
+PUT /bpmn-models/He1M3Ox32_-sKm-VANekq -> 200
+POST /bpmn-models/He1M3Ox32_-sKm-VANekq/versions -> 201
+POST /bpmn-models/He1M3Ox32_-sKm-VANekq/preview -> 200
+POST /bpmn-models/He1M3Ox32_-sKm-VANekq/publish -> 200
+POST /bpmn-models/He1M3Ox32_-sKm-VANekq/start -> 409
+GET /bpmn-models/He1M3Ox32_-sKm-VANekq/start-context -> 200
+POST /bpmn-models/He1M3Ox32_-sKm-VANekq/start -> 201
+POST /bpmn-models/He1M3Ox32_-sKm-VANekq/start -> 200
+POST /bpmn-models/He1M3Ox32_-sKm-VANekq/start -> 409
+POST /bpmn-models/He1M3Ox32_-sKm-VANekq/start -> 409
+POST /bpmn-models/He1M3Ox32_-sKm-VANekq/start -> 409
+GET /workflow/tasks -> 200
+GET /workflow/tasks/16ff91c0-cd0e-11f1-8608-02fc00000005 -> 200
+POST /workflow/tasks/16ff91c0-cd0e-11f1-8608-02fc00000005/complete -> 409
+POST /forms/customForm8d53cb93b94a/versions/1/submissions -> 400
+POST /forms/customForm8d53cb93b94a/versions/1/submissions -> 201
+POST /forms/customForm8d53cb93b94a/versions/1/submissions -> 201
+POST /workflow/tasks/16ff91c0-cd0e-11f1-8608-02fc00000005/complete -> 200
+PASS closed real Flowable history process=16f5ceae-cd0e-11f1-8608-02fc00000005; pinned form=customForm8d53cb93b94a:v1 despite form v2 publication; rejected stale published version; idempotency key conflicts on changed or absent expectedVersionId; no integration settings PUT; no outbound connectors configured
+PLM Momentum API received SIGTERM; draining requests.

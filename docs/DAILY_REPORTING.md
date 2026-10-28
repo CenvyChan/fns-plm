@@ -1,0 +1,78 @@
+# 销售 / 采购日报与 K3Cloud 对账
+
+本功能嵌入 React/Express 工作台 **报告** 页面，不运行 Django 服务。日报、K3Cloud 快照与不可变归档均按服务端认证的 tenant / organization / account 三层 scope 保存到 SQLite。所有受保护 API 仍须携带由已验证会话绑定的 `X-Tenant-ID`、`X-Organization-ID`、`X-Account-ID` 头。
+
+## 功能
+
+- **销售/采购手工日报与历史**：录入、查询、修改、软删除；服务端计算 CNY 金额并记录操作者。手工日报不依赖 K3Cloud。原币金额、适用汇率及人民币金额快照分别保留数值与精确十进制字符串；人民币金额使用十进制整数运算，以 6 位小数固化，避免浮点舍入或把原币值改成两位小数。
+- **历史日报导入**：上传上限 10 MB、每批最多 5,000 行；支持中文/英文表头（日期、客户/供应商、原币金额必需；类型可由文件列指定或由用户选择默认值；单据编号、数量、币种、汇率、备注为可选）。可选 `来源幂等键` / `sourceIdempotencyKey` 列使用外部来源 ID；没有该列时服务端根据稳定业务内容生成键。来源键、文件名、源行号和导入批次与日报一起持久化，重复导入在服务重启后仍会跳过；同时兼容类型+日期+单据编号、或无单号时整条业务内容的重复判定。本文件内的重复行也会跳过。预览令牌绑定操作者与完整 scope，15 分钟过期；提交时在数据库写事务内再次校验来源键和业务重复。导入来源记为 `history-import`，金额由服务端按原币金额×适用汇率重算，未连接 K3Cloud。
+- **K3Cloud 只读同步**：管理员或 `plm_manager` 可手动触发同步。按当前账套配置的映射读取六类单据：销售出库、采购入库、销售订单、采购订单、应收单、应付单。读取走既有 K3Cloud LoginByAppSecret / ExecuteBillQuery 客户端；每个 FormId 和字段仍须先加入当前账套的服务端只读 allowlist。每类最多同步 5,000 行；超限、查询失败、记录缺关键字段或重复行级 ID 时整批拒绝，保留上一次已提交快照。
+- **K3Cloud 基础资料镜像**：同一完整只读同步还可按独立映射读取客户、供应商、业务员、ERP 用户四类主数据；保存的是当前 tenant / organization / account 独立快照，不把 ERP 用户创建为 PLM 登录账号，也不复制角色、权限、密码或联系方式。只允许规范字段 `id`、`number`、`name`、`status`、`category`、`department`、`ownerNumber`、`ownerName`、`modifiedAt`；每类必须有稳定唯一 ID 与名称，重复/缺失 ID、缺名称、超限或任何类别读取失败均不提交该次主数据快照。基础资料镜像的读取端点为 `/api/k3cloud/master-data`。
+- **定时采集**：系统集成 → K3Cloud 可关闭/启用全量同步，并配置每小时、6 小时、12 小时或每日 02:05（Asia/Shanghai）。只有六类业务单据和四类基础资料都完成字段映射、且所有字段处于只读 allowlist 中，才可启用。任务在服务重启后按账套恢复；互斥锁阻止同一账套重叠运行。真实凭据与 FormId/字段必须由企业管理员配置，本仓库不包含企业凭据或通用字段清单。
+- **字段映射**：在 **系统集成 → K3Cloud** 配置 `dailyReportSources`。每类映射包含 `formId` 与从规范字段名到 K3 字段名的 `fields`。六类都须配置；最少映射 `id`、`billNo`、`date`、`partyName`、`originalAmount`、`amountCny`。应收/应付另须映射 `settledAmountCny`。可以按需增加 `partyNumber`、`materialName`、`quantity`、`unit`、`currency`、`status`。`id` 必须是行级唯一键；订单金额必须映射行级金额，避免同一张订单头金额随明细重复累计。字段名称和 FormId 会因企业 K3Cloud 版本/授权而异，需企业管理员先核实；本文不把示例当成通用字段清单。
+- **快照替换与来源隔离**：同步完成后以真实 K3Cloud 快照整体替换当前演示快照，移除本地演示日报与其关联，保留已有真实日报、历史归档及可匹配的关联。真实快照存在时拒绝再刷新本地演示数据，防止真实与假数据混算。连接器、缓存、数据均按完整内部三层 scope 隔离；不写入 K3Cloud。
+- **三个对账视角**：①日报关联覆盖率；②系统日报 − K3 的月/年累计差异；③K3 行原额、累计分摊、剩余、超额和跨日状态。没有对应快照时标记待判定，不将缺失 ERP 数字当作 0。
+- **订单与应收应付明细**：页面显示销售/采购订单和应收/应付单明细及汇总；订单按所选报表日期统计。应收、应付余额取最后一次同步时点的单据金额/已收付/未收付数，不是按报表日回溯重算的历史余额。日报消息包含汇总及每类最多 8 条明细，平台页面每类最多显示 12 条，完整统计仍按全部记录计算。
+- **不可变快照与导出**：归档生成递增版本，保存当时日报、K3 行、关联、对账、订单、应收/应付明细及警告副本，包括原币/汇率/人民币精确字符串快照。后续更正不改写旧版；HTML 会转义用户文本，HTML 与 Excel 日报明细均输出原币金额、适用汇率和人民币金额快照；Excel 使用文本单元格保留数值词面精度，并含摘要、日报、K3、关联、销售/采购对账、应收和应付工作表。
+- **日报推送**：手动 `/api/reports/send` 与计划执行均在发送前刷新 K3Cloud 六类数据，再生成报告；连接器/字段映射缺失或同步失败时本次不发送，防止把过期或演示金额发成真实财务信息。预览只读当前已保存快照，不触发 ERP 查询。Markdown 包含单据汇总、每类前 8 条单据明细、同步时点和余额口径。该功能不会自动新建/变更钉钉接收目标。
+- **模拟渠道**：归档快照上的 email / DingTalk 模拟接口仅记本地模拟结果，不连接 SMTP 或真实收件人。
+
+## 日报业务配置与权限
+
+- **客商业务主档**：日报客户/供应商属于 PLM 日报自己的业务主档，与 K3Cloud 只读镜像分开保存。管理员或 `plm_manager` 可维护名称、别名、启用状态及可选 K3 编码；名称/别名/K3 编码冲突会拒绝覆盖。配置业务主档后，日报必须选择主档客商，不再接受自由文本。
+- **月汇率**：管理员或 `plm_manager` 维护 scope 内 USD→CNY 月汇率。成员可读取汇率用于录入；新建 USD 日报必须有对应月份的主档汇率，服务端忽略客户端自带汇率并使用主档值。修改月汇率不会回写已有日报，编辑既有日报保留行内汇率及人民币金额。
+- **归属关系**：管理员可将已存在的客户/供应商分配给当前账套中已启用成员。旧系统归属候选导入后，不会创建 PLM 账号、邀请用户或授予权限；管理员必须将旧用户/客商显式映射到当前 scope 的成员/主档。
+- **K3 客商映射复核**：导入的旧映射保留原状态为证据，在 PLM 中保持待核验；只有管理员或 `plm_manager` 明确选择 PLM 客商并确认后才生成当前映射，不会改写 K3Cloud 镜像或复用旧系统的自动匹配结论。
+- **成员可见/可写边界**：管理员与 `plm_manager` 可访问两条业务线；有有效客户归属的成员可访问销售日报线，有有效供应商归属的成员可访问采购日报线。成员在有权业务线内可查看公司全部记录，但只能编辑、删除或维护自己有归属客商/供应商的日报。`reviewer` 可读两条业务线、不能写入。归属、主档、汇率、快照及历史记录均继续按 tenant / organization / account 三层 scope 隔离；单线成员不能读取另一业务线的 K3 行、摘要、混合快照或导出。
+- **新建 scope 初始化**：为兼容既有 PLM 手工日报，客商主档尚未配置时保留原来的成员访问/自由文本录入行为；上线新 scope 时必须先建立/导入客商主档、汇率与归属，再导入或开放历史/实时日报。主档配置后，成员业务线权限立即收敛到有效归属，不应在配置完成前导入业务数据。
+
+## 当前连接状态
+
+非生产环境新账套默认拥有按账套隔离的本地演示数据，**不是用户业务数据或真实 K3Cloud 数据**。本代码仓库当前没有真实 K3Cloud 凭证、企业 FormId/字段映射或钉钉真实收件人配置；因此当前工作区不会被标记为已连接，也没有读取真实 ERP 或发送真实消息。配置并通过企业授权后，管理员可在日报页面点 **同步真实 K3Cloud**。同步后不再允许刷新演示快照。当前不含付款审批或付款指标。
+
+## API
+
+所有日报端点均位于 `/api` 下，受现有认证和三层 scope 授权保护。
+
+| 方法 / 路径 | 权限 | 说明 |
+|---|---|---|
+| `GET /daily-reports?from=YYYY-MM-DD&to=YYYY-MM-DD&type=sales\|purchase` | 已登录 | 读当前账套日报历史。 |
+| `POST /daily-reports` | `admin`、`plm_manager`、`member` | 手工录入；服务端保留原金额词面，使用十进制运算生成人民币金额 6 位快照。 |
+| `POST /daily-reports/import/preview` | `admin`、`plm_manager`、`member` | multipart 字段 `file`（CSV/XLSX，最多 10 MB）和可选默认 `type`；支持来源幂等键列，返回字段映射、逐行校验、重复识别与 15 分钟预览令牌，不写日报。 |
+| `POST /daily-reports/import/commit` | `admin`、`plm_manager`、`member` | `{ "previewId": "…" }`；仅接受当前操作者及三层 scope 的有效预览，错误行整批拒绝；来源键、文件/行/批次信息与原值快照在一次数据库状态写入中持久化，已有来源键在重启后仍被判重。 |
+| `PATCH /daily-reports/:id` / `DELETE /daily-reports/:id` | 同上 | 更正或软删除；已归档记录形成更正，不改写旧快照。 |
+| `GET /daily-reports/k3-lines?type=sales\|purchase&q=...` | 已登录 | 读当前账套销售出库/采购入库快照行。 |
+| `POST /daily-reports/k3-sync` | `admin`、`plm_manager` | 按已保存映射同步六类只读单据；映射必须完整且字段均在当前账套 allowlist 内。 |
+| `POST /k3cloud/sync` | `admin`、`plm_manager` | 同步六类日报单据与客户、供应商、业务员、ERP 用户四类基础资料；要求所有映射完整。 |
+| `GET /k3cloud/master-data?kind=customer\|supplier\|salesperson\|user` | 已登录 | 读取当前账套主数据镜像及最近同步时间/行数；不返回 ERP 用户认证信息或写入 PLM 用户目录。 |
+| `GET /k3cloud/sync-status` | 已登录 | 读取当前账套定时任务配置、就绪状态、最近一次结果及主数据同步时间。 |
+| `PUT /daily-reports/:id/links` | `admin`、`plm_manager`、`member` | 多对多部分分摊；类型/账套校验，超额/跨日返回警告。 |
+| `GET /daily-reports/summary?date=YYYY-MM-DD&scope=both` | 已登录 | 指定日期对账、订单、应收/应付汇总与明细、数据来源/时间及警告。 |
+| `GET /daily-reports/snapshots` | 已登录 | 列出快照、渠道记录及未纳入后续快照的更正。 |
+| `POST /daily-reports/snapshots` | `admin`、`plm_manager`、`member` | `{ "reportDate": "YYYY-MM-DD", "scope": "both" }`；归档新版本。 |
+| `GET /daily-reports/snapshots/:id` | 已登录 | 读取归档时完整副本；跨账套 ID 返回 404。 |
+| `GET /daily-reports/snapshots/:id/export.html` / `.xlsx` | 已登录 | 下载已归档 HTML / 多工作表 Excel。 |
+| `POST /daily-reports/snapshots/:id/deliveries` | `admin`、`plm_manager`、`member` | 仅记录隔离模拟投递，不发送外部消息。 |
+| `POST /daily-reports/mock-refresh` | `admin`、`plm_manager`；仅非生产 | 刷新本地演示数据；存在真实 ERP 快照时返回 409。 |
+| `GET /daily-reporting/party-options?kind=customer\|supplier` / `/access` | 已登录 | 读取当前成员可选客商和销售/采购访问能力。 |
+| `GET /daily-reporting/exchange-rates` | 已登录 | 读取当前账套 USD→CNY 月汇率；敏感配置变更仍只允许管理员/经理。 |
+| `GET /daily-reporting/management` | `admin`、`plm_manager` | 读取日报主档、归属、汇率、客商映射及当前 scope 已启用成员。 |
+| `POST /daily-reporting/masters` / `PATCH /daily-reporting/masters/:id` | `admin`、`plm_manager` | 维护日报客户/供应商主档；不写入 K3Cloud 主数据镜像。 |
+| `PUT /daily-reporting/exchange-rates` / `/assignments` / `/assignments/:id` | `admin`、`plm_manager` | 维护月汇率与当前 scope 成员归属。 |
+| `GET /daily-reporting/k3-party-mirror`、`PUT` / `DELETE /daily-reporting/party-mappings/:id` | `admin`、`plm_manager` | 检查当前 K3 客商镜像，并人工确认/清除当前 scope 的日报客商映射。 |
+| `POST /daily-reporting/migration/parties`、`/rates`、`/assignments`、`/party-mappings`；`GET /daily-reporting/migration/batches` | `admin`、`plm_manager` | 有界批量迁移旧日报主档候选、月汇率、归属事实和客商映射证据；不自动创建用户/授权，也不把旧映射直接标记为人工确认。 |
+
+## 验证
+
+```bash
+npm run build --prefix client
+npm test --prefix server
+```
+
+日报端到端测试使用临时 SQLite 和本地 K3Cloud WebAPI 替身，覆盖认证/scope/RBAC、六类单据及四类基础资料同步、allowlist 拒绝、周期任务启停、主数据失败时旧快照保留、ERP 用户不创建为 PLM 账号、摘要/推送明细、对账、不可变快照、HTML 转义、精确金额/汇率 API→SQLite→快照→Excel 导出、服务重启后来源键幂等、隔离模拟渠道和租户隔离。测试不使用真实企业凭证，不连接真实 K3Cloud/SMTP/钉钉，也不向真实接收方发消息。
+
+## 保存固定报表定义
+
+「报表定义」可由当前账套管理员保存销售/采购固定日报模板的名称与筛选条件，提供列表、编辑和只读预览；不将发送计划作为定义，也不修改历史快照。持久化、版本冲突、三层隔离及业务线读取权限详见 [报表定义说明](REPORT_DEFINITIONS.md)。
+
+发送计划可显式绑定已保存定义的固定版本；定义后续编辑不自动升级计划，也不改写已有生成归档或日报快照。管理员可显式改绑或解除关联；未关联定义的旧计划保持原工作区报告行为。生成归档在渠道发送前保存，不代表成功送达。

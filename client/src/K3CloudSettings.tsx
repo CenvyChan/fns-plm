@@ -1,0 +1,220 @@
+import { JsonField, SecretField, TextField } from './ConnectorFields'
+
+type K3CloudSyncStatus = {
+  schedule?: {
+    enabled: boolean
+    intervalHours: number
+    timezone: string
+    ready: boolean
+    readinessMessage: string
+    schedulerState: string
+    nextRunAt?: string | null
+  }
+  lastRun?: {
+    finishedAt?: string
+    status?: string
+    error?: string
+    businessSyncMode?: 'full' | 'incremental' | 'mixed'
+    businessChangedRowCounts?: Record<string, number>
+  }
+}
+
+type K3CloudConnectionPanelProps = {
+  draft: Record<string, string>
+  secrets: Record<string, boolean>
+  clearSecrets: string[]
+  onValueChange: (key: string, value: string) => void
+  onToggleClear: (key: string) => void
+  allowlistText: string
+  onAllowlistChange: (value: string) => void
+  dailySourcesText: string
+  onDailySourcesChange: (value: string) => void
+  inventoryProbeText: string
+  onInventoryProbeChange: (value: string) => void
+}
+
+const dailySourcesExample = `{
+  "shipment": { "formId": "<企业核实的 FormId>", "fields": { "id": "<唯一行ID>", "billNo": "<单号>", "date": "<日期>", "modifiedAt": "<修改时间>", "partyName": "<客户名称>", "materialName": "<物料>", "quantity": "<数量>", "unit": "<单位>", "unitPrice": "<单价>", "originalAmount": "<原币金额>", "amountCny": "<人民币金额>", "upstreamBillNo": "<来源销售订单号>" } },
+  "purchase-receipt": { "formId": "<企业核实的 FormId>", "fields": { "id": "<唯一行ID>", "billNo": "<单号>", "date": "<日期>", "modifiedAt": "<修改时间>", "partyName": "<供应商名称>", "materialName": "<物料>", "quantity": "<数量>", "unit": "<单位>", "unitPrice": "<单价>", "originalAmount": "<原币金额>", "amountCny": "<人民币金额>", "upstreamBillNo": "<来源采购订单号>" } },
+  "sales-order": { "formId": "<企业核实的 FormId>", "fields": { "id": "<唯一行ID>", "billNo": "<单号>", "date": "<日期>", "modifiedAt": "<修改时间>", "partyName": "<客户名称>", "materialName": "<物料>", "quantity": "<数量>", "unit": "<单位>", "unitPrice": "<单价>", "originalAmount": "<原币金额>", "amountCny": "<人民币金额>" } },
+  "purchase-order": { "formId": "<企业核实的 FormId>", "fields": { "id": "<唯一行ID>", "billNo": "<单号>", "date": "<日期>", "modifiedAt": "<修改时间>", "partyName": "<供应商名称>", "materialName": "<物料>", "quantity": "<数量>", "unit": "<单位>", "unitPrice": "<单价>", "originalAmount": "<原币金额>", "amountCny": "<人民币金额>" } },
+  "sales-invoice": { "formId": "<销项发票 FormId>", "fields": { "id": "<唯一行ID>", "billNo": "<发票号码>", "date": "<开票日期>", "modifiedAt": "<修改时间>", "partyName": "<客户名称>", "materialName": "<物料>", "quantity": "<开票数量>", "unitPrice": "<单价>", "originalAmount": "<原币价税金额>", "amountCny": "<人民币价税金额>", "taxAmountCny": "<人民币税额>", "upstreamBillNo": "<来源出库/订单号>" } },
+  "purchase-invoice": { "formId": "<采购发票/收票 FormId>", "fields": { "id": "<唯一行ID>", "billNo": "<发票号码>", "date": "<收票日期>", "modifiedAt": "<修改时间>", "partyName": "<供应商名称>", "materialName": "<物料>", "quantity": "<开票数量>", "unitPrice": "<单价>", "originalAmount": "<原币价税金额>", "amountCny": "<人民币价税金额>", "taxAmountCny": "<人民币税额>", "upstreamBillNo": "<来源入库/订单号>" } },
+  "receivable": { "formId": "<企业核实的 FormId>", "fields": { "id": "<唯一行ID>", "billNo": "<单号>", "date": "<日期>", "modifiedAt": "<修改时间>", "partyName": "<客户名称>", "originalAmount": "<原币金额>", "amountCny": "<人民币金额>", "settledAmountCny": "<已收人民币金额>", "upstreamBillNo": "<来源销售发票号>" } },
+  "payable": { "formId": "<企业核实的 FormId>", "fields": { "id": "<唯一行ID>", "billNo": "<单号>", "date": "<日期>", "modifiedAt": "<修改时间>", "partyName": "<供应商名称>", "originalAmount": "<原币金额>", "amountCny": "<人民币金额>", "settledAmountCny": "<已付人民币金额>", "upstreamBillNo": "<来源采购发票号>" } }
+}`
+
+const masterSourcesExample = `{
+  "customer": { "formId": "<客户 FormId>", "organizationField": "<经核验的组织编码字段，例如 FUseOrgId.FNumber>", "fields": { "id": "<元数据声明的稳定主键>", "number": "<客户编码>", "name": "<客户名称>", "status": "<状态>" } },
+  "supplier": { "formId": "<供应商 FormId>", "fields": { "id": "<稳定唯一键>", "number": "<供应商编码>", "name": "<供应商名称>", "status": "<状态>" } },
+  "salesperson": { "formId": "<业务员 FormId>", "fields": { "id": "<稳定唯一键>", "number": "<业务员编码>", "name": "<业务员名称>", "department": "<部门>" } },
+  "user": { "formId": "<ERP 用户 FormId>", "fields": { "id": "<稳定唯一键>", "number": "<用户编码>", "name": "<用户名称>", "status": "<状态>" } }
+}`
+
+export function K3CloudConnectionPanel({
+  draft,
+  secrets,
+  clearSecrets,
+  onValueChange,
+  onToggleClear,
+  allowlistText,
+  onAllowlistChange,
+  dailySourcesText,
+  onDailySourcesChange,
+  inventoryProbeText,
+  onInventoryProbeChange,
+}: K3CloudConnectionPanelProps) {
+  return (
+    <section className="connector-fields" aria-label="K3Cloud 连接与查询权限">
+      <div className="connector-help">
+        <b>金蝶云星空 WebAPI（只读）</b>
+        <span>查询接口受 FormId / FieldKeys 服务端 allowlist 控制；此配置不会提供写单据能力。</span>
+      </div>
+      <TextField label="WebAPI Base URL" value={draft.baseUrl ?? ''} onChange={value => onValueChange('baseUrl', value)} placeholder="https://k3cloud.example.invalid/k3cloud" description="支持 HTTPS；内网 HTTP 仅用于可信私有网络。" />
+      <TextField label="账套 ID" value={draft.accountId ?? ''} onChange={value => onValueChange('accountId', value)} />
+      <TextField label="接口用户名" value={draft.username ?? ''} onChange={value => onValueChange('username', value)} />
+      <TextField label="组织标识" value={draft.organization ?? ''} onChange={value => onValueChange('organization', value)} description="填写金蝶组织编码，不是 PLM 组织 ID。客户专用同步通过经核验并加入白名单的 organizationField 强制按此编码过滤；物料映射须与对应组织字段一致。不传入登录接口，其他普通查询不会自动按此值过滤。" />
+      <SecretField
+        label="第三方应用 AppId"
+        value={draft.appId ?? ''}
+        onChange={value => onValueChange('appId', value)}
+        configured={Boolean(secrets.appId)}
+        clear={clearSecrets.includes('appId')}
+        onToggleClear={() => onToggleClear('appId')}
+      />
+      <SecretField
+        label="AppSecret"
+        value={draft.appSecret ?? ''}
+        onChange={value => onValueChange('appSecret', value)}
+        configured={Boolean(secrets.appSecret)}
+        clear={clearSecrets.includes('appSecret')}
+        onToggleClear={() => onToggleClear('appSecret')}
+      />
+      <TextField label="语言 ID（LCID）" value={draft.lcid ?? ''} onChange={value => onValueChange('lcid', value)} placeholder="2052" />
+      <JsonField
+        label="只读查询 allowlist（JSON）"
+        description="键为 FormId，值为允许查询的字段数组。仅开放完成当前业务所需的字段。"
+        value={allowlistText}
+        onChange={onAllowlistChange}
+        rows={7}
+        placeholder={'{\n  "BD_MATERIAL": ["FMATERIALID", "FNumber", "FName"]\n}'}
+      />
+      <JsonField
+        label="日报 K3 单据字段映射（JSON）"
+        description="按企业 K3Cloud 版本核对 FormId 与字段；所有映射字段都必须加入上方 allowlist。首轮完整读取；映射 modifiedAt 后后续按修改时间增量读取（回看 5 分钟），未配置则该类每次完整读取。单据行需唯一 ID；按 upstreamBillNo/upstreamId 映射上下游关联。"
+        value={dailySourcesText}
+        onChange={onDailySourcesChange}
+        rows={20}
+        placeholder={dailySourcesExample}
+      />
+      <JsonField
+        label="即时库存探针（JSON，可选）"
+        description="默认关闭。仅在当前账套加密配置中显式设为 enabled=true 后开放只读 action；参数必须逐项核验。服务端固定第 1 页、最多返回 5 行，接口响应仍需独立验证。"
+        value={inventoryProbeText}
+        onChange={onInventoryProbeChange}
+        rows={9}
+        placeholder={'{\n  "enabled": true,\n  "parameters": {\n    "fstockorgnumbers": "<verified-code>",\n    "fstocknumbers": "<verified-code>",\n    "fmaterialnumbers": "<verified-code>",\n    "isshowauxprop": false,\n    "isshowstockloc": false,\n    "pageindex": 1\n  }\n}'}
+      />
+    </section>
+  )
+}
+
+type K3CloudMappingPanelProps = {
+  masterSourcesText: string
+  onMasterSourcesChange: (value: string) => void
+  syncEnabled: boolean
+  onSyncEnabledChange: (value: boolean) => void
+  syncIntervalHours: string
+  onSyncIntervalChange: (value: string) => void
+  syncMode: 'full' | 'customer-only'
+  onSyncModeChange: (value: 'full' | 'customer-only') => void
+  syncStatus: K3CloudSyncStatus | null
+  configured: boolean
+  syncing: boolean
+  onSync: () => void
+  onCustomerSync: () => void
+}
+
+function getScheduleLabel(state?: string) {
+  if (state === 'scheduled') return '已启用'
+  if (state === 'blocked-incomplete-config') return '等待完整配置'
+  return '未启用'
+}
+
+export function K3CloudMappingPanel({
+  masterSourcesText,
+  onMasterSourcesChange,
+  syncEnabled,
+  onSyncEnabledChange,
+  syncIntervalHours,
+  onSyncIntervalChange,
+  syncMode,
+  onSyncModeChange,
+  syncStatus,
+  configured,
+  syncing,
+  onSync,
+  onCustomerSync,
+}: K3CloudMappingPanelProps) {
+  const schedule = syncStatus?.schedule
+  const lastRun = syncStatus?.lastRun
+
+  return (
+    <section className="connector-fields k3-mapping-panel" aria-label="K3Cloud 主数据与定时采集">
+      <div className="connector-help">
+        <b>主数据只读镜像与定时采集</b>
+        <span>客户、供应商、业务员和 ERP 用户按当前账套独立保存快照，不创建或修改 PLM 登录账号、角色或权限。只采集非敏感规范字段，不采集密码或联系方式。</span>
+      </div>
+      <JsonField
+        label="K3Cloud 主数据映射（JSON）"
+        description="每类单独配置经核实的 FormId 和字段。客户专用同步还需配置组织编码字段 organizationField，并将其加入 allowlist；主键以元数据声明为准，不猜字段。仅采集编号、名称、状态等规范字段。"
+        value={masterSourcesText}
+        onChange={onMasterSourcesChange}
+        rows={9}
+        placeholder={masterSourcesExample}
+      />
+      <div className="k3-sync-settings">
+        <label className="connector-field k3-sync-toggle">
+          <span><input type="checkbox" checked={syncEnabled} onChange={event => onSyncEnabledChange(event.target.checked)} /> 启用 K3Cloud 周期同步</span>
+          <small>启用周期任务后按下方模式运行；使用 Asia/Shanghai 时区。</small>
+        </label>
+        <label className="connector-field">
+          <span>同步频率</span>
+          <select value={syncIntervalHours} onChange={event => onSyncIntervalChange(event.target.value)}>
+            <option value="1">每小时</option>
+            <option value="6">每 6 小时</option>
+            <option value="12">每 12 小时</option>
+            <option value="24">每天 02:05</option>
+          </select>
+        </label>
+        <label className="connector-field">
+          <span>周期同步范围</span>
+          <select aria-label="周期同步范围" value={syncMode} onChange={event => onSyncModeChange(event.target.value as 'full' | 'customer-only')}>
+            <option value="full">完整同步（业务单据及全部基础资料）</option>
+            <option value="customer-only">仅客户同步</option>
+          </select>
+        </label>
+      </div>
+      <div className="connector-help k3-schedule-status" role="status">
+        <b>计划状态：{getScheduleLabel(schedule?.schedulerState)}</b>
+        <span>
+          {schedule?.ready ? '映射及连接就绪。' : schedule?.readinessMessage || '保存完整映射和连接配置后，可启用周期任务。'}{' '}
+          {schedule?.nextRunAt ? `下次执行：${new Date(schedule.nextRunAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（上海时间）。` : ''}{' '}
+          {lastRun?.finishedAt
+            ? `最近运行：${new Date(lastRun.finishedAt).toLocaleString()}（${lastRun.status === 'success' ? '成功' : '失败'}${lastRun.businessSyncMode ? ` · ${lastRun.businessSyncMode === 'incremental' ? '增量' : lastRun.businessSyncMode === 'mixed' ? '混合' : '全量'}` : ''}${lastRun.businessChangedRowCounts ? ` · 本次 ${Object.values(lastRun.businessChangedRowCounts).reduce((sum, count) => sum + count, 0)} 行` : ''}）`
+            : '尚无同步记录。'}
+          {lastRun?.error ? ` ${lastRun.error}` : ''}
+        </span>
+      </div>
+      <div className="k3-sync-action-row">
+        <span>手动操作：完整同步更新业务单据与全部基础资料；客户同步仅更新当前账套的客户快照。</span>
+        <button type="button" className="secondary-button" onClick={onSync} disabled={syncing || !configured}>
+          {syncing ? '同步中…' : '立即完整同步'}
+        </button>
+        <button type="button" className="secondary-button" onClick={onCustomerSync} disabled={syncing || !configured}>
+          {syncing ? '同步中…' : '仅同步客户'}
+        </button>
+      </div>
+    </section>
+  )
+}
